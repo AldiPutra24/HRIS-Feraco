@@ -2,32 +2,18 @@
 
 # dependencies
 frontend/node_modules/
-/.pnp
-.pnp.js
-yarn.lock
-pnpm-lock.yaml
-
-# testing
-/coverage
 
 # next.js
 frontend/.next/
-/out/
-
-# production
-/build
 
 # Python / Django
 __pycache__/
 *.pyc
 *.pyo
 .venv/
-venv/
 backend/db.sqlite3
-backend/staticfiles/
 
 # misc
-.DS_Store
 *.pem
 
 # debug
@@ -48,18 +34,9 @@ frontend/dev_out.txt
 # typescript
 *.tsbuildinfo
 
-.idea/
-
 # AI agent tooling
 .agents/
 .claude/
 AGENTS.md
 CLAUDE.md
 SESSION.md
-
-# cursor 
-.cursorrules
-/memory-bank
-
-# Sentry Config File
-.env.sentry-build-plugin
