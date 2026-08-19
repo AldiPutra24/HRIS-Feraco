@@ -62,3 +62,11 @@ Starts PostgreSQL, Django (migrate + seed + gunicorn on :8000), Next.js on :3000
 ## Demo login
 
 - Email: `admin@feraco.id` / Password: `password`
+
+## Last Progress
+
+**Employee Database + Supabase PostgreSQL** (see `SESSION.md` for full detail).
+
+- **Backend** — Supabase PostgreSQL primary, SQLite fallback. Personnel/Employee/Contract/History/Document/Department/Position models. Supabase Storage private bucket (binary never in DB). APIs: `/api/employees`, `/api/departments`, `/api/positions` (CRUD + RBAC). Sensitive fields masked for non-privileged roles.
+- **Frontend** — `/dashboard/karyawan` (list/detail), `/dashboard/settings/departments` + `/positions` masters, employee form with department→position cascade, `/dashboard/overview` real-data dashboard, `/dashboard/settings/organization` + `/users` + `/roles`.
+- **Validation** — backend `check` pass, 42 tests pass; frontend `tsc`, `oxlint`, `next build` clean.
