@@ -53,6 +53,9 @@ frontend/dev_out.txt
 # AI agent tooling
 .agents/
 .claude/
+AGENTS.md
+CLAUDE.md
+SESSION.md
 
 # cursor 
 .cursorrules
