@@ -65,8 +65,8 @@ Starts PostgreSQL, Django (migrate + seed + gunicorn on :8000), Next.js on :3000
 
 ## Last Progress
 
-**Employee Database + Supabase PostgreSQL** — last updated 2026-08-19
+**Contract Status Management + Notifications** — last updated 2026-08-20
 
-- **Backend** — Supabase PostgreSQL primary, SQLite fallback. Personnel/Employee/Contract/History/Document/Department/Position models. Supabase Storage private bucket (binary never in DB). APIs: `/api/employees`, `/api/departments`, `/api/positions` (CRUD + RBAC). Sensitive fields masked for non-privileged roles.
-- **Frontend** — `/dashboard/karyawan` (list/detail), `/dashboard/settings/departments` + `/positions` masters, employee form with department→position cascade, `/dashboard/overview` real-data dashboard, `/dashboard/settings/organization` + `/users` + `/roles`.
-- **Validation** — backend `check` pass, 42 tests pass; frontend `tsc`, `oxlint`, `next build` clean.
+- **Backend** — Contract status fully system-managed. `set_current_contract` keeps one current: new contract becomes RENEWED (not ACTIVE) when an unexpired ACTIVE exists, auto-promoted by `sync_contract_status` on expiry; otherwise new → ACTIVE, old → RENEWED. Add-contract validation: new `start_date` must be after existing ACTIVE contract's `end_date`. Delete contract admin-only. `react-toastify`-ready field errors (plain messages).
+- **Frontend** — Contract form with document upload (linked to contract), delete action for admin across all statuses, Documents table "Versi" → "Sumber" (Contract/Manual), all mutations surfaced via `react-toastify` toasts.
+- **Validation** — backend `check` pass, 48 tests pass; frontend `tsc`, `oxlint` clean.

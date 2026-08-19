@@ -1,8 +1,12 @@
-﻿from django.contrib.auth import get_user_model
+﻿from datetime import date, timedelta
+
+from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.urls import reverse
+from django.utils import timezone
 
 from .models import Department, Employee, EmployeeContract, EmploymentHistory, Position
+from .services import set_current_contract, sync_contract_status
 
 User = get_user_model()
 
@@ -44,6 +48,88 @@ class EmployeeModelTests(TestCase):
             new_department=self.dept, new_position=self.pos,
         )
         self.assertEqual(emp.history.count(), 1)
+
+
+class ContractStatusTests(TestCase):
+    def setUp(self):
+        self.emp = Employee.objects.create(employee_id='E001', full_name='John')
+
+    def _contract(self, **over):
+        data = {
+            'employee': self.emp,
+            'contract_type': 'PKWT',
+            'start_date': date.today() - timedelta(days=10),
+            'end_date': date.today() + timedelta(days=30),
+        }
+        data.update(over)
+        return EmployeeContract.objects.create(**data)
+
+    def test_new_contract_defaults_draft(self):
+        c = self._contract()
+        self.assertEqual(c.status, 'DRAFT')
+        self.assertFalse(c.is_current)
+
+    def test_activate_contract(self):
+        c = self._contract()
+        set_current_contract(c)
+        c.refresh_from_db()
+        self.assertEqual(c.status, 'ACTIVE')
+        self.assertTrue(c.is_current)
+
+    def test_only_one_current_per_employee(self):
+        c1 = self._contract()
+        set_current_contract(c1)
+        c2 = self._contract(start_date=date.today() + timedelta(days=1), end_date=date.today() + timedelta(days=60))
+        set_current_contract(c2)
+        c1.refresh_from_db()
+        c2.refresh_from_db()
+        self.assertEqual(c1.status, 'ACTIVE')
+        self.assertEqual(c2.status, 'RENEWED')
+        self.assertEqual([x for x in (c1, c2) if x.is_current], [c1])
+
+    def test_expired_contract_sync(self):
+        c = self._contract(end_date=date.today() - timedelta(days=1))
+        c.status = 'ACTIVE'
+        c.save()
+        n = sync_contract_status()
+        c.refresh_from_db()
+        self.assertEqual(n, 1)
+        self.assertEqual(c.status, 'EXPIRED')
+        self.assertFalse(c.is_current)
+
+    def test_expired_not_current(self):
+        c = self._contract(end_date=date.today() - timedelta(days=1), status='ACTIVE')
+        self.assertFalse(c.is_current)
+
+    def test_expired_promotes_renewed(self):
+        active = self._contract(end_date=date.today() - timedelta(days=1), status='ACTIVE')
+        renewed = self._contract(
+            start_date=date.today(),
+            end_date=date.today() + timedelta(days=60),
+            status='RENEWED',
+        )
+        sync_contract_status()
+        active.refresh_from_db()
+        renewed.refresh_from_db()
+        self.assertEqual(active.status, 'EXPIRED')
+        self.assertEqual(renewed.status, 'ACTIVE')
+        self.assertTrue(renewed.is_current)
+
+    def test_renew_marks_old_renewed(self):
+        c = self._contract(status='ACTIVE')
+        c.status = 'RENEWED'
+        c.save(update_fields=['status'])
+        c.refresh_from_db()
+        self.assertEqual(c.status, 'RENEWED')
+
+    def test_terminate_contract(self):
+        c = self._contract(status='ACTIVE')
+        c.status = 'TERMINATED'
+        c.termination_date = timezone.localdate()
+        c.save(update_fields=['status', 'termination_date'])
+        c.refresh_from_db()
+        self.assertEqual(c.status, 'TERMINATED')
+        self.assertFalse(c.is_current)
 
 
 class EmployeeApiTests(TestCase):
@@ -105,6 +191,40 @@ class EmployeeApiTests(TestCase):
         self.client.logout()
         res = self.client.get(reverse('employee-list'))
         self.assertEqual(res.status_code, 403)
+
+
+class ContractApiTests(TestCase):
+    def setUp(self):
+        self.user = make_user('ADMIN')
+        self.client.force_login(self.user)
+        self.emp = Employee.objects.create(employee_id='E001', full_name='John')
+
+    def _post(self, **over):
+        data = {
+            'contract_type': 'PKWT',
+            'start_date': (timezone.localdate() - timedelta(days=10)).isoformat(),
+            'end_date': (timezone.localdate() + timedelta(days=365)).isoformat(),
+        }
+        data.update(over)
+        return self.client.post(
+            reverse('employee-contracts', args=[self.emp.pk]), data, content_type='application/json'
+        )
+
+    def test_manual_status_rejected(self):
+        res = self._post(status='ACTIVE')
+        self.assertEqual(res.status_code, 400)
+
+    def test_activate_creates_active(self):
+        res = self._post(activate=True)
+        self.assertEqual(res.status_code, 201)
+        self.assertEqual(res.data['status'], 'ACTIVE')
+        self.assertTrue(res.data['is_current'])
+
+    def test_default_draft(self):
+        res = self._post()
+        self.assertEqual(res.status_code, 201)
+        self.assertEqual(res.data['status'], 'DRAFT')
+
 
 class DepartmentApiTests(TestCase):
     def setUp(self):

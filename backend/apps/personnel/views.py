@@ -11,6 +11,7 @@ from apps.audit.services import log_event
 
 from .models import Department, Employee, EmployeeContract, EmployeeDocument, EmploymentHistory, Position
 from .permissions import IsHRStaff
+from .services import set_current_contract, sync_contract_status
 from .serializers import (
     DepartmentSerializer,
     EmployeeContractSerializer,
@@ -147,13 +148,109 @@ class EmployeeViewSet(viewsets.ModelViewSet):
     def contracts(self, request, pk=None):
         employee = self.get_object()
         if request.method == 'GET':
-            data = EmployeeContractSerializer(employee.contracts.all(), many=True).data
+            sync_contract_status()
+            data = EmployeeContractSerializer(
+                employee.contracts.all(), many=True, context={'request': request}
+            ).data
             return Response(data)
-        serializer = EmployeeContractSerializer(data=request.data)
+        serializer = EmployeeContractSerializer(data=request.data, context={'request': request})
         serializer.is_valid(raise_exception=True)
+        start_date = serializer.validated_data.get('start_date')
+        if start_date:
+            current = employee.contracts.filter(status='ACTIVE').order_by('-start_date').first()
+            if current and current.end_date and start_date <= current.end_date:
+                from rest_framework.exceptions import ValidationError
+
+                raise ValidationError(
+                    {'start_date': f'Tanggal mulai harus setelah {current.end_date} (akhir kontrak aktif).'}
+                )
         contract = serializer.save(employee=employee)
-        log_event(request, 'create', obj=contract, description=f'Contract {contract.contract_type} added')
-        return Response(EmployeeContractSerializer(contract).data, status=status.HTTP_201_CREATED)
+        log_event(
+            request,
+            'create',
+            obj=contract,
+            description=f'Contract {contract.contract_number or contract.contract_type} added ({contract.status})',
+        )
+        return Response(EmployeeContractSerializer(contract, context={'request': request}).data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=['patch'], url_path=r'contracts/(?P<contract_pk>\d+)/edit')
+    def edit_contract(self, request, pk=None, contract_pk=None):
+        employee = self.get_object()
+        contract = EmployeeContract.objects.filter(pk=contract_pk, employee=employee).first()
+        if contract is None:
+            return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
+        if contract.status not in ('DRAFT', 'ACTIVE'):
+            return Response({'detail': 'Only draft or active contracts can be edited.'}, status=status.HTTP_400_BAD_REQUEST)
+        serializer = EmployeeContractSerializer(contract, data=request.data, partial=True, context={'request': request})
+        serializer.is_valid(raise_exception=True)
+        contract = serializer.save()
+        log_event(request, 'update', obj=contract, description=f'Contract {contract.contract_number or contract.contract_type} edited')
+        return Response(EmployeeContractSerializer(contract, context={'request': request}).data)
+
+    @action(detail=True, methods=['post'], url_path=r'contracts/(?P<contract_pk>\d+)/activate')
+    def activate_contract(self, request, pk=None, contract_pk=None):
+        employee = self.get_object()
+        contract = EmployeeContract.objects.filter(pk=contract_pk, employee=employee).first()
+        if contract is None:
+            return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
+        if contract.end_date is None:
+            return Response({'detail': 'Kontrak aktif wajib memiliki tanggal selesai.'}, status=status.HTTP_400_BAD_REQUEST)
+        set_current_contract(contract)
+        log_event(request, 'update', obj=contract, description=f'Contract {contract.contract_number or contract.contract_type} activated')
+        return Response(EmployeeContractSerializer(contract, context={'request': request}).data)
+
+    @action(detail=True, methods=['post'], url_path=r'contracts/(?P<contract_pk>\d+)/terminate')
+    def terminate_contract(self, request, pk=None, contract_pk=None):
+        employee = self.get_object()
+        contract = EmployeeContract.objects.filter(pk=contract_pk, employee=employee).first()
+        if contract is None:
+            return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
+        if contract.status != 'ACTIVE':
+            return Response({'detail': 'Only an active contract can be terminated.'}, status=status.HTTP_400_BAD_REQUEST)
+        contract.status = 'TERMINATED'
+        contract.termination_date = request.data.get('termination_date') or None
+        contract.termination_reason = request.data.get('termination_reason', '')
+        contract.save(update_fields=['status', 'termination_date', 'termination_reason', 'updated_at'])
+        log_event(request, 'update', obj=contract, description=f'Contract {contract.contract_number or contract.contract_type} terminated')
+        return Response(EmployeeContractSerializer(contract, context={'request': request}).data)
+
+    @action(detail=True, methods=['post'], url_path=r'contracts/(?P<contract_pk>\d+)/renew')
+    def renew_contract(self, request, pk=None, contract_pk=None):
+        employee = self.get_object()
+        current = EmployeeContract.objects.filter(pk=contract_pk, employee=employee).first()
+        if current is None:
+            return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
+        if current.status != 'ACTIVE':
+            return Response({'detail': 'Only an active contract can be renewed.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        serializer = EmployeeContractSerializer(data=request.data, context={'request': request})
+        serializer.is_valid(raise_exception=True)
+
+        old_number = current.contract_number or current.contract_type
+        current.status = 'RENEWED'
+        current.save(update_fields=['status', 'updated_at'])
+
+        renewed = serializer.save(employee=employee)
+        log_event(
+            request,
+            'create',
+            obj=renewed,
+            description=f'Contract {old_number} renewed → {renewed.contract_number or renewed.contract_type}',
+        )
+        return Response(EmployeeContractSerializer(renewed, context={'request': request}).data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=['delete'], url_path=r'contracts/(?P<contract_pk>\d+)')
+    def delete_contract(self, request, pk=None, contract_pk=None):
+        from apps.personnel.permissions import _role
+
+        if _role(request.user) != 'ADMIN':
+            return Response({'detail': 'Only admin can delete contracts.'}, status=status.HTTP_403_FORBIDDEN)
+        contract = EmployeeContract.objects.filter(pk=contract_pk, employee_id=pk).first()
+        if contract is None:
+            return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
+        contract.delete()
+        log_event(request, 'delete', obj=None, description=f'Contract {contract.contract_type} deleted')
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     @action(detail=True, methods=['get', 'post'])
     def history(self, request, pk=None):
@@ -209,6 +306,21 @@ class EmployeeViewSet(viewsets.ModelViewSet):
         log_event(request, 'create', obj=doc, description=f'Document {doc.name} v{version} uploaded')
         return Response(EmployeeDocumentSerializer(doc, context={'request': request}).data, status=status.HTTP_201_CREATED)
 
+    @action(detail=True, methods=['delete'], url_path=r'documents/(?P<doc_pk>\d+)')
+    def delete_document(self, request, pk=None, doc_pk=None):
+        from apps.personnel.permissions import _role
+
+        if _role(request.user) != 'ADMIN':
+            return Response({'detail': 'Only admin can delete documents.'}, status=status.HTTP_403_FORBIDDEN)
+        doc = EmployeeDocument.objects.filter(pk=doc_pk, employee_id=pk).first()
+        if doc is None:
+            return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
+        if is_configured():
+            delete_object('employee-documents', doc.storage_path)
+        doc.delete()
+        log_event(request, 'delete', obj=None, description=f'Document {doc.name} deleted')
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
 
 class DocumentDownloadView(generics.GenericAPIView):
     permission_classes = [IsHRStaff]
@@ -220,7 +332,9 @@ class DocumentDownloadView(generics.GenericAPIView):
         if not is_configured():
             return Response({'detail': 'Storage not configured.'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
         url = signed_url('employee-documents', doc.storage_path)
-        return Response({'url': url})
+        from django.shortcuts import redirect
+
+        return redirect(url)
 
 
 class DepartmentViewSet(viewsets.ModelViewSet):

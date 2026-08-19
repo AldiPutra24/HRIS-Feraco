@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Icons } from '@/components/icons';
+import { useAuth } from '@/lib/auth/auth-provider';
 import {
   deleteEmployee,
   listDepartments,
@@ -27,6 +28,8 @@ function StatusBadge({ status }: { status: string }) {
 }
 
 export function EmployeeList() {
+  const { user } = useAuth();
+  const canDelete = user?.role === 'admin' || user?.role === 'hr_lead';
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [positions, setPositions] = useState<Position[]>([]);
@@ -216,10 +219,12 @@ export function EmployeeList() {
                           <Icons.edit />
                           Edit
                         </Button>
-                        <Button variant='ghost' size='sm' onClick={() => handleDelete(e)}>
-                          <Icons.trash />
-                          Hapus
-                        </Button>
+                        {canDelete && (
+                          <Button variant='ghost' size='sm' onClick={() => handleDelete(e)}>
+                            <Icons.trash />
+                            Hapus
+                          </Button>
+                        )}
                       </div>
                     </TableCell>
                   </TableRow>

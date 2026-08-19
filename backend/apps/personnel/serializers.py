@@ -1,6 +1,12 @@
-﻿from rest_framework import serializers
+﻿from django.db.models import Q
+from django.utils import timezone
+from rest_framework import serializers
 
 from .models import Department, Employee, EmployeeContract, EmployeeDocument, EmploymentHistory, Position
+
+# Status is system-managed. Only 'activate' is a valid write action; the rest
+# (DRAFT/ACTIVE/EXPIRED/RENEWED/TERMINATED) are derived by services/actions.
+WRITABLE_STATUSES = {'DRAFT'}
 
 
 class DepartmentSerializer(serializers.ModelSerializer):
@@ -156,11 +162,102 @@ class EmployeeReadSerializer(EmployeeSerializer):
 
 
 class EmployeeContractSerializer(serializers.ModelSerializer):
+    document = serializers.SerializerMethodField()
+    is_current = serializers.BooleanField(read_only=True)
+    # Write-only flag: "Activate Contract" instead of "Simpan Draft".
+    activate = serializers.BooleanField(write_only=True, required=False, default=False)
+
     class Meta:
         model = EmployeeContract
-        fields = ('id', 'employee', 'contract_type', 'start_date', 'end_date', 'notes', 'created_at')
-        read_only_fields = ('id', 'employee', 'created_at')
+        fields = (
+            'id',
+            'employee',
+            'contract_type',
+            'contract_number',
+            'start_date',
+            'end_date',
+            'probation_enabled',
+            'probation_start_date',
+            'probation_end_date',
+            'status',
+            'is_current',
+            'termination_date',
+            'termination_reason',
+            'notes',
+            'document',
+            'activate',
+            'created_at',
+            'updated_at',
+        )
+        read_only_fields = ('id', 'employee', 'status', 'created_at', 'updated_at', 'document', 'is_current')
 
+    def get_document(self, obj):
+        doc = obj.documents.order_by('-created_at').first()
+        if doc is None:
+            return None
+        request = self.context.get('request')
+        if request is None:
+            return None
+        return request.build_absolute_uri(f'/api/documents/{doc.id}/download/')
+
+    def create(self, validated_data):
+        activate = validated_data.pop('activate', False)
+        contract = super().create(validated_data)
+        if activate:
+            from .services import set_current_contract
+
+            set_current_contract(contract)
+        return contract
+
+    def validate(self, attrs):
+        # Reject any manual status write (read_only drops it silently otherwise).
+        manual_status = self.initial_data.get('status')
+        if manual_status is not None and manual_status not in WRITABLE_STATUSES:
+            raise serializers.ValidationError(
+                {'status': 'Status kontrak dikelola sistem dan tidak boleh diubah manual.'}
+            )
+
+        start = attrs.get('start_date')
+        end = attrs.get('end_date')
+        if start and end and end < start:
+            raise serializers.ValidationError({'end_date': 'Tanggal selesai tidak boleh sebelum tanggal mulai.'})
+
+        contract_type = attrs.get('contract_type')
+        prob_enabled = attrs.get('probation_enabled', False)
+        prob_start = attrs.get('probation_start_date')
+        prob_end = attrs.get('probation_end_date')
+        if contract_type == 'PKWT' and (prob_enabled or prob_start or prob_end):
+            raise serializers.ValidationError(
+                {'probation_enabled': 'Probation hanya berlaku untuk kontrak PKWTT.'}
+            )
+        if prob_enabled and not (prob_start and prob_end):
+            raise serializers.ValidationError(
+                {'probation_start_date': 'Tanggal probation wajib diisi bila probation diaktifkan.'}
+            )
+        if prob_start and prob_end:
+            if prob_end < prob_start:
+                raise serializers.ValidationError(
+                    {'probation_end_date': 'Tanggal akhir probation tidak boleh sebelum tanggal mulai.'}
+                )
+            if start and (prob_start < start or (end and prob_end > end)):
+                raise serializers.ValidationError(
+                    {'probation_start_date': 'Periode probation harus berada dalam periode kontrak.'}
+                )
+        if not prob_enabled and (prob_start or prob_end):
+            raise serializers.ValidationError(
+                {'probation_enabled': 'Tanggal probation tidak boleh diisi bila probation nonaktif.'}
+            )
+
+        status = attrs.get('status')
+        if status is not None and status not in WRITABLE_STATUSES:
+            raise serializers.ValidationError(
+                {'status': 'Status kontrak dikelola sistem dan tidak boleh diubah manual.'}
+            )
+        if attrs.get('activate') and not end:
+            raise serializers.ValidationError(
+                {'end_date': 'Kontrak aktif wajib memiliki tanggal selesai.'}
+            )
+        return attrs
 
 class EmploymentHistorySerializer(serializers.ModelSerializer):
     previous_department_name = serializers.CharField(source='previous_department.name', read_only=True)

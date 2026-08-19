@@ -8,6 +8,21 @@ function getCookie(name: string): string | null {
   return match ? decodeURIComponent(match[1]) : null;
 }
 
+function extractError(data: unknown): string | null {
+  if (!data || typeof data !== 'object') return null;
+  const d = data as Record<string, unknown>;
+  if (typeof d.detail === 'string') return d.detail;
+  for (const key of Object.keys(d)) {
+    const v = d[key];
+    if (typeof v === 'string') return v;
+    if (Array.isArray(v)) {
+      const first = v.find((x) => typeof x === 'string');
+      if (first) return first;
+    }
+  }
+  return null;
+}
+
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
   if (init.body && !(init.body instanceof FormData)) headers.set('Content-Type', 'application/json');
@@ -17,8 +32,8 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const res = await fetch(`${BASE}${path}`, { ...init, headers, credentials: 'include' });
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
-    const msg = typeof data.detail === 'string' ? data.detail : JSON.stringify(data);
-    throw new Error(msg || `API error ${res.status}`);
+    const msg = extractError(data) || `API error ${res.status}`;
+    throw new Error(msg);
   }
   if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;
@@ -56,10 +71,21 @@ export type Contract = {
   id: number;
   employee: number;
   contract_type: string;
+  contract_number: string | null;
   start_date: string;
   end_date: string | null;
+  probation_enabled: boolean;
+  probation_start_date: string | null;
+  probation_end_date: string | null;
+  status: string;
+  is_current: boolean;
+  termination_date: string | null;
+  termination_reason: string;
   notes: string;
+  document: string | null;
+  activate?: boolean;
   created_at: string;
+  updated_at: string;
 };
 
 export type History = {
@@ -140,6 +166,39 @@ export function addContract(id: number, data: Partial<Contract>): Promise<Contra
   return request<Contract>(`/employees/${id}/contracts/`, { method: 'POST', body: JSON.stringify(data) });
 }
 
+export function editContract(id: number, contractId: number, data: Partial<Contract>): Promise<Contract> {
+  return request<Contract>(`/employees/${id}/contracts/${contractId}/edit/`, {
+    method: 'PATCH',
+    body: JSON.stringify(data),
+  });
+}
+
+export function activateContract(id: number, contractId: number): Promise<Contract> {
+  return request<Contract>(`/employees/${id}/contracts/${contractId}/activate/`, { method: 'POST' });
+}
+
+export function terminateContract(
+  id: number,
+  contractId: number,
+  data: { termination_date?: string | null; termination_reason?: string }
+): Promise<Contract> {
+  return request<Contract>(`/employees/${id}/contracts/${contractId}/terminate/`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
+export function deleteContract(id: number, contractId: number): Promise<void> {
+  return request<void>(`/employees/${id}/contracts/${contractId}/`, { method: 'DELETE' });
+}
+
+export function renewContract(id: number, contractId: number, data: Partial<Contract>): Promise<Contract> {
+  return request<Contract>(`/employees/${id}/contracts/${contractId}/renew/`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
 export function listHistory(id: number): Promise<History[]> {
   return request<History[]>(`/employees/${id}/history/`);
 }
@@ -157,6 +216,10 @@ export function uploadDocument(id: number, file: File, contract?: number): Promi
   fd.append('file', file);
   if (contract) fd.append('contract', String(contract));
   return request<Document>(`/employees/${id}/documents/`, { method: 'POST', body: fd });
+}
+
+export function deleteDocument(id: number, docId: number): Promise<void> {
+  return request<void>(`/employees/${id}/documents/${docId}/`, { method: 'DELETE' });
 }
 
 export function listDepartments(): Promise<Department[]> {

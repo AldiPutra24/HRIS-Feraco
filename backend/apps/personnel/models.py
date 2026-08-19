@@ -1,4 +1,5 @@
 ﻿from django.db import models
+from django.utils import timezone
 
 from apps.accounts.models import User
 
@@ -120,21 +121,42 @@ class EmployeeContract(models.Model):
     CONTRACT_CHOICES = [
         ('PKWT', 'PKWT'),
         ('PKWTT', 'PKWTT'),
-        ('PROBATION', 'Probation'),
+    ]
+    STATUS_CHOICES = [
+        ('DRAFT', 'Draft'),
+        ('ACTIVE', 'Active'),
+        ('EXPIRED', 'Expired'),
+        ('TERMINATED', 'Terminated'),
+        ('RENEWED', 'Renewed'),
     ]
 
     employee = models.ForeignKey(Employee, on_delete=models.CASCADE, related_name='contracts')
     contract_type = models.CharField(max_length=16, choices=CONTRACT_CHOICES)
+    contract_number = models.CharField(max_length=64, unique=True, null=True, blank=True)
     start_date = models.DateField()
     end_date = models.DateField(null=True, blank=True)
+    probation_enabled = models.BooleanField(default=False)
+    probation_start_date = models.DateField(null=True, blank=True)
+    probation_end_date = models.DateField(null=True, blank=True)
+    status = models.CharField(max_length=16, choices=STATUS_CHOICES, default='DRAFT')
+    termination_date = models.DateField(null=True, blank=True)
+    termination_reason = models.TextField(blank=True)
     notes = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         ordering = ['-start_date']
 
     def __str__(self):
-        return f'{self.employee} - {self.contract_type}'
+        return f'{self.employee} - {self.contract_number or self.contract_type}'
+
+    @property
+    def is_current(self):
+        """Current = ACTIVE and its period still valid (PKWTT has no end)."""
+        if self.status != 'ACTIVE':
+            return False
+        return self.end_date is None or self.end_date >= timezone.localdate()
 
 
 class EmploymentHistory(models.Model):
