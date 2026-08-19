@@ -1,0 +1,62 @@
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+
+# dependencies
+frontend/node_modules/
+/.pnp
+.pnp.js
+yarn.lock
+pnpm-lock.yaml
+
+# testing
+/coverage
+
+# next.js
+frontend/.next/
+/out/
+
+# production
+/build
+
+# Python / Django
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+backend/db.sqlite3
+backend/staticfiles/
+
+# misc
+.DS_Store
+*.pem
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+frontend/dev_err.txt
+frontend/dev_out.txt
+
+# local env files
+.env*
+.env*.local
+!**/.env.example
+
+# vercel
+.vercel
+
+# typescript
+*.tsbuildinfo
+
+.idea/
+
+# AI agent tooling
+.agents/
+.claude/
+
+# cursor 
+.cursorrules
+/memory-bank
+
+# Sentry Config File
+.env.sentry-build-plugin
