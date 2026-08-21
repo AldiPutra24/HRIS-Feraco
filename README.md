@@ -65,8 +65,8 @@ Starts PostgreSQL, Django (migrate + seed + gunicorn on :8000), Next.js on :3000
 
 ## Last Progress
 
-**Contract Status Management + Notifications** — last updated 2026-08-20
+**Leave Module: Filters + Type Seeding + Pagination Fix** — last updated 2026-08-22
 
-- **Backend** — Contract status fully system-managed. `set_current_contract` keeps one current: new contract becomes RENEWED (not ACTIVE) when an unexpired ACTIVE exists, auto-promoted by `sync_contract_status` on expiry; otherwise new → ACTIVE, old → RENEWED. Add-contract validation: new `start_date` must be after existing ACTIVE contract's `end_date`. Delete contract admin-only. `react-toastify`-ready field errors (plain messages).
-- **Frontend** — Contract form with document upload (linked to contract), delete action for admin across all statuses, Documents table "Versi" → "Sumber" (Contract/Manual), all mutations surfaced via `react-toastify` toasts.
-- **Validation** — backend `check` pass, 48 tests pass; frontend `tsc`, `oxlint` clean.
+- **Backend** — `seed_leave_types` management command seeds 7 leave types idempotently (`get_or_create`). `LeaveTypeViewSet` filters: non-HR SAFE_METHODS see only active types; HR sees all. 3 new tests (seed creates all, idempotent, API active-only for employee). 62 tests pass.
+- **Frontend** — `/dashboard/leave` filter dropdowns: Status + Jenis Cuti (all roles), Karyawan (HR/Manager only). Filters update table live, persist in URL query params, Reset button clears. Skeleton loading + empty state. `lib/leaves.ts` `unwrapList` handles DRF paginated `{results}` responses.
+- **Validation** — backend `check` pass, 62 tests pass; frontend `tsc`, `oxlint`, `next build` clean.

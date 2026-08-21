@@ -36,3 +36,20 @@
 - Frontend: tsc pass, oxlint pass, next build exit 0.
 ### Demo login
 - admin@feraco.id / password
+
+## Status: Leave Module — Filters, Seeding, Pagination
+
+### Backend
+- `seed_leave_types` management command: seeds 7 leave types (ANNUAL/Cuti Tahunan, SICK/Cuti Sakit, MATERNITY, PATERNITY, MARRIAGE, BEREAVEMENT, UNPAID) via `get_or_create` — idempotent.
+- `LeaveTypeViewSet.get_queryset`: non-HR SAFE_METHODS see only `is_active=True`; HR roles (LEAVE_ADMIN_ROLES) see all. Submission form dropdown fetches GET /api/leave-types.
+- Tests: `SeedLeaveTypesTests` — creates all 7 active, rerun idempotent, API returns only active types for employee.
+
+### Frontend
+- `/dashboard/leave` filter dropdowns: Status + Jenis Cuti for all; Karyawan only for HR/Manager (ADMIN/HR_STAFF/HR_LEAD/MANAGEMENT). Filters update table immediately, persist in URL query params (`status`, `leave_type`, `employee`), Reset button clears all three.
+- Loading state = skeleton rows; empty state "Tidak ada pengajuan yang cocok dengan filter." when no results match.
+- `lib/leaves.ts`: `unwrapList<T>` handles both array and `{results}` paginated responses (DRF global PAGE_SIZE=20); `listLeaveRequests(params)` passes status/leave_type/employee to backend; `listBalances()` unwraps too.
+- Employees fetched for Karyawan filter via `listEmployees({ employment_status: 'ACTIVE', page_size: '1000' })`.
+
+### Validation
+- Backend: check pass, 62 tests pass (SQLite).
+- Frontend: tsc pass, oxlint pass, next build exit 0.
