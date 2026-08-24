@@ -46,6 +46,17 @@ class LeaveBalanceViewSet(viewsets.ModelViewSet):
     serializer_class = LeaveBalanceSerializer
     permission_classes = [IsLeaveAdmin]
     filterset_fields = ['employee', 'leave_type', 'year']
+    pagination_class = None
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        # Non-HR sees only their own balances (self-service).
+        if _role(self.request.user) not in LEAVE_ADMIN_ROLES:
+            employee = _employee_for(self.request.user)
+            if employee is None:
+                return qs.none()
+            return qs.filter(employee_id=employee.id)
+        return qs
 
     def perform_create(self, serializer):
         obj = serializer.save()
@@ -166,11 +177,16 @@ class LeaveRequestViewSet(viewsets.ModelViewSet):
         log_event(request, 'update', obj=leave, description=f'Leave request {leave.id} cancelled')
         return Response(LeaveRequestSerializer(leave, context={'request': request}).data)
 
-    @action(detail=True, methods=['post'], parser_classes=[MultiPartParser, FormParser], url_path='attachment')
-    def upload_attachment(self, request, pk=None):
+    @action(detail=True, methods=['get', 'post'], parser_classes=[MultiPartParser, FormParser], url_path='attachment')
+    def attachment(self, request, pk=None):
         leave, err = self._load_request(request, pk)
         if err:
             return err
+        if request.method == 'POST':
+            return self._upload_attachment(request, leave)
+        return self._download_attachment(request, leave)
+
+    def _upload_attachment(self, request, leave):
         employee = _employee_for(request.user)
         if employee is not None and leave.employee_id != employee.id and _role(request.user) not in LEAVE_ADMIN_ROLES:
             return Response({'detail': 'Tidak berwenang.'}, status=status.HTTP_403_FORBIDDEN)
@@ -187,11 +203,7 @@ class LeaveRequestViewSet(viewsets.ModelViewSet):
         leave.save(update_fields=['attachment_name', 'attachment_path', 'attachment_content_type', 'updated_at'])
         return Response(LeaveRequestSerializer(leave, context={'request': request}).data)
 
-    @action(detail=True, methods=['get'], url_path='attachment')
-    def download_attachment(self, request, pk=None):
-        leave, err = self._load_request(request, pk)
-        if err:
-            return err
+    def _download_attachment(self, request, leave):
         if not leave.attachment_path:
             return Response({'detail': 'Tidak ada lampiran.'}, status=status.HTTP_404_NOT_FOUND)
         if not is_configured():

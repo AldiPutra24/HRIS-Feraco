@@ -10,6 +10,18 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
 
   useEffect(() => {
+    if (isLoading || !user) return;
+    // Route guard by role: employees live under /dashboard/employee only.
+    if (user.role === 'employee' && !pathname.startsWith('/dashboard/employee')) {
+      router.replace('/dashboard/employee');
+      return;
+    }
+    if (user.role !== 'employee' && pathname.startsWith('/dashboard/employee')) {
+      router.replace('/dashboard/overview');
+    }
+  }, [isLoading, user, router, pathname]);
+
+  useEffect(() => {
     if (!isLoading && !user) {
       router.replace(`/login?returnUrl=${encodeURIComponent(pathname)}`);
     }

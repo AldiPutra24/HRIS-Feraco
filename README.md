@@ -65,8 +65,8 @@ Starts PostgreSQL, Django (migrate + seed + gunicorn on :8000), Next.js on :3000
 
 ## Last Progress
 
-**Leave Module: Form/List Split + Submit Validation Fix** — last updated 2026-08-24
+**Employee Self-Service Dashboard + User↔Employee Link** — last updated 2026-08-24
 
-- **Backend** — `LeaveRequestSerializer.validate` resolves `employee` from request user via `_employee_for(request.user)` when absent from `attrs` (previously read-only `employee` always 400'd "Karyawan wajib diisi" on create). `seed_leave_types` seeds 7 types idempotently.
-- **Frontend** — `/dashboard/leave` shows only request list + filters (form removed). "Ajukan Cuti" button → `/dashboard/leave/new` (`LeaveForm` component in `features/leaves/leave-form.tsx`), standalone submission form (jenis cuti, start/end, lampiran, alasan) → toast + redirect back to list.
+- **Backend** — `UserAdminSerializer` links a user to an Employee (`employee` write-only PK; one user↔one employee; name/email/username auto-filled from Employee). `GET /api/auth/me/employee/` + `GET /api/auth/me/employee/contracts/` self-service endpoints. `LeaveBalanceViewSet` scopes non-HR to own balances. Leave attachment GET+POST merged into one `attachment` action (fixed 405 route collision).
+- **Frontend** — role-based nav: EMPLOYEE sees `/dashboard/employee` (Overview/Profile/Izin & Cuti/Kontrak), HR/Admin sees existing dashboard. `ProtectedRoute` enforces role-route isolation. Leave submit form moved to `/dashboard/employee/leave/new`; HR `/dashboard/leave` is list-only. Users page: Karyawan dropdown (EMPLOYEE role only), single "Nama" field.
 - **Validation** — backend `check` pass, 62 tests pass; frontend `tsc`, `oxlint`, `next build` clean.

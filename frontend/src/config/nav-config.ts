@@ -1,5 +1,54 @@
 import { NavGroup } from '@/types';
 
+export const employeeNavGroups: NavGroup[] = [
+  {
+    label: 'Employee',
+    items: [
+      {
+        title: 'Overview',
+        url: '/dashboard/employee',
+        icon: 'dashboard',
+        isActive: false,
+        items: []
+      },
+      {
+        title: 'Profile',
+        url: '/dashboard/employee/profile',
+        icon: 'profile',
+        isActive: false,
+        items: []
+      },
+      {
+        title: 'Izin & Cuti',
+        url: '/dashboard/employee/leave',
+        icon: 'leave',
+        isActive: false,
+        items: [
+          {
+            title: 'Pengajuan Saya',
+            url: '/dashboard/employee/leave',
+            isActive: false,
+            items: []
+          },
+          {
+            title: 'Ajukan Cuti',
+            url: '/dashboard/employee/leave/new',
+            isActive: false,
+            items: []
+          }
+        ]
+      },
+      {
+        title: 'Kontrak',
+        url: '/dashboard/employee/contract',
+        icon: 'page',
+        isActive: false,
+        items: []
+      }
+    ]
+  }
+];
+
 export const navGroups: NavGroup[] = [
   {
     label: 'Overview',

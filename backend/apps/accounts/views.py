@@ -1,6 +1,6 @@
 from django.contrib.auth import login as auth_login, logout as auth_logout
 from rest_framework import status, viewsets
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -34,6 +34,36 @@ class CurrentUserView(APIView):
     def get(self, request):
         return Response(UserSerializer(request.user).data)
 
+class CurrentEmployeeView(APIView):
+    """Profile of the Employee linked to the logged-in user (self-service)."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        from apps.personnel.serializers import EmployeeReadSerializer
+
+        personnel = getattr(request.user, 'personnel', None)
+        employee = getattr(personnel, 'employee', None)
+        if employee is None:
+            return Response({'detail': 'Akun tidak terhubung ke data karyawan.'}, status=status.HTTP_404_NOT_FOUND)
+        return Response(EmployeeReadSerializer(employee, context={'request': request}).data)
+
+class CurrentEmployeeContractsView(APIView):
+    """Contracts of the Employee linked to the logged-in user (self-service)."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        from apps.personnel.models import EmployeeContract
+        from apps.personnel.serializers import EmployeeContractSerializer
+
+        personnel = getattr(request.user, 'personnel', None)
+        employee = getattr(personnel, 'employee', None)
+        if employee is None:
+            return Response({'detail': 'Akun tidak terhubung ke data karyawan.'}, status=status.HTTP_404_NOT_FOUND)
+        contracts = EmployeeContract.objects.filter(employee=employee)
+        return Response(EmployeeContractSerializer(contracts, many=True, context={'request': request}).data)
+
 class RoleViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = Role.objects.all()
     serializer_class = RoleSerializer
@@ -41,7 +71,7 @@ class RoleViewSet(viewsets.ReadOnlyModelViewSet):
     pagination_class = None
 
 class UserAdminViewSet(viewsets.ModelViewSet):
-    queryset = User.objects.select_related('role').all()
+    queryset = User.objects.select_related('role', 'personnel__employee').all()
     serializer_class = UserAdminSerializer
     permission_classes = [IsAdminRole]
     pagination_class = None

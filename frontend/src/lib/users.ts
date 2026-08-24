@@ -41,6 +41,8 @@ export type AdminUser = {
   role_key: string | null;
   is_active: boolean;
   is_staff: boolean;
+  employee_id: number | null;
+  employee_name: string | null;
 };
 
 export function listRoles(): Promise<Role[]> {
@@ -51,11 +53,11 @@ export function listUsers(): Promise<AdminUser[]> {
   return request<AdminUser[]>('/auth/users/');
 }
 
-export function createUser(data: Partial<AdminUser> & { password?: string }): Promise<AdminUser> {
+export function createUser(data: Partial<AdminUser> & { password?: string; employee?: number | null }): Promise<AdminUser> {
   return request<AdminUser>('/auth/users/', { method: 'POST', body: JSON.stringify(data) });
 }
 
-export function updateUser(id: number, data: Partial<AdminUser> & { password?: string }): Promise<AdminUser> {
+export function updateUser(id: number, data: Partial<AdminUser> & { password?: string; employee?: number | null }): Promise<AdminUser> {
   return request<AdminUser>(`/auth/users/${id}/`, { method: 'PATCH', body: JSON.stringify(data) });
 }
 

@@ -19,6 +19,7 @@ import {
   type AdminUser,
   type Role
 } from '@/lib/users';
+import { listEmployees, type Employee } from '@/lib/employees';
 
 type FormState = {
   username: string;
@@ -28,6 +29,7 @@ type FormState = {
   role: string;
   is_active: boolean;
   password: string;
+  employee: string;
 };
 
 function apiError(err: unknown): string {
@@ -45,11 +47,12 @@ function apiError(err: unknown): string {
   return 'Terjadi kesalahan.';
 }
 
-const EMPTY: FormState = { username: '', email: '', first_name: '', last_name: '', role: '', is_active: true, password: '' };
+const EMPTY: FormState = { username: '', email: '', first_name: '', last_name: '', role: '', is_active: true, password: '', employee: '' };
 
 export function UserList() {
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
+  const [employees, setEmployees] = useState<Employee[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
@@ -63,9 +66,10 @@ export function UserList() {
     setLoading(true);
     setError('');
     try {
-      const [us, rs] = await Promise.all([listUsers(), listRoles()]);
+      const [us, rs, es] = await Promise.all([listUsers(), listRoles(), listEmployees({ page_size: '1000' })]);
       setUsers(us);
       setRoles(rs);
+      setEmployees(es.results);
     } catch (err) {
       setError(apiError(err));
     } finally {
@@ -98,7 +102,8 @@ export function UserList() {
       last_name: u.last_name,
       role: u.role ? String(u.role) : '',
       is_active: u.is_active,
-      password: ''
+      password: '',
+      employee: u.employee_id ? String(u.employee_id) : ''
     });
     setFormError('');
     setShowForm(true);
@@ -131,6 +136,7 @@ export function UserList() {
         last_name: form.last_name.trim(),
         role: form.role ? Number(form.role) : null,
         is_active: form.is_active,
+        employee: form.employee ? Number(form.employee) : null,
         ...(form.password ? { password: form.password } : {})
       };
       if (editing) await updateUser(editing.id, payload);
@@ -164,6 +170,8 @@ export function UserList() {
   }
 
   const roleName = (roleKey: string | null) => roles.find((r) => r.key === roleKey)?.name ?? roleKey ?? '-';
+  const selectedRoleKey = roles.find((r) => String(r.id) === form.role)?.key ?? null;
+  const isEmployeeRole = selectedRoleKey === 'EMPLOYEE';
 
   return (
     <div className='flex flex-1 flex-col gap-4 p-4 md:p-6'>
@@ -196,19 +204,15 @@ export function UserList() {
                   <Input type='email' value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} />
                 </div>
                 <div className='space-y-1.5'>
-                  <Label>Nama Depan</Label>
+                  <Label>Nama</Label>
                   <Input value={form.first_name} onChange={(e) => setForm((f) => ({ ...f, first_name: e.target.value }))} />
-                </div>
-                <div className='space-y-1.5'>
-                  <Label>Nama Belakang</Label>
-                  <Input value={form.last_name} onChange={(e) => setForm((f) => ({ ...f, last_name: e.target.value }))} />
                 </div>
                 <div className='space-y-1.5'>
                   <Label>Role</Label>
                   <select
                     className='border-input h-8 rounded-lg border bg-transparent px-2.5 text-sm'
                     value={form.role}
-                    onChange={(e) => setForm((f) => ({ ...f, role: e.target.value }))}
+                    onChange={(e) => setForm((f) => ({ ...f, role: e.target.value, employee: '' }))}
                   >
                     <option value=''>-</option>
                     {roles.map((r) => (
@@ -218,6 +222,37 @@ export function UserList() {
                     ))}
                   </select>
                 </div>
+                {isEmployeeRole && (
+                  <div className='space-y-1.5'>
+                    <Label>Karyawan</Label>
+                  <select
+                    className='border-input h-8 rounded-lg border bg-transparent px-2.5 text-sm'
+                    value={form.employee}
+                    onChange={(e) => {
+                      const employee = employees.find((emp) => emp.id === Number(e.target.value));
+                      setForm((f) => ({
+                        ...f,
+                        employee: e.target.value,
+                        ...(employee
+                          ? {
+                              first_name: employee.full_name,
+                              last_name: '',
+                              email: employee.personal_email || f.email,
+                              username: f.username || employee.employee_id.toLowerCase()
+                            }
+                          : {})
+                      }));
+                    }}
+                  >
+                    <option value=''>-</option>
+                    {employees.map((emp) => (
+                      <option key={emp.id} value={emp.id}>
+                        {emp.full_name}
+                      </option>
+                    ))}
+                  </select>
+                  </div>
+                )}
                 <div className='space-y-1.5'>
                   <Label>Password {editing ? '(kosongkan jika tidak diubah)' : ''}</Label>
                   <Input type='password' value={form.password} onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))} />
@@ -268,6 +303,7 @@ export function UserList() {
                   <TableHead>Email</TableHead>
                   <TableHead>Nama</TableHead>
                   <TableHead>Role</TableHead>
+                  <TableHead>Karyawan</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead className='text-right'>Aksi</TableHead>
                 </TableRow>
@@ -280,6 +316,13 @@ export function UserList() {
                     <TableCell>{[u.first_name, u.last_name].filter(Boolean).join(' ') || '-'}</TableCell>
                     <TableCell>
                       <Badge variant='outline'>{roleName(u.role_key)}</Badge>
+                    </TableCell>
+                    <TableCell>
+                      {u.employee_id ? (
+                        <Badge variant={u.is_active ? 'default' : 'secondary'}>{u.employee_name}</Badge>
+                      ) : (
+                        <span className='text-muted-foreground text-sm'>Not Created</span>
+                      )}
                     </TableCell>
                     <TableCell>
                       <div className='flex items-center gap-2'>
@@ -305,7 +348,7 @@ export function UserList() {
                 ))}
                 {filtered.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={6} className='text-muted-foreground py-8 text-center'>
+                    <TableCell colSpan={7} className='text-muted-foreground py-8 text-center'>
                       Tidak ada data.
                     </TableCell>
                   </TableRow>

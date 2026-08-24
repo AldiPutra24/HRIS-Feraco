@@ -25,7 +25,7 @@ import {
   SidebarRail
 } from '@/components/ui/sidebar';
 import { UserAvatarProfile } from '@/components/user-avatar-profile';
-import { navGroups } from '@/config/nav-config';
+import { employeeNavGroups, navGroups } from '@/config/nav-config';
 import { useMediaQuery } from '@/hooks/use-media-query';
 import { useAuth } from '@/lib/auth/auth-provider';
 import { useFilteredNavGroups } from '@/hooks/use-nav';
@@ -39,7 +39,9 @@ export default function AppSidebar() {
   const { isOpen } = useMediaQuery();
   const { user, logout } = useAuth();
   const router = useRouter();
-  const filteredGroups = useFilteredNavGroups(navGroups);
+  const isEmployee = user?.role === 'employee';
+  const groups = isEmployee ? employeeNavGroups : navGroups;
+  const filteredGroups = useFilteredNavGroups(groups);
 
   React.useEffect(() => {
     // Side effects based on sidebar state changes
@@ -48,7 +50,7 @@ export default function AppSidebar() {
   return (
     <Sidebar collapsible='icon'>
       <SidebarHeader className='group-data-[collapsible=icon]:pt-4'>
-        <Link href='/dashboard/overview' className='flex items-center gap-2 px-2 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0'>
+        <Link href={isEmployee ? '/dashboard/employee' : '/dashboard/overview'} className='flex items-center gap-2 px-2 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0'>
           <div className='bg-sidebar-primary text-sidebar-primary-foreground flex aspect-square size-8 shrink-0 items-center justify-center rounded-lg'>
             <Icons.logo className='size-4' />
           </div>
@@ -159,10 +161,12 @@ export default function AppSidebar() {
                     <Icons.user className='mr-2 h-4 w-4' />
                     Role: {user?.role}
                   </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => router.push('/dashboard/settings')}>
-                    <Icons.settings className='mr-2 h-4 w-4' />
-                    Settings
-                  </DropdownMenuItem>
+                  {!isEmployee && (
+                    <DropdownMenuItem onClick={() => router.push('/dashboard/settings')}>
+                      <Icons.settings className='mr-2 h-4 w-4' />
+                      Settings
+                    </DropdownMenuItem>
+                  )}
                 </DropdownMenuGroup>
                 <DropdownMenuSeparator />
                 <DropdownMenuGroup>

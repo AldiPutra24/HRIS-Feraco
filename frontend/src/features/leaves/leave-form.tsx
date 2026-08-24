@@ -15,7 +15,7 @@ import {
   type LeaveType
 } from '@/lib/leaves';
 
-export function LeaveForm() {
+export function LeaveForm({ redirectTo = '/dashboard/leave' }: { redirectTo?: string }) {
   const router = useRouter();
   const [types, setTypes] = useState<LeaveType[]>([]);
   const [loading, setLoading] = useState(true);
@@ -53,7 +53,7 @@ export function LeaveForm() {
       });
       if (file) await uploadLeaveAttachment(created.id, file);
       toast.success('Pengajuan terkirim.');
-      router.push('/dashboard/leave');
+      router.push(redirectTo);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Gagal mengirim pengajuan.');
     }
@@ -132,7 +132,7 @@ export function LeaveForm() {
             </div>
             <div className='flex items-center gap-2 md:col-span-4'>
               <Button type='submit'>Kirim Pengajuan</Button>
-              <Button type='button' variant='ghost' onClick={() => router.push('/dashboard/leave')}>
+              <Button type='button' variant='ghost' onClick={() => router.push(redirectTo)}>
                 Batal
               </Button>
             </div>

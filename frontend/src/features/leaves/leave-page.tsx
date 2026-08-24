@@ -74,8 +74,12 @@ export function LeavePage() {
     const [t, r] = await Promise.all([listLeaveTypes(), listLeaveRequests(params)]);
     setTypes(t);
     setRequests(r);
+    if (isAdmin) {
+      const b = await listBalances();
+      setBalances(b);
+    }
     setLoading(false);
-  }, [fStatus, fType, fEmployee]);
+  }, [fStatus, fType, fEmployee, isAdmin]);
 
   useEffect(() => {
     load();
@@ -141,7 +145,6 @@ export function LeavePage() {
           <h2 className='text-2xl font-bold tracking-tight'>Izin & Cuti</h2>
           <p className='text-muted-foreground text-sm'>Kelola pengajuan izin dan cuti.</p>
         </div>
-        <Button onClick={() => router.push('/dashboard/leave/new')}>Ajukan Cuti</Button>
       </div>
 
       {isAdmin && balances.length > 0 && (

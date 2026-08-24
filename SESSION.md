@@ -23,7 +23,10 @@
 - `seed_leave_types` management command: seeds 7 leave types (ANNUAL/Cuti Tahunan, SICK/Cuti Sakit, MATERNITY, PATERNITY, MARRIAGE, BEREAVEMENT, UNPAID) via `get_or_create` — idempotent.
 - `LeaveTypeViewSet.get_queryset`: non-HR SAFE_METHODS see only `is_active=True`; HR roles (LEAVE_ADMIN_ROLES) see all.
 - `LeaveRequestSerializer.validate` resolves `employee` from request user (`_employee_for(request.user)`) when missing from `attrs`/`instance`. Fixes read-only `employee` always 400'ing "Karyawan wajib diisi" on create; submit returns 201. `perform_create` passes `employee=_employee_for(request.user)` via `serializer.save(employee=...)`; submission rejected if logged-in user has no linked Personnel/Employee (personnel `user_id=None`). Quota check: total_days > remaining_days → 400. Attachment required when `leave_type.requires_attachment`. Approval deduction idempotent via `balance_deducted` flag (skips `allocated_days==0`).
-- Dev DB note: linked `admin@feraco.id` → Andi Pratama (personnel id 4).
+- Leave attachment GET+POST merged into a single `@action(detail=True, methods=['get','post'], url_path='attachment')` (two actions sharing `url_path='attachment'` caused route collision → POST 405). POST → upload, GET → signed-url download.
+- Self-service endpoints: `GET /api/auth/me/employee/` (own Employee profile, masked sensitive fields) + `GET /api/auth/me/employee/contracts/`. `LeaveBalanceViewSet.get_queryset` scopes non-HR to own balances via `_employee_for`.
+- `UserAdminSerializer`: `employee` write-only PK (one user↔one employee via `validate_employee`); read-only `employee_id`/`employee_name`; `validate` auto-fills name/email/username from Employee; `create`/`update` bind `employee.user`.
+- Dev DB note: `admin@feraco.id` is a pure superadmin (no Personnel/Employee link — unlinked from Andi Pratama). Create an EMPLOYEE-role user via Users page to test self-service.
 
 ### Frontend
 - /dashboard/karyawan -> employee list (table/search/filter/pagination/add). Delete button hidden for HR_STAFF.
@@ -34,8 +37,10 @@
 - /dashboard/overview -> real-data dashboard: 5 summary cards (total/active/inactive employees, departments, positions), Employee Overview table (latest 5), Department Overview (counts), Quick Actions. Frontend aggregation, no dummy data. Removed dummy sections (pending approval, recruitment, payroll, contract expiry, freelance event progress).
 - /dashboard/settings/organization -> org structure (departments -> positions).
 - /dashboard/settings/users -> user CRUD (add/edit/activate/deactivate/delete, assign role). /dashboard/settings/roles -> role list (read-only). Backend: /api/auth/users (ADMIN only), /api/auth/roles (ADMIN only).
-- /dashboard/leave = list-only page: "Ajukan Cuti" button + Status/Jenis Cuti/Karyawan filters (Karyawan filter HR/Manager only) + request table (Setujui/Tolak/Batal actions). Filters update table live, persist in URL query params (`status`, `leave_type`, `employee`), Reset button clears. Skeleton loading + empty state.
-- /dashboard/leave/new renders `features/leaves/leave-form.tsx` `LeaveForm` — standalone form (jenis cuti select, start/end date, lampiran file, alasan) → `createLeaveRequest` + optional `uploadLeaveAttachment` → toast + `router.push('/dashboard/leave')`.
+- User form: Karyawan dropdown appears only when Role = EMPLOYEE (auto-fills name/email/username); single "Nama" field (Nama Depan/Belakang removed). Account link status shown in table (Not Created / employee badge).
+- Employee self-service `/dashboard/employee` (EMPLOYEE role only): Overview (sisa kuota/pending/approved/kontrak + recent requests), Profile (name/email/dept/position/manager/join/status — no NIK/rekening/NPWP), Izin & Cuti (Pengajuan Saya + Ajukan Cuti), Kontrak (current contract). Role-based nav: `employeeNavGroups` in nav-config; `ProtectedRoute` forces employees under `/dashboard/employee` and blocks non-employees from it.
+- /dashboard/leave = HR list-only page: Status/Jenis Cuti/Karyawan filters (Karyawan filter HR/Manager only) + request table (Setujui/Tolak/Batal actions) + Sisa Kuota (admin). Filters persist in URL params, Reset clears. Skeleton loading + empty state. "Ajukan Cuti" button removed (form only at `/dashboard/employee/leave/new`).
+- `features/leaves/leave-form.tsx` `LeaveForm` accepts `redirectTo` prop — standalone form (jenis cuti select, start/end date, lampiran file, alasan) → `createLeaveRequest` + optional `uploadLeaveAttachment` → toast + redirect.
 - `lib/leaves.ts`: `unwrapList<T>` handles both array and `{results}` paginated responses (DRF global PAGE_SIZE=20); `listLeaveRequests(params)` passes status/leave_type/employee; `listBalances()` unwraps too. Employees for Karyawan filter via `listEmployees({ employment_status: 'ACTIVE', page_size: '1000' })`.
 - lib/employees.ts + lib/users.ts API client to Django.
 
