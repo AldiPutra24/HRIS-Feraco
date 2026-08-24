@@ -5,6 +5,7 @@ from rest_framework import serializers
 from apps.personnel.models import Employee
 
 from .models import LeaveBalance, LeaveRequest, LeaveType
+from .permissions import _employee_for
 from .services import compute_total_days, get_balance
 
 STATUS_CHOICES = set(dict(LeaveRequest.STATUS_CHOICES).keys())
@@ -76,6 +77,8 @@ class LeaveRequestSerializer(serializers.ModelSerializer):
         employee = attrs.get('employee')
         if employee is None:
             employee = getattr(self.instance, 'employee', None)
+        if employee is None and request is not None:
+            employee = _employee_for(request.user)
         start = attrs.get('start_date')
         end = attrs.get('end_date')
         leave_type = attrs.get('leave_type')

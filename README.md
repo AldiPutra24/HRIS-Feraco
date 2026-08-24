@@ -65,8 +65,8 @@ Starts PostgreSQL, Django (migrate + seed + gunicorn on :8000), Next.js on :3000
 
 ## Last Progress
 
-**Leave Module: Filters + Type Seeding + Pagination Fix** — last updated 2026-08-22
+**Leave Module: Form/List Split + Submit Validation Fix** — last updated 2026-08-24
 
-- **Backend** — `seed_leave_types` management command seeds 7 leave types idempotently (`get_or_create`). `LeaveTypeViewSet` filters: non-HR SAFE_METHODS see only active types; HR sees all. 3 new tests (seed creates all, idempotent, API active-only for employee). 62 tests pass.
-- **Frontend** — `/dashboard/leave` filter dropdowns: Status + Jenis Cuti (all roles), Karyawan (HR/Manager only). Filters update table live, persist in URL query params, Reset button clears. Skeleton loading + empty state. `lib/leaves.ts` `unwrapList` handles DRF paginated `{results}` responses.
+- **Backend** — `LeaveRequestSerializer.validate` resolves `employee` from request user via `_employee_for(request.user)` when absent from `attrs` (previously read-only `employee` always 400'd "Karyawan wajib diisi" on create). `seed_leave_types` seeds 7 types idempotently.
+- **Frontend** — `/dashboard/leave` shows only request list + filters (form removed). "Ajukan Cuti" button → `/dashboard/leave/new` (`LeaveForm` component in `features/leaves/leave-form.tsx`), standalone submission form (jenis cuti, start/end, lampiran, alasan) → toast + redirect back to list.
 - **Validation** — backend `check` pass, 62 tests pass; frontend `tsc`, `oxlint`, `next build` clean.

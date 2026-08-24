@@ -1,6 +1,6 @@
 ﻿# HRIS FERACO - Progress Note
 
-## Status: Employee Database + Supabase PostgreSQL
+## Status: Employee Database + Leave Module
 
 ### Backend
 - Supabase PostgreSQL primary (settings reads SUPABASE_DB_* + SUPABASE_URL/SECRET_KEY). SQLite fallback via DB_ENGINE=sqlite for local/tests.
@@ -19,6 +19,11 @@
 - Department model: name (unique), code, is_active, created_at, updated_at. Inactive dept rejected for employee create/update (validate_department). DELETE blocked when dept has employees (perform_destroy).
 - Position model: name, code, is_active, created_at, updated_at; unique_together (name, department). Inactive position rejected (validate_position); cross-field validate rejects position whose department != employee.department. DELETE blocked when position has employees (perform_destroy).
 - Sensitive fields (nik/bank/npwp/bpjs) masked for non-privileged roles.
+- Leave module (`apps.leaves`): LeaveType, LeaveBalance (unique_together employee+leave_type+year), LeaveRequest (status DRAFT/PENDING/APPROVED/REJECTED/CANCELLED + `balance_deducted` flag), LeaveNotification. Roles: LEAVE_ADMIN_ROLES={ADMIN,HR_STAFF,HR_LEAD}, APPROVER_ROLES adds MANAGEMENT.
+- `seed_leave_types` management command: seeds 7 leave types (ANNUAL/Cuti Tahunan, SICK/Cuti Sakit, MATERNITY, PATERNITY, MARRIAGE, BEREAVEMENT, UNPAID) via `get_or_create` — idempotent.
+- `LeaveTypeViewSet.get_queryset`: non-HR SAFE_METHODS see only `is_active=True`; HR roles (LEAVE_ADMIN_ROLES) see all.
+- `LeaveRequestSerializer.validate` resolves `employee` from request user (`_employee_for(request.user)`) when missing from `attrs`/`instance`. Fixes read-only `employee` always 400'ing "Karyawan wajib diisi" on create; submit returns 201. `perform_create` passes `employee=_employee_for(request.user)` via `serializer.save(employee=...)`; submission rejected if logged-in user has no linked Personnel/Employee (personnel `user_id=None`). Quota check: total_days > remaining_days → 400. Attachment required when `leave_type.requires_attachment`. Approval deduction idempotent via `balance_deducted` flag (skips `allocated_days==0`).
+- Dev DB note: linked `admin@feraco.id` → Andi Pratama (personnel id 4).
 
 ### Frontend
 - /dashboard/karyawan -> employee list (table/search/filter/pagination/add). Delete button hidden for HR_STAFF.
@@ -29,27 +34,14 @@
 - /dashboard/overview -> real-data dashboard: 5 summary cards (total/active/inactive employees, departments, positions), Employee Overview table (latest 5), Department Overview (counts), Quick Actions. Frontend aggregation, no dummy data. Removed dummy sections (pending approval, recruitment, payroll, contract expiry, freelance event progress).
 - /dashboard/settings/organization -> org structure (departments -> positions).
 - /dashboard/settings/users -> user CRUD (add/edit/activate/deactivate/delete, assign role). /dashboard/settings/roles -> role list (read-only). Backend: /api/auth/users (ADMIN only), /api/auth/roles (ADMIN only).
+- /dashboard/leave = list-only page: "Ajukan Cuti" button + Status/Jenis Cuti/Karyawan filters (Karyawan filter HR/Manager only) + request table (Setujui/Tolak/Batal actions). Filters update table live, persist in URL query params (`status`, `leave_type`, `employee`), Reset button clears. Skeleton loading + empty state.
+- /dashboard/leave/new renders `features/leaves/leave-form.tsx` `LeaveForm` — standalone form (jenis cuti select, start/end date, lampiran file, alasan) → `createLeaveRequest` + optional `uploadLeaveAttachment` → toast + `router.push('/dashboard/leave')`.
+- `lib/leaves.ts`: `unwrapList<T>` handles both array and `{results}` paginated responses (DRF global PAGE_SIZE=20); `listLeaveRequests(params)` passes status/leave_type/employee; `listBalances()` unwraps too. Employees for Karyawan filter via `listEmployees({ employment_status: 'ACTIVE', page_size: '1000' })`.
 - lib/employees.ts + lib/users.ts API client to Django.
 
 ### Validation
-- Backend: check pass, 48 tests pass (SQLite; PostgreSQL teardown blocked by pgbouncer ObjectInUse — known).
+- Backend: check pass, 62 tests pass (SQLite; PostgreSQL teardown blocked by pgbouncer ObjectInUse — known).
 - Frontend: tsc pass, oxlint pass, next build exit 0.
+
 ### Demo login
 - admin@feraco.id / password
-
-## Status: Leave Module — Filters, Seeding, Pagination
-
-### Backend
-- `seed_leave_types` management command: seeds 7 leave types (ANNUAL/Cuti Tahunan, SICK/Cuti Sakit, MATERNITY, PATERNITY, MARRIAGE, BEREAVEMENT, UNPAID) via `get_or_create` — idempotent.
-- `LeaveTypeViewSet.get_queryset`: non-HR SAFE_METHODS see only `is_active=True`; HR roles (LEAVE_ADMIN_ROLES) see all. Submission form dropdown fetches GET /api/leave-types.
-- Tests: `SeedLeaveTypesTests` — creates all 7 active, rerun idempotent, API returns only active types for employee.
-
-### Frontend
-- `/dashboard/leave` filter dropdowns: Status + Jenis Cuti for all; Karyawan only for HR/Manager (ADMIN/HR_STAFF/HR_LEAD/MANAGEMENT). Filters update table immediately, persist in URL query params (`status`, `leave_type`, `employee`), Reset button clears all three.
-- Loading state = skeleton rows; empty state "Tidak ada pengajuan yang cocok dengan filter." when no results match.
-- `lib/leaves.ts`: `unwrapList<T>` handles both array and `{results}` paginated responses (DRF global PAGE_SIZE=20); `listLeaveRequests(params)` passes status/leave_type/employee to backend; `listBalances()` unwraps too.
-- Employees fetched for Karyawan filter via `listEmployees({ employment_status: 'ACTIVE', page_size: '1000' })`.
-
-### Validation
-- Backend: check pass, 62 tests pass (SQLite).
-- Frontend: tsc pass, oxlint pass, next build exit 0.

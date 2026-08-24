@@ -14,12 +14,10 @@ import { useAuth } from '@/lib/auth/auth-provider';
 import {
   approveLeave,
   cancelLeave,
-  createLeaveRequest,
   listBalances,
   listLeaveRequests,
   listLeaveTypes,
   rejectLeave,
-  uploadLeaveAttachment,
   type LeaveBalance,
   type LeaveRequest,
   type LeaveType
@@ -63,13 +61,6 @@ export function LeavePage() {
   const [balances, setBalances] = useState<LeaveBalance[]>([]);
   const [requests, setRequests] = useState<LeaveRequest[]>([]);
   const [loading, setLoading] = useState(true);
-  const [form, setForm] = useState({
-    leave_type: '',
-    start_date: '',
-    end_date: '',
-    reason: ''
-  });
-  const [file, setFile] = useState<File | null>(null);
   const [rejecting, setRejecting] = useState<LeaveRequest | null>(null);
   const [rejectReason, setRejectReason] = useState('');
   const [employees, setEmployees] = useState<Employee[]>([]);
@@ -96,29 +87,6 @@ export function LeavePage() {
       .then((d) => setEmployees(d.results))
       .catch(() => {});
   }, [isAdmin]);
-
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!form.leave_type || !form.start_date || !form.end_date) {
-      toast.error('Lengkapi jenis cuti, tanggal mulai, dan selesai.');
-      return;
-    }
-    try {
-      const created = await createLeaveRequest({
-        leave_type: Number(form.leave_type),
-        start_date: form.start_date,
-        end_date: form.end_date,
-        reason: form.reason
-      });
-      if (file) await uploadLeaveAttachment(created.id, file);
-      toast.success('Pengajuan terkirim.');
-      setForm({ leave_type: '', start_date: '', end_date: '', reason: '' });
-      setFile(null);
-      load();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Gagal mengirim pengajuan.');
-    }
-  }
 
   async function approve(id: number) {
     try {
@@ -168,72 +136,13 @@ export function LeavePage() {
 
   return (
     <div className='flex flex-1 flex-col gap-4 p-4 md:p-6'>
-      <div>
-        <h2 className='text-2xl font-bold tracking-tight'>Izin & Cuti</h2>
-        <p className='text-muted-foreground text-sm'>Ajukan dan kelola izin serta cuti.</p>
+      <div className='flex items-center justify-between'>
+        <div>
+          <h2 className='text-2xl font-bold tracking-tight'>Izin & Cuti</h2>
+          <p className='text-muted-foreground text-sm'>Kelola pengajuan izin dan cuti.</p>
+        </div>
+        <Button onClick={() => router.push('/dashboard/leave/new')}>Ajukan Cuti</Button>
       </div>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Pengajuan Baru</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={submit} className='grid grid-cols-1 gap-3 md:grid-cols-4'>
-            <div>
-              <Label className='text-xs'>Jenis Cuti</Label>
-              <select
-                className='border-input h-9 w-full rounded-lg border bg-transparent px-2.5 text-sm'
-                value={form.leave_type}
-                onChange={(e) => setForm((f) => ({ ...f, leave_type: e.target.value }))}
-              >
-                <option value=''>Pilih jenis</option>
-                {types
-                  .filter((t) => t.is_active)
-                  .map((t) => (
-                    <option key={t.id} value={t.id}>
-                      {t.name}
-                    </option>
-                  ))}
-              </select>
-            </div>
-            <div>
-              <Label className='text-xs'>Tanggal Mulai</Label>
-              <Input
-                type='date'
-                value={form.start_date}
-                onChange={(e) => setForm((f) => ({ ...f, start_date: e.target.value }))}
-              />
-            </div>
-            <div>
-              <Label className='text-xs'>Tanggal Selesai</Label>
-              <Input
-                type='date'
-                value={form.end_date}
-                onChange={(e) => setForm((f) => ({ ...f, end_date: e.target.value }))}
-              />
-            </div>
-            <div>
-              <Label className='text-xs'>Lampiran</Label>
-              <input
-                type='file'
-                className='mt-1 block w-full text-sm text-muted-foreground file:mr-3 file:rounded-md file:border-0 file:bg-primary file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-primary-foreground hover:file:bg-primary/80'
-                onChange={(e) => setFile(e.target.files?.[0] || null)}
-              />
-            </div>
-            <div className='md:col-span-4'>
-              <Label className='text-xs'>Alasan</Label>
-              <Input
-                placeholder='Alasan pengajuan'
-                value={form.reason}
-                onChange={(e) => setForm((f) => ({ ...f, reason: e.target.value }))}
-              />
-            </div>
-            <div className='md:col-span-4'>
-              <Button type='submit'>Kirim Pengajuan</Button>
-            </div>
-          </form>
-        </CardContent>
-      </Card>
 
       {isAdmin && balances.length > 0 && (
         <Card>
