@@ -3,7 +3,7 @@ import { Metadata } from 'next';
 import { Suspense } from 'react';
 
 export const metadata: Metadata = {
-  title: 'Sign In | HRIS',
+  title: 'Sign In',
   description: 'Sign in to the internal HRIS dashboard.'
 };
 

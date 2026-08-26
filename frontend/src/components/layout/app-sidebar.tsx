@@ -51,10 +51,13 @@ export default function AppSidebar() {
     <Sidebar collapsible='icon'>
       <SidebarHeader className='group-data-[collapsible=icon]:pt-4'>
         <Link href={isEmployee ? '/dashboard/employee' : '/dashboard/overview'} className='flex items-center gap-2 px-2 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0'>
-          <div className='bg-sidebar-primary text-sidebar-primary-foreground flex aspect-square size-8 shrink-0 items-center justify-center rounded-lg'>
-            <Icons.logo className='size-4' />
+          <div className='flex aspect-square size-8 shrink-0 items-center justify-center overflow-hidden rounded-lg'>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src='/logo.webp' alt='Logo HRIS' className='size-8 object-contain' />
           </div>
-          <span className='truncate font-semibold group-data-[collapsible=icon]:hidden'>HRIS</span>
+          <span className='truncate font-semibold group-data-[collapsible=icon]:hidden'>
+            {isEmployee ? 'FERACO People' : 'FERACO HRIS'}
+          </span>
         </Link>
       </SidebarHeader>
       <SidebarContent className='overflow-x-hidden'>

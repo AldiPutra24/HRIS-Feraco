@@ -123,7 +123,7 @@ export function EmployeeLeave() {
                       <td className='px-4 py-2'>
                         <StatusBadge status={r.status} />
                       </td>
-                      <td className='max-w-48 truncate px-4 py-2'>{r.reason || '-'}</td>
+                      <td className='max-w-48 whitespace-normal break-words px-4 py-2'>{r.reason || '-'}</td>
                     </tr>
                   ))}
                 </tbody>

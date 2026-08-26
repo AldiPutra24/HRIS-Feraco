@@ -257,7 +257,7 @@ export function LeavePage() {
                   <TableCell>
                     <StatusBadge status={r.status} />
                   </TableCell>
-                  <TableCell className='max-w-48 truncate'>{r.reason || '-'}</TableCell>
+                  <TableCell className='max-w-48 whitespace-normal break-words'>{r.reason || '-'}</TableCell>
                   <TableCell className='text-right'>
                     <div className='flex items-center justify-end gap-2'>
                       {r.attachment_url && (

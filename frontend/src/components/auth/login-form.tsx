@@ -40,7 +40,8 @@ export function LoginForm() {
   return (
     <form onSubmit={handleSubmit} className='w-full max-w-sm space-y-4'>
       <div className='space-y-2 text-center'>
-        <h1 className='text-2xl font-semibold tracking-tight'>Sign in to HRIS</h1>
+        <img src='/logo.webp' alt='Logo HRIS' className='mx-auto h-16 w-16 object-contain' />
+        <h1 className='text-2xl font-semibold tracking-tight'>Sign in</h1>
         <p className='text-muted-foreground text-sm'>Enter your credentials to access the dashboard.</p>
       </div>
 
