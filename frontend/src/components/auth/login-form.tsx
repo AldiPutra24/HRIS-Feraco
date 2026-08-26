@@ -107,10 +107,6 @@ export function LoginForm() {
         {isLoading && <Icons.spinner className='mr-2 h-4 w-4 animate-spin' />}
         Sign in
       </Button>
-
-      <p className='text-muted-foreground text-center text-xs'>
-        Demo credentials: admin@feraco.id / password
-      </p>
     </form>
   );
 }
