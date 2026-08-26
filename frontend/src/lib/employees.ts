@@ -154,8 +154,8 @@ export function updateEmployee(id: number, data: Partial<Employee>): Promise<Emp
   return request<Employee>(`/employees/${id}/`, { method: 'PATCH', body: JSON.stringify(data) });
 }
 
-export function deleteEmployee(id: number): Promise<void> {
-  return request<void>(`/employees/${id}/`, { method: 'DELETE' });
+export function deleteEmployee(id: number, hard = false): Promise<void> {
+  return request<void>(`/employees/${id}/${hard ? 'hard-delete/' : ''}`, { method: 'DELETE' });
 }
 
 export function listContracts(id: number): Promise<Contract[]> {
@@ -188,8 +188,8 @@ export function terminateContract(
   });
 }
 
-export function deleteContract(id: number, contractId: number): Promise<void> {
-  return request<void>(`/employees/${id}/contracts/${contractId}/`, { method: 'DELETE' });
+export function deleteContract(id: number, contractId: number, hard = false): Promise<void> {
+  return request<void>(`/employees/${id}/contracts/${contractId}/${hard ? 'hard-delete/' : ''}`, { method: 'DELETE' });
 }
 
 export function renewContract(id: number, contractId: number, data: Partial<Contract>): Promise<Contract> {
@@ -218,8 +218,8 @@ export function uploadDocument(id: number, file: File, contract?: number): Promi
   return request<Document>(`/employees/${id}/documents/`, { method: 'POST', body: fd });
 }
 
-export function deleteDocument(id: number, docId: number): Promise<void> {
-  return request<void>(`/employees/${id}/documents/${docId}/`, { method: 'DELETE' });
+export function deleteDocument(id: number, docId: number, hard = false): Promise<void> {
+  return request<void>(`/employees/${id}/documents/${docId}/${hard ? 'hard-delete/' : ''}`, { method: 'DELETE' });
 }
 
 export function listDepartments(): Promise<Department[]> {
@@ -234,8 +234,8 @@ export function updateDepartment(id: number, data: Partial<Department>): Promise
   return request<Department>(`/departments/${id}/`, { method: 'PATCH', body: JSON.stringify(data) });
 }
 
-export function deleteDepartment(id: number): Promise<void> {
-  return request<void>(`/departments/${id}/`, { method: 'DELETE' });
+export function deleteDepartment(id: number, hard = false): Promise<void> {
+  return request<void>(`/departments/${id}/${hard ? 'hard-delete/' : ''}`, { method: 'DELETE' });
 }
 
 export function listPositions(department?: number): Promise<Position[]> {
@@ -251,8 +251,8 @@ export function updatePosition(id: number, data: Partial<Position>): Promise<Pos
   return request<Position>(`/positions/${id}/`, { method: 'PATCH', body: JSON.stringify(data) });
 }
 
-export function deletePosition(id: number): Promise<void> {
-  return request<void>(`/positions/${id}/`, { method: 'DELETE' });
+export function deletePosition(id: number, hard = false): Promise<void> {
+  return request<void>(`/positions/${id}/${hard ? 'hard-delete/' : ''}`, { method: 'DELETE' });
 }
 
 export type ImportResult = { created: number; errors: { row: number; error: string }[] };

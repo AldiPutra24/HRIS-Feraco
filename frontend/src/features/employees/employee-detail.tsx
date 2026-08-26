@@ -5,12 +5,20 @@ import { toast } from 'react-toastify';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger
+} from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Switch } from '@/components/ui/switch';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Icons } from '@/components/icons';
+import { SoftHardDeleteMenu } from '@/components/soft-hard-delete-menu';
 import { useAuth } from '@/lib/auth/auth-provider';
 import {
   activateContract,
@@ -225,10 +233,10 @@ export function EmployeeDetail({ id }: { id: number }) {
     }
   }
 
-  async function onDeleteContract(contractId: number) {
-    if (!window.confirm('Hapus kontrak ini?')) return;
+  async function onDeleteContract(contractId: number, hard = false) {
+    if (!window.confirm(hard ? 'Hapus permanen kontrak ini?' : 'Hapus kontrak ini?')) return;
     try {
-      await deleteContract(id, contractId);
+      await deleteContract(id, contractId, hard);
       toast.success('Kontrak dihapus.');
       loadAll();
     } catch (err) {
@@ -236,10 +244,10 @@ export function EmployeeDetail({ id }: { id: number }) {
     }
   }
 
-  async function onDeleteDocument(docId: number) {
-    if (!window.confirm('Hapus dokumen ini?')) return;
+  async function onDeleteDocument(docId: number, hard = false) {
+    if (!window.confirm(hard ? 'Hapus permanen dokumen ini?' : 'Hapus dokumen ini?')) return;
     try {
-      await deleteDocument(id, docId);
+      await deleteDocument(id, docId, hard);
       toast.success('Dokumen dihapus.');
       loadAll();
     } catch (err) {
@@ -538,10 +546,10 @@ export function EmployeeDetail({ id }: { id: number }) {
                                 Activate
                               </Button>
                               {isAdmin && (
-                                <Button variant='ghost' size='sm' onClick={() => onDeleteContract(c.id)}>
-                                  <Icons.trash />
-                                  Hapus
-                                </Button>
+                                <SoftHardDeleteMenu
+                                  onSoft={() => onDeleteContract(c.id)}
+                                  onHard={() => onDeleteContract(c.id, true)}
+                                />
                               )}
                             </>
                           )}
@@ -554,18 +562,18 @@ export function EmployeeDetail({ id }: { id: number }) {
                                 Terminate
                               </Button>
                               {isAdmin && (
-                                <Button variant='ghost' size='sm' onClick={() => onDeleteContract(c.id)}>
-                                  <Icons.trash />
-                                  Hapus
-                                </Button>
+                                <SoftHardDeleteMenu
+                                  onSoft={() => onDeleteContract(c.id)}
+                                  onHard={() => onDeleteContract(c.id, true)}
+                                />
                               )}
                             </>
                           )}
                           {(c.status === 'EXPIRED' || c.status === 'RENEWED' || c.status === 'TERMINATED') && isAdmin && (
-                            <Button variant='ghost' size='sm' onClick={() => onDeleteContract(c.id)}>
-                              <Icons.trash />
-                              Hapus
-                            </Button>
+                            <SoftHardDeleteMenu
+                              onSoft={() => onDeleteContract(c.id)}
+                              onHard={() => onDeleteContract(c.id, true)}
+                            />
                           )}
                         </div>
                       </TableCell>
@@ -722,10 +730,10 @@ export function EmployeeDetail({ id }: { id: number }) {
                         </a>
                       )}
                       {isAdmin && (
-                        <Button variant='ghost' size='sm' onClick={() => onDeleteDocument(d.id)}>
-                          <Icons.trash />
-                          Hapus
-                        </Button>
+                        <SoftHardDeleteMenu
+                          onSoft={() => onDeleteDocument(d.id)}
+                          onHard={() => onDeleteDocument(d.id, true)}
+                        />
                       )}
                     </div>
                   </TableCell>

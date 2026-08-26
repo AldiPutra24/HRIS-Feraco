@@ -2,12 +2,14 @@ import csv
 import io
 
 from django.db.models import Q
+from django.utils import timezone
 from rest_framework import generics, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework.response import Response
 
 from apps.audit.services import log_event
+from apps.softdelete import SoftHardDeleteMixin
 
 from .models import Department, Employee, EmployeeContract, EmployeeDocument, EmploymentHistory, Position
 from .permissions import IsHRStaff
@@ -60,7 +62,7 @@ def _resolve_position(name):
     return Position.objects.filter(name__iexact=name).first()
 
 
-class EmployeeViewSet(viewsets.ModelViewSet):
+class EmployeeViewSet(SoftHardDeleteMixin, viewsets.ModelViewSet):
     queryset = Employee.objects.select_related('department', 'position', 'manager').all()
     serializer_class = EmployeeSerializer
     permission_classes = [IsHRStaff]
@@ -96,12 +98,17 @@ class EmployeeViewSet(viewsets.ModelViewSet):
         after = EmployeeSerializer(employee).data
         log_event(self.request, 'update', obj=employee, description=f'Employee {employee.employee_id} updated', changes_before=before, changes_after=after)
 
-    def perform_destroy(self, instance):
+    def soft_delete(self, instance):
         # Soft-delete: keep history/contracts/documents intact.
         instance.status = 'INACTIVE'
         instance.employment_status = 'INACTIVE'
         instance.save(update_fields=['status', 'employment_status', 'updated_at'])
         log_event(self.request, 'delete', obj=instance, description=f'Employee {instance.employee_id} deactivated')
+
+    def hard_delete(self, instance):
+        employee_id = instance.employee_id
+        instance.delete()
+        log_event(self.request, 'delete', obj=None, description=f'Employee {employee_id} hard-deleted')
 
     @action(detail=False, methods=['post'], parser_classes=[MultiPartParser, FormParser])
     def import_csv(self, request):
@@ -156,7 +163,7 @@ class EmployeeViewSet(viewsets.ModelViewSet):
         if request.method == 'GET':
             sync_contract_status()
             data = EmployeeContractSerializer(
-                employee.contracts.all(), many=True, context={'request': request}
+                employee.contracts.filter(deleted_at__isnull=True), many=True, context={'request': request}
             ).data
             return Response(data)
         serializer = EmployeeContractSerializer(data=request.data, context={'request': request})
@@ -254,8 +261,23 @@ class EmployeeViewSet(viewsets.ModelViewSet):
         contract = EmployeeContract.objects.filter(pk=contract_pk, employee_id=pk).first()
         if contract is None:
             return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
-        contract.delete()
+        # Soft-delete: mark deleted_at, keep record for history/audit.
+        contract.deleted_at = timezone.now()
+        contract.save(update_fields=['deleted_at', 'updated_at'])
         log_event(request, 'delete', obj=None, description=f'Contract {contract.contract_type} deleted')
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(detail=True, methods=['delete'], url_path=r'contracts/(?P<contract_pk>\d+)/hard-delete')
+    def hard_delete_contract(self, request, pk=None, contract_pk=None):
+        from apps.personnel.permissions import _role
+
+        if _role(request.user) != 'ADMIN':
+            return Response({'detail': 'Only admin can delete contracts.'}, status=status.HTTP_403_FORBIDDEN)
+        contract = EmployeeContract.objects.filter(pk=contract_pk, employee_id=pk).first()
+        if contract is None:
+            return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
+        contract.delete()
+        log_event(request, 'delete', obj=None, description=f'Contract {contract.contract_type} hard-deleted')
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     @action(detail=True, methods=['get', 'post'])
@@ -275,7 +297,7 @@ class EmployeeViewSet(viewsets.ModelViewSet):
         employee = self.get_object()
         if request.method == 'GET':
             data = EmployeeDocumentSerializer(
-                employee.documents.all(), many=True, context={'request': request}
+                employee.documents.filter(deleted_at__isnull=True), many=True, context={'request': request}
             ).data
             return Response(data)
 
@@ -321,10 +343,25 @@ class EmployeeViewSet(viewsets.ModelViewSet):
         doc = EmployeeDocument.objects.filter(pk=doc_pk, employee_id=pk).first()
         if doc is None:
             return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
+        # Soft-delete: mark deleted_at, keep blob + metadata for audit.
+        doc.deleted_at = timezone.now()
+        doc.save(update_fields=['deleted_at'])
+        log_event(request, 'delete', obj=None, description=f'Document {doc.name} deleted')
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(detail=True, methods=['delete'], url_path=r'documents/(?P<doc_pk>\d+)/hard-delete')
+    def hard_delete_document(self, request, pk=None, doc_pk=None):
+        from apps.personnel.permissions import _role
+
+        if _role(request.user) != 'ADMIN':
+            return Response({'detail': 'Only admin can delete documents.'}, status=status.HTTP_403_FORBIDDEN)
+        doc = EmployeeDocument.objects.filter(pk=doc_pk, employee_id=pk).first()
+        if doc is None:
+            return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
         if is_configured():
             delete_object('employee-documents', doc.storage_path)
         doc.delete()
-        log_event(request, 'delete', obj=None, description=f'Document {doc.name} deleted')
+        log_event(request, 'delete', obj=None, description=f'Document {doc.name} hard-deleted')
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
@@ -344,7 +381,7 @@ class DocumentDownloadView(generics.GenericAPIView):
         return redirect(url)
 
 
-class DepartmentViewSet(viewsets.ModelViewSet):
+class DepartmentViewSet(SoftHardDeleteMixin, viewsets.ModelViewSet):
     queryset = Department.objects.all()
     serializer_class = DepartmentSerializer
     permission_classes = [IsHRStaff]
@@ -360,20 +397,28 @@ class DepartmentViewSet(viewsets.ModelViewSet):
         dept = serializer.save()
         log_event(self.request, 'update', obj=dept, description=f'Department {dept.name} updated')
 
-    def perform_destroy(self, instance):
+    def _check_in_use(self, instance):
         count = instance.employees.count()
         if count:
             from rest_framework.exceptions import ValidationError
 
             raise ValidationError({'detail': f'Department masih digunakan oleh {count} karyawan.'})
+
+    def soft_delete(self, instance):
+        self._check_in_use(instance)
         name = instance.name
         # Soft-delete: preserve audit history referencing this department.
         instance.is_active = False
         instance.save(update_fields=['is_active', 'updated_at'])
         log_event(self.request, 'delete', obj=instance, description=f'Department {name} deactivated')
 
+    def hard_delete(self, instance):
+        name = instance.name
+        instance.delete()
+        log_event(self.request, 'delete', obj=None, description=f'Department {name} hard-deleted')
 
-class PositionViewSet(viewsets.ModelViewSet):
+
+class PositionViewSet(SoftHardDeleteMixin, viewsets.ModelViewSet):
     queryset = Position.objects.select_related('department').all()
     serializer_class = PositionSerializer
     permission_classes = [IsHRStaff]
@@ -389,14 +434,22 @@ class PositionViewSet(viewsets.ModelViewSet):
         pos = serializer.save()
         log_event(self.request, 'update', obj=pos, description=f'Position {pos.name} updated')
 
-    def perform_destroy(self, instance):
+    def _check_in_use(self, instance):
         count = instance.employees.count()
         if count:
             from rest_framework.exceptions import ValidationError
 
             raise ValidationError({'detail': f'Position masih digunakan oleh {count} karyawan.'})
+
+    def soft_delete(self, instance):
+        self._check_in_use(instance)
         name = instance.name
         # Soft-delete: preserve audit history referencing this position.
         instance.is_active = False
         instance.save(update_fields=['is_active', 'updated_at'])
         log_event(self.request, 'delete', obj=instance, description=f'Position {name} deactivated')
+
+    def hard_delete(self, instance):
+        name = instance.name
+        instance.delete()
+        log_event(self.request, 'delete', obj=None, description=f'Position {name} hard-deleted')

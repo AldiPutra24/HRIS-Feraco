@@ -63,6 +63,18 @@ Starts PostgreSQL, Django (migrate + seed + gunicorn on :8000), Next.js on :3000
 
 - Email: `admin@feraco.id` / Password: `password`
 
+## Roles
+
+| Role | Keterangan |
+| --- | --- |
+| `ADMIN` | Akses penuh: kelola user, role, permission, seluruh modul, audit log. |
+| `HR_STAFF` | Operasional HR harian: kelola karyawan, kontrak, cuti/izin, reimbursement. |
+| `HR_LEAD` | Supervisor HR: approval cuti, review + audit log (baca), kelola departemen & posisi. |
+| `EMPLOYEE` | Self-service: lihat profil, ajukan cuti/izin, lihat kontrak sendiri. |
+| `MANAGEMENT` | Lihat laporan/ringkasan & approval strategis (read-heavy). |
+
+Catatan: filtering menu di frontend (`use-nav.ts`) hanya UI; otorisasi di backend (Django permission/role).
+
 ## Last Progress
 
 **Audit Log (Extended) + Leave Module Polish** — last updated 2026-08-26

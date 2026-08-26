@@ -4,10 +4,13 @@ import { useEffect, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { Icons } from '@/components/icons';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
+import { SoftHardDeleteMenu } from '@/components/soft-hard-delete-menu';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { AUDIT_ACTIONS, listAuditLogs, type AuditEntry } from '@/lib/audit';
+import { clearAllAuditLogs, deleteAuditLog, AUDIT_ACTIONS, listAuditLogs, type AuditEntry } from '@/lib/audit';
+import { useAuth } from '@/lib/auth/auth-provider';
 
 function fmtTime(ts: string) {
   const d = new Date(ts);
@@ -31,6 +34,8 @@ function changedCount(e: AuditEntry) {
 }
 
 export function AuditLogList() {
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
   const [entries, setEntries] = useState<AuditEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -60,6 +65,26 @@ export function AuditLogList() {
     }
   }
 
+  async function onDelete(id: number, hard = false) {
+    if (!window.confirm(hard ? 'Hapus permanen log ini?' : 'Hapus log ini?')) return;
+    try {
+      await deleteAuditLog(id, hard);
+      load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Gagal menghapus log.');
+    }
+  }
+
+  async function onClearAll() {
+    if (!window.confirm('Hapus SEMUA audit log secara permanen?')) return;
+    try {
+      await clearAllAuditLogs();
+      load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Gagal menghapus log.');
+    }
+  }
+
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -78,6 +103,14 @@ export function AuditLogList() {
       <div>
         <h2 className='text-2xl font-bold tracking-tight'>Audit Log</h2>
         <p className='text-muted-foreground text-sm'>Jejak aktivitas penting pada sistem.</p>
+        {isAdmin && (
+          <div className='mt-2'>
+            <Button variant='destructive' size='sm' onClick={onClearAll}>
+              <Icons.trash />
+              Hapus Semua
+            </Button>
+          </div>
+        )}
       </div>
 
       <Card>
@@ -132,6 +165,7 @@ export function AuditLogList() {
                   <TableHead>Module</TableHead>
                   <TableHead>Object</TableHead>
                   <TableHead>Detail</TableHead>
+                  {isAdmin && <TableHead className='text-right'>Aksi</TableHead>}
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -143,11 +177,20 @@ export function AuditLogList() {
                     <TableCell>{e.module || '-'}</TableCell>
                     <TableCell className='max-w-40 truncate'>{e.object_repr || e.entity_type || '-'}</TableCell>
                     <TableCell className='max-w-56 truncate'>{e.description || (changedCount(e) > 0 ? `${changedCount(e)} field berubah` : '-')}</TableCell>
+                    {isAdmin && (
+                      <TableCell className='text-right' onClick={(ev) => ev.stopPropagation()}>
+                        <SoftHardDeleteMenu
+                          label=''
+                          onSoft={() => onDelete(e.id)}
+                          onHard={() => onDelete(e.id, true)}
+                        />
+                      </TableCell>
+                    )}
                   </TableRow>
                 ))}
                 {entries.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={6} className='text-muted-foreground py-8 text-center'>
+                    <TableCell colSpan={isAdmin ? 7 : 6} className='text-muted-foreground py-8 text-center'>
                       Tidak ada aktivitas yang cocok.
                     </TableCell>
                   </TableRow>

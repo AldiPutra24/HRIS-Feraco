@@ -8,16 +8,18 @@ function getCookie(name: string): string | null {
   return match ? decodeURIComponent(match[1]) : null;
 }
 
-async function request<T>(path: string): Promise<T> {
-  const headers = new Headers();
+async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const headers = new Headers(init.headers);
   const csrf = getCookie('csrftoken');
-  if (csrf) headers.set('X-CSRFToken', csrf);
-  const res = await fetch(`${BASE}${path}`, { headers, credentials: 'include' });
+  const method = (init.method ?? 'GET').toUpperCase();
+  if (csrf && ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) headers.set('X-CSRFToken', csrf);
+  const res = await fetch(`${BASE}${path}`, { ...init, headers, credentials: 'include' });
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
     const msg = typeof data.detail === 'string' ? data.detail : `API error ${res.status}`;
     throw new Error(msg || `API error ${res.status}`);
   }
+  if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;
 }
 
@@ -49,4 +51,12 @@ export function listAuditLogs(params: Record<string, string | undefined> = {}): 
   const q = new URLSearchParams();
   for (const [k, v] of Object.entries(params)) if (v) q.set(k, v);
   return request<Page<AuditEntry>>(`/audit/audit-logs/?${q.toString()}`);
+}
+
+export function deleteAuditLog(id: number, hard = false): Promise<void> {
+  return request<void>(`/audit/audit-logs/${id}/${hard ? 'hard-delete/' : ''}`, { method: 'DELETE' });
+}
+
+export function clearAllAuditLogs(): Promise<{ deleted: number }> {
+  return request<{ deleted: number }>('/audit/audit-logs/clear-all/', { method: 'DELETE' });
 }

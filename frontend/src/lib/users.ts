@@ -61,6 +61,6 @@ export function updateUser(id: number, data: Partial<AdminUser> & { password?: s
   return request<AdminUser>(`/auth/users/${id}/`, { method: 'PATCH', body: JSON.stringify(data) });
 }
 
-export function deleteUser(id: number): Promise<void> {
-  return request<void>(`/auth/users/${id}/`, { method: 'DELETE' });
+export function deleteUser(id: number, hard = false): Promise<void> {
+  return request<void>(`/auth/users/${id}/${hard ? 'hard-delete/' : ''}`, { method: 'DELETE' });
 }

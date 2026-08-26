@@ -4,7 +4,9 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from ..audit.services import log_event
+from apps.audit.services import log_event
+from apps.softdelete import SoftHardDeleteMixin
+
 from .models import Role, User
 from .permissions import IsAdminRole
 from .serializers import LoginSerializer, RoleSerializer, UserAdminSerializer, UserSerializer
@@ -70,7 +72,7 @@ class RoleViewSet(viewsets.ReadOnlyModelViewSet):
     permission_classes = [IsAdminRole]
     pagination_class = None
 
-class UserAdminViewSet(viewsets.ModelViewSet):
+class UserAdminViewSet(SoftHardDeleteMixin, viewsets.ModelViewSet):
     queryset = User.objects.select_related('role', 'personnel__employee').all()
     serializer_class = UserAdminSerializer
     permission_classes = [IsAdminRole]
@@ -87,9 +89,18 @@ class UserAdminViewSet(viewsets.ModelViewSet):
         user = serializer.save()
         log_event(self.request, 'update', obj=user, description=f'User {user.username} updated')
 
-    def perform_destroy(self, instance):
+    def _assert_not_self(self, instance):
         if instance.pk == self.request.user.pk:
             from rest_framework.exceptions import ValidationError
             raise ValidationError({'detail': 'Tidak dapat menghapus akun sendiri.'})
-        log_event(self.request, 'delete', obj=instance, description=f'User {instance.username} deleted')
+
+    def soft_delete(self, instance):
+        self._assert_not_self(instance)
+        log_event(self.request, 'delete', obj=instance, description=f'User {instance.username} deactivated')
+        instance.is_active = False
+        instance.save(update_fields=['is_active'])
+
+    def hard_delete(self, instance):
+        self._assert_not_self(instance)
+        log_event(self.request, 'delete', obj=instance, description=f'User {instance.username} hard-deleted')
         instance.delete()

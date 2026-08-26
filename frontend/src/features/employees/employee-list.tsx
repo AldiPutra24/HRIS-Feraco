@@ -5,6 +5,13 @@ import Link from 'next/link';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger
+} from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -52,9 +59,10 @@ export function EmployeeList() {
     setLoading(false);
   }
 
-  async function handleDelete(e: Employee) {
-    if (!window.confirm(`Hapus karyawan ${e.full_name}?`)) return;
-    await deleteEmployee(e.id);
+  async function handleDelete(e: Employee, hard = false) {
+    const label = hard ? `Hapus permanen karyawan ${e.full_name}? Data tidak bisa dikembalikan.` : `Hapus karyawan ${e.full_name}?`;
+    if (!window.confirm(label)) return;
+    await deleteEmployee(e.id, hard);
     load();
   }
 
@@ -220,10 +228,18 @@ export function EmployeeList() {
                           Edit
                         </Button>
                         {canDelete && (
-                          <Button variant='ghost' size='sm' onClick={() => handleDelete(e)}>
-                            <Icons.trash />
-                            Hapus
-                          </Button>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger render={<Button variant='ghost' size='sm'><Icons.trash /> Hapus</Button>} />
+                            <DropdownMenuContent align='end'>
+                              <DropdownMenuItem onClick={() => handleDelete(e)}>
+                                Hapus (soft)
+                              </DropdownMenuItem>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem variant='destructive' onClick={() => handleDelete(e, true)}>
+                                Hapus permanen
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
                         )}
                       </div>
                     </TableCell>

@@ -4,6 +4,13 @@ import { useEffect, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger
+} from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -130,10 +137,11 @@ export function PositionList() {
     }
   }
 
-  async function handleDelete(p: Position) {
-    if (!window.confirm(`Hapus position ${p.name}?`)) return;
+  async function handleDelete(p: Position, hard = false) {
+    const label = hard ? `Hapus permanen position ${p.name}? Data tidak bisa dikembalikan.` : `Hapus position ${p.name}?`;
+    if (!window.confirm(label)) return;
     try {
-      await deletePosition(p.id);
+      await deletePosition(p.id, hard);
       load();
     } catch (err) {
       setError(apiError(err));
@@ -273,10 +281,18 @@ export function PositionList() {
                           <Icons.edit />
                           Edit
                         </Button>
-                        <Button variant='ghost' size='sm' onClick={() => handleDelete(p)}>
-                          <Icons.trash />
-                          Hapus
-                        </Button>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger render={<Button variant='ghost' size='sm'><Icons.trash /> Hapus</Button>} />
+                          <DropdownMenuContent align='end'>
+                            <DropdownMenuItem onClick={() => handleDelete(p)}>
+                              Hapus (soft)
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem variant='destructive' onClick={() => handleDelete(p, true)}>
+                              Hapus permanen
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                       </div>
                     </TableCell>
                   </TableRow>
