@@ -72,24 +72,49 @@ TEMPLATES = [
 WSGI_APPLICATION = 'config.wsgi.application'
 ASGI_APPLICATION = 'config.asgi.application'
 
-# Database — Supabase PostgreSQL by default, SQLite override for local/testing.
-# Supabase direct connection: postgresql://postgres:<password>@db.<ref>.supabase.co:5432/postgres
-if os.environ.get('DB_ENGINE', 'postgres').lower() == 'sqlite':
+# Environment: 'development' | 'production'. Controls defaults (storage bucket,
+# security flags). The database backend is chosen explicitly by DB_ENGINE.
+APP_ENV = os.environ.get('APP_ENV', 'development').lower()
+
+# DB_ENGINE: 'sqlite' (tests/quick local) | 'postgresql' (local PostgreSQL) |
+# 'supabase' (Supabase PostgreSQL). Defaults to supabase in production,
+# postgresql otherwise.
+_db = os.environ.get('DB_ENGINE', '').strip().lower() or (
+    'supabase' if APP_ENV == 'production' else 'postgresql'
+)
+if _db == 'sqlite':
     DATABASES = {
         'default': {
             'ENGINE': 'django.db.backends.sqlite3',
             'NAME': BASE_DIR / 'db.sqlite3',
         }
     }
-else:
+elif _db == 'supabase':
+    # Supabase PostgreSQL — credentials from server env vars only.
+    _missing = [k for k in ('SUPABASE_DB_NAME', 'SUPABASE_DB_USER', 'SUPABASE_DB_PASSWORD', 'SUPABASE_DB_HOST') if not os.environ.get(k)]
+    if _missing:
+        raise RuntimeError(f'Missing Supabase DB env vars: {", ".join(_missing)}')
     DATABASES = {
         'default': {
             'ENGINE': 'django.db.backends.postgresql',
-            'NAME': os.environ.get('SUPABASE_DB_NAME', os.environ.get('POSTGRES_DB', 'postgres')),
-            'USER': os.environ.get('SUPABASE_DB_USER', os.environ.get('POSTGRES_USER', 'postgres')),
-            'PASSWORD': os.environ.get('SUPABASE_DB_PASSWORD', os.environ.get('POSTGRES_PASSWORD', '')),
-            'HOST': os.environ.get('SUPABASE_DB_HOST', os.environ.get('POSTGRES_HOST', 'localhost')),
-            'PORT': os.environ.get('SUPABASE_DB_PORT', os.environ.get('POSTGRES_PORT', '5432')),
+            'NAME': os.environ['SUPABASE_DB_NAME'],
+            'USER': os.environ['SUPABASE_DB_USER'],
+            'PASSWORD': os.environ['SUPABASE_DB_PASSWORD'],
+            'HOST': os.environ['SUPABASE_DB_HOST'],
+            'PORT': os.environ.get('SUPABASE_DB_PORT', '5432'),
+            'CONN_MAX_AGE': 60,
+        }
+    }
+else:
+    # Local PostgreSQL.
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.postgresql',
+            'NAME': os.environ.get('DB_NAME', os.environ.get('POSTGRES_DB', 'hris_dev')),
+            'USER': os.environ.get('DB_USER', os.environ.get('POSTGRES_USER', 'postgres')),
+            'PASSWORD': os.environ.get('DB_PASSWORD', os.environ.get('POSTGRES_PASSWORD', '')),
+            'HOST': os.environ.get('DB_HOST', os.environ.get('POSTGRES_HOST', 'localhost')),
+            'PORT': os.environ.get('DB_PORT', os.environ.get('POSTGRES_PORT', '5432')),
             'CONN_MAX_AGE': 60,
         }
     }
@@ -97,7 +122,10 @@ else:
 # Supabase — storage + auth metadata (service key is backend-only).
 SUPABASE_URL = os.environ.get('SUPABASE_URL', '')
 SUPABASE_SECRET_KEY = os.environ.get('SUPABASE_SECRET_KEY', '')
-SUPABASE_STORAGE_BUCKET = os.environ.get('SUPABASE_STORAGE_BUCKET', 'employee-documents')
+SUPABASE_STORAGE_BUCKET = os.environ.get(
+    'SUPABASE_STORAGE_BUCKET',
+    'employee-documents' if APP_ENV == 'production' else 'employee-documents-dev',
+)
 
 AUTH_USER_MODEL = 'accounts.User'
 
@@ -150,3 +178,9 @@ SESSION_COOKIE_SAMESITE = 'Lax'
 CSRF_COOKIE_SAMESITE = 'Lax'
 SESSION_COOKIE_HTTPONLY = True
 CSRF_COOKIE_HTTPONLY = False  # JS must read the token value for the X-CSRFToken header
+
+# Production HTTPS behind a reverse proxy (nginx).
+if APP_ENV == 'production':
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True

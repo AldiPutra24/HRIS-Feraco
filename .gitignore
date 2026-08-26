@@ -27,6 +27,8 @@ frontend/dev_out.txt
 .env*
 .env*.local
 !**/.env.example
+!**/.env.development.example
+!**/.env.production.example
 
 # vercel
 .vercel
