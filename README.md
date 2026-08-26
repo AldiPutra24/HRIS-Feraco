@@ -65,8 +65,8 @@ Starts PostgreSQL, Django (migrate + seed + gunicorn on :8000), Next.js on :3000
 
 ## Last Progress
 
-**Employee Self-Service Dashboard + User↔Employee Link** — last updated 2026-08-24
+**Audit Log (Extended) + Leave Module Polish** — last updated 2026-08-26
 
-- **Backend** — `UserAdminSerializer` links a user to an Employee (`employee` write-only PK; one user↔one employee; name/email/username auto-filled from Employee). `GET /api/auth/me/employee/` + `GET /api/auth/me/employee/contracts/` self-service endpoints. `LeaveBalanceViewSet` scopes non-HR to own balances. Leave attachment GET+POST merged into one `attachment` action (fixed 405 route collision).
-- **Frontend** — role-based nav: EMPLOYEE sees `/dashboard/employee` (Overview/Profile/Izin & Cuti/Kontrak), HR/Admin sees existing dashboard. `ProtectedRoute` enforces role-route isolation. Leave submit form moved to `/dashboard/employee/leave/new`; HR `/dashboard/leave` is list-only. Users page: Karyawan dropdown (EMPLOYEE role only), single "Nama" field.
-- **Validation** — backend `check` pass, 62 tests pass; frontend `tsc`, `oxlint`, `next build` clean.
+- **Backend** — `AuditLog` extended with APPROVE/REJECT/ACTIVATE/TERMINATE/RENEW/UPLOAD/DOWNLOAD actions + `changes_before`/`changes_after`/`metadata` (JSON) + `user_agent`. `log_event` sanitizes sensitive fields (password/secret/token/nik/npwp/bpjs/rekening) and `diff_changes` records only changed fields for UPDATE. Read API `/api/audit/audit-logs/` (ADMIN/HR_LEAD only) with action/user/module/entity/date filters. Employee UPDATE captures before/after; contract activate/terminate/renew, document upload/download, leave approve/reject log semantic actions. Soft-delete: Employee → INACTIVE, Department/Position → `is_active=False` (no hard deletes).
+- **Frontend** — `/dashboard/settings/audit-log` page (filter bar + table Time/Actor/Action/Module/Object/Detail + click-to-expand before/after). Employee Detail History tab shows "Audit Trail" for that employee. `seed_leave_types` + leave-type dropdown now correct on Supabase Postgres.
+- **Validation** — backend `check` pass, 66 tests pass; frontend `tsc`, `oxlint`, `next build` clean.

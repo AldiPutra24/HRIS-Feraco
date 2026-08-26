@@ -269,7 +269,8 @@ class DepartmentApiTests(TestCase):
         dept = Department.objects.create(name='Finance')
         res = self.client.delete(reverse('department-detail', args=[dept.pk]))
         self.assertEqual(res.status_code, 204)
-        self.assertFalse(Department.objects.filter(pk=dept.pk).exists())
+        dept.refresh_from_db()
+        self.assertFalse(dept.is_active)
 
     def test_delete_used_department_rejected(self):
         dept = Department.objects.create(name='Finance')

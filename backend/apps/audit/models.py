@@ -10,6 +10,13 @@ class AuditLog(models.Model):
         ('create', 'Create'),
         ('update', 'Update'),
         ('delete', 'Delete'),
+        ('approve', 'Approve'),
+        ('reject', 'Reject'),
+        ('activate', 'Activate'),
+        ('terminate', 'Terminate'),
+        ('renew', 'Renew'),
+        ('upload', 'Upload'),
+        ('download', 'Download'),
         ('permission_change', 'Permission Change'),
         ('role_change', 'Role Change'),
     ]
@@ -26,7 +33,11 @@ class AuditLog(models.Model):
     object_id = models.PositiveBigIntegerField(null=True, blank=True)
     content_object = GenericForeignKey('content_type', 'object_id')
     description = models.TextField(blank=True)
+    changes_before = models.JSONField(default=dict, blank=True)
+    changes_after = models.JSONField(default=dict, blank=True)
+    metadata = models.JSONField(default=dict, blank=True)
     ip_address = models.GenericIPAddressField(null=True, blank=True)
+    user_agent = models.CharField(max_length=255, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

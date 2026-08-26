@@ -44,8 +44,17 @@
 - `lib/leaves.ts`: `unwrapList<T>` handles both array and `{results}` paginated responses (DRF global PAGE_SIZE=20); `listLeaveRequests(params)` passes status/leave_type/employee; `listBalances()` unwraps too. Employees for Karyawan filter via `listEmployees({ employment_status: 'ACTIVE', page_size: '1000' })`.
 - lib/employees.ts + lib/users.ts API client to Django.
 
+### Audit Log
+- `AuditLog` extended: new actions APPROVE/REJECT/ACTIVATE/TERMINATE/RENEW/UPLOAD/DOWNLOAD (plus existing CREATE/UPDATE/DELETE/LOGIN/LOGOUT/permission_change/role_change); fields `changes_before`, `changes_after`, `metadata` (JSONField), `user_agent`. Migration `0002_auditlog_fields`.
+- `apps/audit/services.py`: `log_event` now records `user_agent` + sanitized changes/metadata; `_sanitize` redacts sensitive keys (password/secret/token/api_key/nik/npwp/bpjs/bank_account_number) recursively; `diff_changes(old,new)` returns only changed fields; `log_model_update` convenience.
+- `EmployeeViewSet.perform_update` captures before/after via `EmployeeSerializer` and passes to `log_event` (changes_before/after). Contract actions now log semantic actions: activate→'activate', terminate→'terminate', renew→'renew'. Document upload→'upload'; DocumentDownloadView + leave attachment download→'download'. Leave approve/reject→'approve'/'reject'; leave attachment upload→'upload'.
+- Audit read API: `AuditLogViewSet` (ReadOnly) at `/api/audit/audit-logs/`, permission `IsAuditViewer` (ADMIN/HR_LEAD only). Filters: action, user, module (content_type app_label), entity_type (model), entity_id, date_from/date_to. Paginated (DRF default 20).
+- Soft-delete: Employee `perform_destroy` → sets `status=INACTIVE` + `employment_status=INACTIVE` (keeps contracts/history/documents). Department/Position `perform_destroy` → `is_active=False` (blocked if in-use). No hard deletes.
+- Frontend `/dashboard/settings/audit-log`: filter bar (actor/action/module/date range + Terapkan/Reset), table (Time/Actor/Action/Module/Object/Detail), click row → detail card (before/after JSON + IP/UA). `lib/audit.ts` client + `AUDIT_ACTIONS`.
+- Employee Detail History tab: "Audit Trail" card listing audit entries for that employee (entity_type=employee, entity_id=id).
+
 ### Validation
-- Backend: check pass, 62 tests pass (SQLite; PostgreSQL teardown blocked by pgbouncer ObjectInUse — known).
+- Backend: check pass, 66 tests pass (SQLite; PostgreSQL teardown blocked by pgbouncer ObjectInUse — known).
 - Frontend: tsc pass, oxlint pass, next build exit 0.
 
 ### Demo login

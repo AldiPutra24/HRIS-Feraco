@@ -132,7 +132,7 @@ class LeaveRequestViewSet(viewsets.ModelViewSet):
         for recipient in hr_users:
             notify(recipient, leave, f'Pengajuan {leave.leave_type.name} {leave.employee.full_name} disetujui.')
         notify(getattr(leave.employee, 'user', None), leave, f'Pengajuan {leave.leave_type.name} Anda disetujui.')
-        log_event(request, 'update', obj=leave, description=f'Leave request {leave.id} approved')
+        log_event(request, 'approve', obj=leave, description=f'Leave request {leave.id} approved')
         return Response(LeaveRequestSerializer(leave, context={'request': request}).data)
 
     @action(detail=True, methods=['post'])
@@ -159,7 +159,7 @@ class LeaveRequestViewSet(viewsets.ModelViewSet):
         for recipient in self._hr_users():
             notify(recipient, leave, f'Pengajuan {leave.leave_type.name} {leave.employee.full_name} ditolak.')
         notify(getattr(leave.employee, 'user', None), leave, f'Pengajuan {leave.leave_type.name} Anda ditolak.')
-        log_event(request, 'update', obj=leave, description=f'Leave request {leave.id} rejected')
+        log_event(request, 'reject', obj=leave, description=f'Leave request {leave.id} rejected')
         return Response(LeaveRequestSerializer(leave, context={'request': request}).data)
 
     @action(detail=True, methods=['post'])
@@ -201,6 +201,7 @@ class LeaveRequestViewSet(viewsets.ModelViewSet):
         leave.attachment_path = path
         leave.attachment_content_type = upload.content_type or ''
         leave.save(update_fields=['attachment_name', 'attachment_path', 'attachment_content_type', 'updated_at'])
+        log_event(request, 'upload', obj=leave, description=f'Leave request {leave.id} attachment uploaded')
         return Response(LeaveRequestSerializer(leave, context={'request': request}).data)
 
     def _download_attachment(self, request, leave):
@@ -210,6 +211,7 @@ class LeaveRequestViewSet(viewsets.ModelViewSet):
             return Response({'detail': 'Storage tidak dikonfigurasi.'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
         from django.shortcuts import redirect
 
+        log_event(request, 'download', obj=leave, description=f'Leave request {leave.id} attachment downloaded')
         return redirect(signed_url('employee-documents', leave.attachment_path))
 
     @action(detail=False, methods=['get'])

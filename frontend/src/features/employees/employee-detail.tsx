@@ -31,6 +31,7 @@ import {
   type Employee,
   type History
 } from '@/lib/employees';
+import { listAuditLogs, type AuditEntry } from '@/lib/audit';
 
 const TABS = ['Overview', 'Employment', 'Contracts', 'History', 'Documents'] as const;
 type Tab = (typeof TABS)[number];
@@ -51,6 +52,7 @@ export function EmployeeDetail({ id }: { id: number }) {
   const [contracts, setContracts] = useState<Contract[]>([]);
   const [history, setHistory] = useState<History[]>([]);
   const [documents, setDocuments] = useState<Document[]>([]);
+  const [audit, setAudit] = useState<AuditEntry[]>([]);
   const [tab, setTab] = useState<Tab>('Overview');
   const [loading, setLoading] = useState(true);
   const [contractForm, setContractForm] = useState({
@@ -82,6 +84,11 @@ export function EmployeeDetail({ id }: { id: number }) {
     setHistory(hs);
     setDocuments(docs);
     setLoading(false);
+    if (emp.employee_id) {
+      listAuditLogs({ entity_type: 'employee', entity_id: String(id) })
+        .then((d) => setAudit(d.results))
+        .catch(() => setAudit([]));
+    }
   }, [id]);
 
   useEffect(() => {
@@ -647,6 +654,40 @@ export function EmployeeDetail({ id }: { id: number }) {
               ))}
             </TableBody>
           </Table>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Audit Trail</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {audit.length === 0 ? (
+                <p className='text-muted-foreground text-sm'>Belum ada aktivitas audit terkait karyawan ini.</p>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Time</TableHead>
+                      <TableHead>Actor</TableHead>
+                      <TableHead>Action</TableHead>
+                      <TableHead>Detail</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {audit.map((a) => (
+                      <TableRow key={a.id}>
+                        <TableCell className='whitespace-nowrap'>{new Date(a.timestamp).toLocaleString()}</TableCell>
+                        <TableCell>{a.actor || '-'}</TableCell>
+                        <TableCell>
+                          <Badge variant='outline'>{a.action}</Badge>
+                        </TableCell>
+                        <TableCell className='max-w-72 truncate'>{a.description || '-'}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
         </div>
       )}
 

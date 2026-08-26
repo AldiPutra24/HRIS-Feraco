@@ -90,12 +90,18 @@ class EmployeeViewSet(viewsets.ModelViewSet):
         log_event(self.request, 'create', obj=employee, description=f'Employee {employee.employee_id} created')
 
     def perform_update(self, serializer):
+        old = self.get_object()
+        before = EmployeeSerializer(old).data
         employee = serializer.save()
-        log_event(self.request, 'update', obj=employee, description=f'Employee {employee.employee_id} updated')
+        after = EmployeeSerializer(employee).data
+        log_event(self.request, 'update', obj=employee, description=f'Employee {employee.employee_id} updated', changes_before=before, changes_after=after)
 
     def perform_destroy(self, instance):
-        log_event(self.request, 'delete', obj=instance, description=f'Employee {instance.employee_id} deleted')
-        instance.delete()
+        # Soft-delete: keep history/contracts/documents intact.
+        instance.status = 'INACTIVE'
+        instance.employment_status = 'INACTIVE'
+        instance.save(update_fields=['status', 'employment_status', 'updated_at'])
+        log_event(self.request, 'delete', obj=instance, description=f'Employee {instance.employee_id} deactivated')
 
     @action(detail=False, methods=['post'], parser_classes=[MultiPartParser, FormParser])
     def import_csv(self, request):
@@ -196,7 +202,7 @@ class EmployeeViewSet(viewsets.ModelViewSet):
         if contract.end_date is None:
             return Response({'detail': 'Kontrak aktif wajib memiliki tanggal selesai.'}, status=status.HTTP_400_BAD_REQUEST)
         set_current_contract(contract)
-        log_event(request, 'update', obj=contract, description=f'Contract {contract.contract_number or contract.contract_type} activated')
+        log_event(request, 'activate', obj=contract, description=f'Contract {contract.contract_number or contract.contract_type} activated')
         return Response(EmployeeContractSerializer(contract, context={'request': request}).data)
 
     @action(detail=True, methods=['post'], url_path=r'contracts/(?P<contract_pk>\d+)/terminate')
@@ -211,7 +217,7 @@ class EmployeeViewSet(viewsets.ModelViewSet):
         contract.termination_date = request.data.get('termination_date') or None
         contract.termination_reason = request.data.get('termination_reason', '')
         contract.save(update_fields=['status', 'termination_date', 'termination_reason', 'updated_at'])
-        log_event(request, 'update', obj=contract, description=f'Contract {contract.contract_number or contract.contract_type} terminated')
+        log_event(request, 'terminate', obj=contract, description=f'Contract {contract.contract_number or contract.contract_type} terminated')
         return Response(EmployeeContractSerializer(contract, context={'request': request}).data)
 
     @action(detail=True, methods=['post'], url_path=r'contracts/(?P<contract_pk>\d+)/renew')
@@ -233,7 +239,7 @@ class EmployeeViewSet(viewsets.ModelViewSet):
         renewed = serializer.save(employee=employee)
         log_event(
             request,
-            'create',
+            'renew',
             obj=renewed,
             description=f'Contract {old_number} renewed → {renewed.contract_number or renewed.contract_type}',
         )
@@ -303,7 +309,7 @@ class EmployeeViewSet(viewsets.ModelViewSet):
             version=version,
             uploaded_by=request.user,
         )
-        log_event(request, 'create', obj=doc, description=f'Document {doc.name} v{version} uploaded')
+        log_event(request, 'upload', obj=doc, description=f'Document {doc.name} v{version} uploaded')
         return Response(EmployeeDocumentSerializer(doc, context={'request': request}).data, status=status.HTTP_201_CREATED)
 
     @action(detail=True, methods=['delete'], url_path=r'documents/(?P<doc_pk>\d+)')
@@ -334,6 +340,7 @@ class DocumentDownloadView(generics.GenericAPIView):
         url = signed_url('employee-documents', doc.storage_path)
         from django.shortcuts import redirect
 
+        log_event(request, 'download', obj=doc, description=f'Document {doc.name} downloaded')
         return redirect(url)
 
 
@@ -360,8 +367,10 @@ class DepartmentViewSet(viewsets.ModelViewSet):
 
             raise ValidationError({'detail': f'Department masih digunakan oleh {count} karyawan.'})
         name = instance.name
-        log_event(self.request, 'delete', obj=instance, description=f'Department {name} deleted')
-        instance.delete()
+        # Soft-delete: preserve audit history referencing this department.
+        instance.is_active = False
+        instance.save(update_fields=['is_active', 'updated_at'])
+        log_event(self.request, 'delete', obj=instance, description=f'Department {name} deactivated')
 
 
 class PositionViewSet(viewsets.ModelViewSet):
@@ -387,5 +396,7 @@ class PositionViewSet(viewsets.ModelViewSet):
 
             raise ValidationError({'detail': f'Position masih digunakan oleh {count} karyawan.'})
         name = instance.name
-        log_event(self.request, 'delete', obj=instance, description=f'Position {name} deleted')
-        instance.delete()
+        # Soft-delete: preserve audit history referencing this position.
+        instance.is_active = False
+        instance.save(update_fields=['is_active', 'updated_at'])
+        log_event(self.request, 'delete', obj=instance, description=f'Position {name} deactivated')
