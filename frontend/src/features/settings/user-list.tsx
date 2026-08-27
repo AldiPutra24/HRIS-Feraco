@@ -177,9 +177,20 @@ export function UserList() {
     }
   }
 
+  function makeUsername(emp: Employee): string {
+    const name = emp.full_name.replace(/[^a-zA-Z0-9]/g, '');
+    const dob = (emp.birth_date ?? '').replace(/-/g, '');
+    return (name + dob).toLowerCase();
+  }
+
   const roleName = (roleKey: string | null) => roles.find((r) => r.key === roleKey)?.name ?? roleKey ?? '-';
   const selectedRoleKey = roles.find((r) => String(r.id) === form.role)?.key ?? null;
   const isEmployeeRole = selectedRoleKey === 'EMPLOYEE';
+  const isHrRole = selectedRoleKey === 'HR_STAFF' || selectedRoleKey === 'HR_LEAD';
+  const showEmployeeSelect = isEmployeeRole || isHrRole;
+  const selectableEmployees = isHrRole
+    ? employees.filter((e) => e.department_name === 'HR & Finance')
+    : employees;
 
   return (
     <div className='flex flex-1 flex-col gap-4 p-4 md:p-6'>
@@ -230,14 +241,14 @@ export function UserList() {
                     ))}
                   </select>
                 </div>
-                {isEmployeeRole && (
+                {showEmployeeSelect && (
                   <div className='space-y-1.5'>
                     <Label>Karyawan</Label>
                   <select
                     className='border-input h-8 rounded-lg border bg-transparent px-2.5 text-sm'
                     value={form.employee}
                     onChange={(e) => {
-                      const employee = employees.find((emp) => emp.id === Number(e.target.value));
+                      const employee = selectableEmployees.find((emp) => emp.id === Number(e.target.value));
                       setForm((f) => ({
                         ...f,
                         employee: e.target.value,
@@ -246,14 +257,14 @@ export function UserList() {
                               first_name: employee.full_name,
                               last_name: '',
                               email: employee.personal_email || f.email,
-                              username: f.username || employee.employee_id.toLowerCase()
+                              username: f.username || makeUsername(employee)
                             }
                           : {})
                       }));
                     }}
                   >
                     <option value=''>-</option>
-                    {employees.map((emp) => (
+                    {selectableEmployees.map((emp) => (
                       <option key={emp.id} value={emp.id}>
                         {emp.full_name}
                       </option>

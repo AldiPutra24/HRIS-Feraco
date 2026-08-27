@@ -190,7 +190,6 @@ export function EmployeeList() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>ID</TableHead>
                   <TableHead>Nama</TableHead>
                   <TableHead>Departemen</TableHead>
                   <TableHead>Posisi</TableHead>
@@ -201,7 +200,6 @@ export function EmployeeList() {
               <TableBody>
                 {employees.map((e) => (
                   <TableRow key={e.id}>
-                    <TableCell>{e.employee_id}</TableCell>
                     <TableCell className='font-medium'>{e.full_name}</TableCell>
                     <TableCell>{e.department_name || '-'}</TableCell>
                     <TableCell>{e.position_name || '-'}</TableCell>

@@ -297,7 +297,7 @@ export function EmployeeDetail({ id }: { id: number }) {
       <div>
         <h2 className='text-2xl font-bold tracking-tight'>{employee.full_name}</h2>
         <p className='text-muted-foreground text-sm'>
-          {employee.employee_id} · {employee.position_name || '-'}
+          {employee.position_name || '-'}
         </p>
       </div>
 

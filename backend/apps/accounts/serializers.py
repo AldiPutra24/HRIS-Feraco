@@ -1,3 +1,5 @@
+import re
+
 from django.contrib.auth import authenticate
 from rest_framework import serializers
 
@@ -55,7 +57,9 @@ class UserAdminSerializer(serializers.ModelSerializer):
             attrs['last_name'] = ''
             attrs['email'] = employee.personal_email or attrs.get('email')
             if not attrs.get('username'):
-                attrs['username'] = employee.employee_id.lower()
+                name = re.sub(r'[^a-zA-Z0-9]', '', employee.full_name)
+                dob = employee.birth_date.strftime('%Y%m%d') if employee.birth_date else ''
+                attrs['username'] = (name + dob).lower()
         return attrs
 
     def create(self, validated_data):
