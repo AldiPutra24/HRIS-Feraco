@@ -14,8 +14,7 @@ export function AccountSettings() {
   const [form, setForm] = useState({
     username: '',
     email: '',
-    first_name: '',
-    last_name: '',
+    name: '',
     password: '',
     current_password: ''
   });
@@ -23,13 +22,11 @@ export function AccountSettings() {
 
   useEffect(() => {
     if (user) {
-      const [first_name = '', last_name = ''] = user.name.split(' ');
       setForm((f) => ({
         ...f,
-        username: user.email,
-        email: user.email,
-        first_name: f.first_name || first_name,
-        last_name: f.last_name || last_name
+        username: f.username || user.email,
+        email: f.email || user.email,
+        name: f.name || user.name
       }));
     }
   }, [user]);
@@ -41,8 +38,8 @@ export function AccountSettings() {
       await updateAccount({
         username: form.username.trim(),
         email: form.email.trim(),
-        first_name: form.first_name.trim(),
-        last_name: form.last_name.trim(),
+        first_name: form.name.trim(),
+        last_name: '',
         ...(form.password ? { password: form.password, current_password: form.current_password } : {})
       });
       setForm((f) => ({ ...f, password: '', current_password: '' }));
@@ -61,7 +58,7 @@ export function AccountSettings() {
         <p className='text-muted-foreground text-sm'>Perbarui username, email, nama, dan password akun Anda.</p>
       </div>
 
-      <Card className='max-w-xl'>
+      <Card className='w-full'>
         <CardHeader>
           <CardTitle>Profil Akun</CardTitle>
           <CardDescription>Role: {user?.role ?? '-'}</CardDescription>
@@ -76,15 +73,9 @@ export function AccountSettings() {
               <Label>Email</Label>
               <Input type='email' value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} />
             </div>
-            <div className='grid grid-cols-1 gap-4 md:grid-cols-2'>
-              <div className='space-y-1.5'>
-                <Label>Nama Depan</Label>
-                <Input value={form.first_name} onChange={(e) => setForm((f) => ({ ...f, first_name: e.target.value }))} />
-              </div>
-              <div className='space-y-1.5'>
-                <Label>Nama Belakang</Label>
-                <Input value={form.last_name} onChange={(e) => setForm((f) => ({ ...f, last_name: e.target.value }))} />
-              </div>
+            <div className='space-y-1.5'>
+              <Label>Nama</Label>
+              <Input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
             </div>
 
             <div className='border-slate-200 space-y-4 border-t pt-4'>
