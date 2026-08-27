@@ -1,22 +1,7 @@
-# Production deployment (VPS). Local PostgreSQL + Django + Next.js behind nginx.
+# Production deployment (VPS). Supabase PostgreSQL + Django + Next.js behind nginx.
 # Secrets come from a `.env` on the server (never committed).
 
 services:
-  postgres:
-    image: postgres:16-alpine
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB: ${DB_NAME:-hris}
-      POSTGRES_USER: ${DB_USER:-hris}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-hris}
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-    healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -U ${DB_USER:-hris}']
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
   backend:
     build: ./backend
     restart: unless-stopped
@@ -28,15 +13,15 @@ services:
              gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers 2"
     environment:
       APP_ENV: ${APP_ENV:-production}
-      DB_ENGINE: ${DB_ENGINE:-postgresql}
+      DB_ENGINE: ${DB_ENGINE:-supabase}
       DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY}
       DJANGO_DEBUG: 'false'
       DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS}
-      DB_NAME: ${DB_NAME}
-      DB_USER: ${DB_USER}
-      DB_PASSWORD: ${DB_PASSWORD}
-      DB_HOST: postgres
-      DB_PORT: '5432'
+      SUPABASE_DB_NAME: ${SUPABASE_DB_NAME}
+      SUPABASE_DB_USER: ${SUPABASE_DB_USER}
+      SUPABASE_DB_PASSWORD: ${SUPABASE_DB_PASSWORD}
+      SUPABASE_DB_HOST: ${SUPABASE_DB_HOST}
+      SUPABASE_DB_PORT: ${SUPABASE_DB_PORT:-5432}
       SUPABASE_URL: ${SUPABASE_URL}
       SUPABASE_SECRET_KEY: ${SUPABASE_SECRET_KEY}
       SUPABASE_STORAGE_BUCKET: ${SUPABASE_STORAGE_BUCKET}
@@ -44,9 +29,6 @@ services:
       CSRF_TRUSTED_ORIGINS: ${CSRF_TRUSTED_ORIGINS}
     ports:
       - '127.0.0.1:8000:8000'
-    depends_on:
-      postgres:
-        condition: service_healthy
 
   frontend:
     build:
@@ -58,6 +40,3 @@ services:
       - '127.0.0.1:3000:3000'
     depends_on:
       - backend
-
-volumes:
-  pgdata:
