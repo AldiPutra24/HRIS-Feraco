@@ -27,6 +27,13 @@ class Position(models.Model):
         blank=True,
         related_name='positions',
     )
+    parent_position = models.ForeignKey(
+        'self',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='children',
+    )
     code = models.CharField(max_length=32, blank=True)
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)

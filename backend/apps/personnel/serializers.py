@@ -33,15 +33,17 @@ class DepartmentSerializer(serializers.ModelSerializer):
 
 class PositionSerializer(serializers.ModelSerializer):
     department_name = serializers.CharField(source='department.name', read_only=True)
+    parent_position_name = serializers.CharField(source='parent_position.name', read_only=True)
     employee_count = serializers.SerializerMethodField()
 
     class Meta:
         model = Position
-        fields = ('id', 'name', 'code', 'department', 'department_name', 'is_active', 'created_at', 'updated_at', 'employee_count')
-        read_only_fields = ('id', 'created_at', 'updated_at', 'department_name', 'employee_count')
+        fields = ('id', 'name', 'code', 'department', 'department_name', 'parent_position', 'parent_position_name', 'is_active', 'created_at', 'updated_at', 'employee_count')
+        read_only_fields = ('id', 'created_at', 'updated_at', 'department_name', 'parent_position_name', 'employee_count')
         extra_kwargs = {
             'name': {'required': True, 'allow_blank': False},
             'code': {'required': False, 'allow_blank': True},
+            'parent_position': {'required': False, 'allow_null': True},
         }
 
     def get_employee_count(self, obj):
