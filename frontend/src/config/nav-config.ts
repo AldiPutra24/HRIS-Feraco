@@ -165,6 +165,13 @@ export const navGroups: NavGroup[] = [
         isActive: false,
         items: [
           {
+            title: 'Account',
+            url: '/dashboard/settings/account',
+            icon: 'account',
+            isActive: false,
+            items: []
+          },
+          {
             title: 'Departments',
             url: '/dashboard/settings/departments',
             isActive: false,

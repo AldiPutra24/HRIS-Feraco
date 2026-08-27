@@ -164,6 +164,10 @@ export default function AppSidebar() {
                     <Icons.user className='mr-2 h-4 w-4' />
                     Role: {user?.role}
                   </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => router.push('/dashboard/settings/account')}>
+                    <Icons.account className='mr-2 h-4 w-4' />
+                    Account
+                  </DropdownMenuItem>
                   {!isEmployee && (
                     <DropdownMenuItem onClick={() => router.push('/dashboard/settings')}>
                       <Icons.settings className='mr-2 h-4 w-4' />

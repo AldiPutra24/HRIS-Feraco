@@ -1,0 +1,122 @@
+'use client';
+
+import { useEffect, useState } from 'react';
+import { toast } from 'react-toastify';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Icons } from '@/components/icons';
+import { useAuth } from '@/lib/auth/auth-provider';
+
+export function AccountSettings() {
+  const { user, updateAccount } = useAuth();
+  const [form, setForm] = useState({
+    username: '',
+    email: '',
+    first_name: '',
+    last_name: '',
+    password: '',
+    current_password: ''
+  });
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (user) {
+      const [first_name = '', last_name = ''] = user.name.split(' ');
+      setForm((f) => ({
+        ...f,
+        username: user.email,
+        email: user.email,
+        first_name: f.first_name || first_name,
+        last_name: f.last_name || last_name
+      }));
+    }
+  }, [user]);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      await updateAccount({
+        username: form.username.trim(),
+        email: form.email.trim(),
+        first_name: form.first_name.trim(),
+        last_name: form.last_name.trim(),
+        ...(form.password ? { password: form.password, current_password: form.current_password } : {})
+      });
+      setForm((f) => ({ ...f, password: '', current_password: '' }));
+      toast.success('Akun diperbarui.');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Gagal memperbarui akun.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className='flex flex-1 flex-col gap-4 p-4 md:p-6'>
+      <div>
+        <h2 className='text-2xl font-bold tracking-tight'>Account</h2>
+        <p className='text-muted-foreground text-sm'>Perbarui username, email, nama, dan password akun Anda.</p>
+      </div>
+
+      <Card className='max-w-xl'>
+        <CardHeader>
+          <CardTitle>Profil Akun</CardTitle>
+          <CardDescription>Role: {user?.role ?? '-'}</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={submit} className='space-y-4'>
+            <div className='space-y-1.5'>
+              <Label>Username</Label>
+              <Input value={form.username} onChange={(e) => setForm((f) => ({ ...f, username: e.target.value }))} />
+            </div>
+            <div className='space-y-1.5'>
+              <Label>Email</Label>
+              <Input type='email' value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} />
+            </div>
+            <div className='grid grid-cols-1 gap-4 md:grid-cols-2'>
+              <div className='space-y-1.5'>
+                <Label>Nama Depan</Label>
+                <Input value={form.first_name} onChange={(e) => setForm((f) => ({ ...f, first_name: e.target.value }))} />
+              </div>
+              <div className='space-y-1.5'>
+                <Label>Nama Belakang</Label>
+                <Input value={form.last_name} onChange={(e) => setForm((f) => ({ ...f, last_name: e.target.value }))} />
+              </div>
+            </div>
+
+            <div className='border-slate-200 space-y-4 border-t pt-4'>
+              <div className='space-y-1.5'>
+                <Label>Password Baru</Label>
+                <Input
+                  type='password'
+                  value={form.password}
+                  onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
+                  placeholder='Kosongkan jika tidak diubah'
+                />
+              </div>
+              <div className='space-y-1.5'>
+                <Label>Password Saat Ini</Label>
+                <Input
+                  type='password'
+                  value={form.current_password}
+                  onChange={(e) => setForm((f) => ({ ...f, current_password: e.target.value }))}
+                  placeholder='Wajib jika mengubah password'
+                />
+              </div>
+            </div>
+
+            <div className='flex justify-end'>
+              <Button type='submit' disabled={saving}>
+                {saving ? <Icons.spinner className='mr-2 h-4 w-4 animate-spin' /> : null}
+                {saving ? 'Menyimpan...' : 'Simpan'}
+              </Button>
+            </div>
+          </form>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}

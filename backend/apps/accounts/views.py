@@ -9,7 +9,7 @@ from apps.softdelete import SoftHardDeleteMixin
 
 from .models import Role, User
 from .permissions import IsAdminRole
-from .serializers import LoginSerializer, RoleSerializer, UserAdminSerializer, UserSerializer
+from .serializers import LoginSerializer, RoleSerializer, SelfAccountSerializer, UserAdminSerializer, UserSerializer
 
 
 class LoginView(APIView):
@@ -35,6 +35,21 @@ class LogoutView(APIView):
 class CurrentUserView(APIView):
     def get(self, request):
         return Response(UserSerializer(request.user).data)
+
+class SelfAccountView(APIView):
+    """Self-service account edit (username/email/name/password) for any authenticated user."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        return Response(SelfAccountSerializer(request.user).data)
+
+    def patch(self, request):
+        serializer = SelfAccountSerializer(request.user, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        user = serializer.save()
+        log_event(request, 'update', obj=user, description=f'User {user.username} updated own account')
+        return Response(SelfAccountSerializer(user).data)
 
 class CurrentEmployeeView(APIView):
     """Profile of the Employee linked to the logged-in user (self-service)."""

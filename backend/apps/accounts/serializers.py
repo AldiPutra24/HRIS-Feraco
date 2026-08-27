@@ -85,6 +85,38 @@ class UserAdminSerializer(serializers.ModelSerializer):
             employee.save(update_fields=['user', 'updated_at'])
         return instance
 
+class SelfAccountSerializer(serializers.ModelSerializer):
+    """Self-service account edit: username/email/name/password. Role/status excluded."""
+
+    password = serializers.CharField(write_only=True, required=False, allow_blank=True)
+    current_password = serializers.CharField(write_only=True, required=False, allow_blank=True)
+
+    class Meta:
+        model = User
+        fields = ('id', 'username', 'email', 'first_name', 'last_name', 'password', 'current_password')
+        read_only_fields = ('id',)
+        extra_kwargs = {
+            'username': {'required': True},
+            'email': {'required': True},
+        }
+
+    def validate(self, attrs):
+        if attrs.get('password'):
+            current = attrs.get('current_password', '')
+            if not current or not self.instance.check_password(current):
+                raise serializers.ValidationError({'current_password': 'Password saat ini salah.'})
+        return attrs
+
+    def update(self, instance, validated_data):
+        validated_data.pop('current_password', None)
+        password = validated_data.pop('password', None)
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        if password:
+            instance.set_password(password)
+        instance.save()
+        return instance
+
 class LoginSerializer(serializers.Serializer):
     email = serializers.EmailField()
     password = serializers.CharField(style={'input_type': 'password'}, write_only=True)

@@ -1,8 +1,8 @@
 'use client';
 
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { getCurrentUser, login as authLogin, logout as authLogout } from './auth-client';
-import type { AuthError, AuthUser, LoginCredentials } from './auth-types';
+import { getCurrentUser, login as authLogin, logout as authLogout, updateSelfAccount } from './auth-client';
+import type { AuthError, AuthUser, LoginCredentials, SelfAccountInput } from './auth-types';
 
 type AuthContextValue = {
   user: AuthUser | null;
@@ -10,6 +10,7 @@ type AuthContextValue = {
   error: AuthError | null;
   login: (credentials: LoginCredentials) => Promise<void>;
   logout: () => Promise<void>;
+  updateAccount: (data: SelfAccountInput) => Promise<void>;
   clearError: () => void;
 };
 
@@ -67,11 +68,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  const updateAccount = useCallback(async (data: SelfAccountInput) => {
+    setError(null);
+    try {
+      const updated = await updateSelfAccount(data);
+      setUser(updated);
+    } catch (err) {
+      const authError = err instanceof Error ? { message: err.message } : { message: 'Unknown error' };
+      setError(authError);
+      throw err;
+    }
+  }, []);
+
   const clearError = useCallback(() => setError(null), []);
 
   const value = useMemo(
-    () => ({ user, isLoading, error, login, logout, clearError }),
-    [user, isLoading, error, login, logout, clearError]
+    () => ({ user, isLoading, error, login, logout, updateAccount, clearError }),
+    [user, isLoading, error, login, logout, updateAccount, clearError]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

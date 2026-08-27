@@ -1,4 +1,4 @@
-import { AUTH_ENDPOINTS } from './auth-config';
+import { AUTH_API_BASE, AUTH_ENDPOINTS } from './auth-config';
 import type { AuthError, AuthUser, LoginCredentials } from './auth-types';
 
 function buildError(message: string, code?: string): AuthError {
@@ -65,4 +65,24 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
   } catch {
     return null;
   }
+}
+
+export async function updateSelfAccount(data: {
+  username: string;
+  email: string;
+  first_name: string;
+  last_name: string;
+  password?: string;
+  current_password?: string;
+}): Promise<AuthUser> {
+  const res = await authFetch(`${AUTH_API_BASE}/api/auth/me/account/`, {
+    method: 'PATCH',
+    body: JSON.stringify(data)
+  });
+  if (!res.ok) {
+    const payload = await res.json().catch(() => ({}));
+    const message = typeof payload.detail === 'string' ? payload.detail : JSON.stringify(payload);
+    throw buildError(String(message), 'update_failed');
+  }
+  return toUser(await res.json());
 }

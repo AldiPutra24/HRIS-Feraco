@@ -23,3 +23,12 @@ export type AuthState = {
   isLoading: boolean;
   error: AuthError | null;
 };
+
+export type SelfAccountInput = {
+  username: string;
+  email: string;
+  first_name: string;
+  last_name: string;
+  password?: string;
+  current_password?: string;
+};
