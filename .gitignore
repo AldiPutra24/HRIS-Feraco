@@ -36,8 +36,10 @@ frontend/dev_out.txt
 # typescript
 *.tsbuildinfo
 
-# AI agent tooling
+# tooling
 .agents/
 AGENTS.md
 CLAUDE.md
 SESSION.md
+project-analysis.md
+production.md
