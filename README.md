@@ -1,4 +1,4 @@
-﻿# HRIS Feraco
+# HRIS Feraco
 
 Internal Human Resource Information System.
 
@@ -77,8 +77,11 @@ Catatan: filtering menu di frontend (`use-nav.ts`) hanya UI; otorisasi di backen
 
 ## Last Progress
 
-**Audit Log (Extended) + Leave Module Polish** — last updated 2026-08-26
+**Production Environment & Core Modules Summary** — last updated 2026-08-28
 
-- **Backend** — `AuditLog` extended with APPROVE/REJECT/ACTIVATE/TERMINATE/RENEW/UPLOAD/DOWNLOAD actions + `changes_before`/`changes_after`/`metadata` (JSON) + `user_agent`. `log_event` sanitizes sensitive fields (password/secret/token/nik/npwp/bpjs/rekening) and `diff_changes` records only changed fields for UPDATE. Read API `/api/audit/audit-logs/` (ADMIN/HR_LEAD only) with action/user/module/entity/date filters. Employee UPDATE captures before/after; contract activate/terminate/renew, document upload/download, leave approve/reject log semantic actions. Soft-delete: Employee → INACTIVE, Department/Position → `is_active=False` (no hard deletes).
-- **Frontend** — `/dashboard/settings/audit-log` page (filter bar + table Time/Actor/Action/Module/Object/Detail + click-to-expand before/after). Employee Detail History tab shows "Audit Trail" for that employee. `seed_leave_types` + leave-type dropdown now correct on Supabase Postgres.
-- **Validation** — backend `check` pass, 66 tests pass; frontend `tsc`, `oxlint`, `next build` clean.
+- **Employee & Contract Lifecycle** — Employee CRUD, Department & Position masters, contract management (PKWT/PKWTT, system-managed status DRAFT/ACTIVE/EXPIRED/TERMINATED/RENEWED), employment history, and employee documents stored in Supabase Storage (signed download URLs).
+- **Leave Module (`apps.leaves`)** — Configurable `LeaveType`, annual `LeaveBalance` tracking, `LeaveRequest` workflow (DRAFT/PENDING/APPROVED/REJECTED/CANCELLED with idempotent quota deduction and attachment support).
+- **Employee Self-Service (`/dashboard/employee`)** — Role-restricted employee portal for viewing profile, submitting/tracking leave requests, and reviewing active contracts.
+- **Extended Audit Log (`apps.audit`)** — Granular audit tracking (CREATE/UPDATE/DELETE/APPROVE/REJECT/ACTIVATE/TERMINATE/RENEW/UPLOAD/DOWNLOAD) with before/after diffs, sensitive field redaction (NIK/NPWP/BPJS/bank), and audit trail UI at `/dashboard/settings/audit-log`.
+- **Production & Server Optimization** — Live on VPS under `https://hris.agentlab.my.id` with Nginx reverse proxy & Let's Encrypt SSL; connected to Supabase PostgreSQL (SG region).
+- **Validation** — Backend `check` & 66 unit tests pass; Frontend `tsc`, `oxlint`, and `next build` clean.

@@ -1,4 +1,4 @@
-﻿# HRIS FERACO - Progress Note
+# HRIS FERACO - Progress Note
 
 ## Status: Employee Database + Leave Module
 
@@ -56,6 +56,13 @@
 ### Validation
 - Backend: check pass, 66 tests pass (SQLite; PostgreSQL teardown blocked by pgbouncer ObjectInUse — known).
 - Frontend: tsc pass, oxlint pass, next build exit 0.
+
+### Production Environment & Maintenance (28 Aug 2026)
+- Production VPS inspected and healthy:
+  - Frontend (`hris-feraco-frontend-1` on `:3000`), Backend (`hris-feraco-backend-1` on `:8000`), and PostgreSQL (`hris-feraco-postgres-1`) running via Docker Compose (`docker-compose.prod.yml`).
+  - Nginx reverse proxy serving `https://hris.agentlab.my.id` with valid Let's Encrypt SSL (expiry 24 Nov 2026).
+  - Django production connected to Supabase PostgreSQL (Singapore region `aws-0-ap-southeast-1.pooler.supabase.com`).
+- Server Resource Optimization:
 
 ### Demo login
 - admin@feraco.id / password
