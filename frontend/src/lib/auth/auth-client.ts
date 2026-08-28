@@ -1,3 +1,4 @@
+import { emitSessionExpired } from '@/lib/session-events';
 import { AUTH_API_BASE, AUTH_ENDPOINTS } from './auth-config';
 import type { AuthError, AuthUser, LoginCredentials } from './auth-types';
 
@@ -60,6 +61,10 @@ export async function logout(): Promise<void> {
 export async function getCurrentUser(): Promise<AuthUser | null> {
   try {
     const res = await authFetch(AUTH_ENDPOINTS.me);
+    if (res.status === 401 || res.status === 403) {
+      emitSessionExpired();
+      return null;
+    }
     if (!res.ok) return null;
     return toUser(await res.json());
   } catch {

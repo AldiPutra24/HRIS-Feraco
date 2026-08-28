@@ -58,11 +58,22 @@
 - Frontend: tsc pass, oxlint pass, next build exit 0.
 
 ### Production Environment & Maintenance (28 Aug 2026)
-- Production VPS inspected and healthy:
+- Production VPS (`43.154.128.239`, user `ubuntu`) inspected and healthy:
+  - Domain updated to `https://hris.feraco.co.id` with valid Let's Encrypt SSL (expiry 26 Nov 2026) and 301 redirect from old domain `hris.agentlab.my.id`.
   - Frontend (`hris-feraco-frontend-1` on `:3000`), Backend (`hris-feraco-backend-1` on `:8000`), and PostgreSQL (`hris-feraco-postgres-1`) running via Docker Compose (`docker-compose.prod.yml`).
-  - Nginx reverse proxy serving `https://hris.agentlab.my.id` with valid Let's Encrypt SSL (expiry 24 Nov 2026).
+  - Nginx reverse proxy serving `https://hris.feraco.co.id`.
   - Django production connected to Supabase PostgreSQL (Singapore region `aws-0-ap-southeast-1.pooler.supabase.com`).
 - Server Resource Optimization:
 
 ### Demo login
 - admin@feraco.id / password
+
+### Frontend Auth — Session Expiry Handling (28 Aug 2026)
+- Centralized 401/403 handling in the auth/API layer — no per-page logic.
+- New `src/lib/session-events.ts`: module-level handler + `emitSessionExpired()` (no-ops on `/login` to avoid redirect loop; SSR-safe via `typeof window` guard).
+- `getCurrentUser()` (`auth-client.ts`) emits `sessionExpired` on 401/403 from `/api/auth/me/`, returns `null` (other non-OK statuses → `null` without event; network errors swallowed).
+- `apiClient()` (`api-client.ts`) also emits on any 401/403 (covers other endpoints like `/api/employees/`).
+- `AuthProvider`: subscribes to session-expired event → `clearSession()` (user=null, isAuthenticated=false); new `isAuthenticated` state (explicit, distinct from `user`), set on init/login/refresh; new `refresh()` method re-fetches current user.
+- `ProtectedRoute`: guards on `isAuthenticated` (not just `user`), renders spinner while `isLoading || !isAuthenticated` (never renders protected UI during transition), redirects `/login?returnUrl=<path>` only when `!isLoading && !isAuthenticated`, preserves intended destination (existing `returnUrl` flow in login-form).
+- Normal API errors (400/404/500) never treated as logout.
+- Validation: tsc, oxlint, next build clean; backend 66 tests OK; session-events self-check passed (fires on protected path, suppressed on /login, cleared handler no-op).
