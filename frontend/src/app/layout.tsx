@@ -29,6 +29,8 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   return (
     <html lang='en' suppressHydrationWarning>
       <head>
+        <link rel='icon' href='/logo.webp' type='image/webp' />
+        <link rel='apple-touch-icon' href='/logo.webp' />
         <script
           dangerouslySetInnerHTML={{
             __html: `

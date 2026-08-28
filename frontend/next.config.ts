@@ -17,6 +17,16 @@ const baseConfig: NextConfig = {
   compiler: {
     removeConsole: process.env.NODE_ENV === 'production'
   },
+  async redirects() {
+    return [
+      // Browser auto-probes /logo.png (favicon fallback) — redirect to .webp
+      {
+        source: '/logo.png',
+        destination: '/logo.webp',
+        permanent: true
+      }
+    ];
+  },
   async headers() {
     return [
       {
