@@ -40,6 +40,7 @@ INSTALLED_APPS = [
     'apps.audit',
     'apps.leaves',
     'apps.reimbursement',
+    'apps.recruitment',
 ]
 
 MIDDLEWARE = [
@@ -130,6 +131,10 @@ SUPABASE_STORAGE_BUCKET = os.environ.get(
 REIMBURSEMENT_STORAGE_BUCKET = os.environ.get(
     'REIMBURSEMENT_STORAGE_BUCKET',
     'reimbursement-documents' if APP_ENV == 'production' else 'reimbursement-documents-dev',
+)
+RECRUITMENT_STORAGE_BUCKET = os.environ.get(
+    'RECRUITMENT_STORAGE_BUCKET',
+    'recruitment-cvs' if APP_ENV == 'production' else 'recruitment-cvs-dev',
 )
 
 AUTH_USER_MODEL = 'accounts.User'
