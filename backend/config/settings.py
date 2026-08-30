@@ -39,6 +39,7 @@ INSTALLED_APPS = [
     'apps.personnel',
     'apps.audit',
     'apps.leaves',
+    'apps.reimbursement',
 ]
 
 MIDDLEWARE = [
@@ -125,6 +126,10 @@ SUPABASE_SECRET_KEY = os.environ.get('SUPABASE_SECRET_KEY', '')
 SUPABASE_STORAGE_BUCKET = os.environ.get(
     'SUPABASE_STORAGE_BUCKET',
     'employee-documents' if APP_ENV == 'production' else 'employee-documents-dev',
+)
+REIMBURSEMENT_STORAGE_BUCKET = os.environ.get(
+    'REIMBURSEMENT_STORAGE_BUCKET',
+    'reimbursement-documents' if APP_ENV == 'production' else 'reimbursement-documents-dev',
 )
 
 AUTH_USER_MODEL = 'accounts.User'

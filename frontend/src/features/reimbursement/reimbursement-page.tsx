@@ -1,0 +1,339 @@
+'use client';
+
+import { useCallback, useEffect, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { toast } from 'react-toastify';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import {
+  approveReimbursement,
+  listReimbursementCategories,
+  listReimbursements,
+  markReimbursementPaid,
+  rejectReimbursement,
+  type Reimbursement,
+  type ReimbursementCategory
+} from '@/lib/reimbursements';
+import { listEmployees, type Employee } from '@/lib/employees';
+
+const STATUS_VARIANT: Record<string, 'default' | 'secondary' | 'destructive' | 'outline'> = {
+  DRAFT: 'outline',
+  PENDING: 'secondary',
+  APPROVED: 'default',
+  REJECTED: 'destructive',
+  PAID: 'default',
+  CANCELLED: 'outline'
+};
+
+const STATUS_OPTIONS = ['DRAFT', 'PENDING', 'APPROVED', 'REJECTED', 'PAID', 'CANCELLED'];
+
+function StatusBadge({ status }: { status: string }) {
+  return <Badge variant={STATUS_VARIANT[status] ?? 'secondary'}>{status}</Badge>;
+}
+
+function formatAmount(n: number): string {
+  return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR' }).format(n);
+}
+
+export function ReimbursementPage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const fStatus = searchParams.get('status') ?? '';
+  const fCategory = searchParams.get('category') ?? '';
+  const fEmployee = searchParams.get('employee') ?? '';
+
+  function setFilter(key: string, value: string) {
+    const params = new URLSearchParams(searchParams);
+    if (value) params.set(key, value);
+    else params.delete(key);
+    router.replace(`/dashboard/reimbursements${params.size ? `?${params}` : ''}`);
+  }
+
+  const [items, setItems] = useState<Reimbursement[]>([]);
+  const [categories, setCategories] = useState<ReimbursementCategory[]>([]);
+  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [rejecting, setRejecting] = useState<Reimbursement | null>(null);
+  const [rejectReason, setRejectReason] = useState('');
+  const [paying, setPaying] = useState<Reimbursement | null>(null);
+  const [paymentRef, setPaymentRef] = useState('');
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    const params: Record<string, string> = {};
+    if (fStatus) params.status = fStatus;
+    if (fCategory) params.category = fCategory;
+    if (fEmployee) params.employee = fEmployee;
+    const [r, c] = await Promise.all([listReimbursements(params), listReimbursementCategories()]);
+    setItems(r);
+    setCategories(c);
+    setLoading(false);
+  }, [fStatus, fCategory, fEmployee]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  useEffect(() => {
+    listEmployees({ employment_status: 'ACTIVE', page_size: '1000' })
+      .then((d) => setEmployees(d.results))
+      .catch(() => {});
+  }, []);
+
+  async function approve(r: Reimbursement) {
+    try {
+      await approveReimbursement(r.id);
+      toast.success('Reimbursement disetujui.');
+      load();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Gagal menyetujui.');
+    }
+  }
+
+  async function confirmReject() {
+    if (!rejecting) return;
+    if (!rejectReason.trim()) {
+      toast.error('Alasan penolakan wajib diisi.');
+      return;
+    }
+    try {
+      await rejectReimbursement(rejecting.id, rejectReason.trim());
+      toast.success('Reimbursement ditolak.');
+      setRejecting(null);
+      setRejectReason('');
+      load();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Gagal menolak.');
+    }
+  }
+
+  async function confirmPaid() {
+    if (!paying) return;
+    try {
+      await markReimbursementPaid(paying.id, paymentRef.trim());
+      toast.success('Reimbursement ditandai dibayar.');
+      setPaying(null);
+      setPaymentRef('');
+      load();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Gagal menandai dibayar.');
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className='space-y-2 p-4 md:p-6'>
+        <Skeleton className='h-8 w-64' />
+        <Skeleton className='h-40 w-full' />
+      </div>
+    );
+  }
+
+  return (
+    <div className='flex flex-1 flex-col gap-4 p-4 md:p-6'>
+      <div>
+        <h2 className='text-2xl font-bold tracking-tight'>Reimbursement</h2>
+        <p className='text-muted-foreground text-sm'>Kelola pengajuan reimbursement karyawan.</p>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Filter</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className='grid grid-cols-1 gap-3 md:grid-cols-4'>
+            <div>
+              <Label className='text-xs'>Status</Label>
+              <select
+                className='border-input h-9 w-full rounded-lg border bg-transparent px-2.5 text-sm'
+                value={fStatus}
+                onChange={(e) => setFilter('status', e.target.value)}
+              >
+                <option value=''>Semua status</option>
+                {STATUS_OPTIONS.map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <Label className='text-xs'>Kategori</Label>
+              <select
+                className='border-input h-9 w-full rounded-lg border bg-transparent px-2.5 text-sm'
+                value={fCategory}
+                onChange={(e) => setFilter('category', e.target.value)}
+              >
+                <option value=''>Semua kategori</option>
+                {categories.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <Label className='text-xs'>Karyawan</Label>
+              <select
+                className='border-input h-9 w-full rounded-lg border bg-transparent px-2.5 text-sm'
+                value={fEmployee}
+                onChange={(e) => setFilter('employee', e.target.value)}
+              >
+                <option value=''>Semua karyawan</option>
+                {employees.map((e) => (
+                  <option key={e.id} value={e.id}>
+                    {e.full_name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className='flex items-end'>
+              <Button variant='ghost' onClick={() => router.replace('/dashboard/reimbursements')}>
+                Reset
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Daftar Pengajuan</CardTitle>
+        </CardHeader>
+        <CardContent className='p-0'>
+          {items.length === 0 ? (
+            <p className='text-muted-foreground p-6 text-center'>Belum ada pengajuan.</p>
+          ) : (
+            <div className='overflow-x-auto'>
+              <table className='w-full text-sm'>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Karyawan</TableHead>
+                    <TableHead>Kategori</TableHead>
+                    <TableHead>Tanggal</TableHead>
+                    <TableHead className='text-right'>Jumlah</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Lampiran</TableHead>
+                    <TableHead className='text-right'>Aksi</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {items.map((r) => (
+                    <TableRow key={r.id}>
+                      <TableCell>{r.employee_name}</TableCell>
+                      <TableCell>{r.category_name}</TableCell>
+                      <TableCell>{r.transaction_date}</TableCell>
+                      <TableCell className='text-right'>{formatAmount(r.amount)}</TableCell>
+                      <TableCell>
+                        <StatusBadge status={r.status} />
+                      </TableCell>
+                      <TableCell>
+                        {r.attachment_url ? (
+                          <a href={r.attachment_url} target='_blank' rel='noreferrer' className='text-primary underline'>
+                            {r.attachment_name}
+                          </a>
+                        ) : (
+                          <span className='text-muted-foreground'>-</span>
+                        )}
+                      </TableCell>
+                      <TableCell className='text-right'>
+                        <div className='flex justify-end gap-1'>
+                          {r.status === 'PENDING' && (
+                            <>
+                              <Button size='sm' onClick={() => approve(r)}>
+                                Setujui
+                              </Button>
+                              <Button size='sm' variant='destructive' onClick={() => setRejecting(r)}>
+                                Tolak
+                              </Button>
+                            </>
+                          )}
+                          {r.status === 'APPROVED' && (
+                            <Button size='sm' onClick={() => setPaying(r)}>
+                              Tandai Dibayar
+                            </Button>
+                          )}
+                          {r.status === 'REJECTED' && r.rejection_reason && (
+                            <span className='text-muted-foreground text-xs'>{r.rejection_reason}</span>
+                          )}
+                          {r.status === 'PAID' && r.payment_reference && (
+                            <span className='text-muted-foreground text-xs'>Ref: {r.payment_reference}</span>
+                          )}
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {rejecting && (
+        <div className='fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4'>
+          <Card className='w-full max-w-md'>
+            <CardHeader>
+              <CardTitle>Tolak Reimbursement</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className='space-y-3'>
+                <p className='text-sm text-muted-foreground'>
+                  {rejecting.employee_name} — {rejecting.category_name} ({formatAmount(rejecting.amount)})
+                </p>
+                <Label className='text-xs'>Alasan Penolakan</Label>
+                <Input
+                  placeholder='Alasan wajib diisi'
+                  value={rejectReason}
+                  onChange={(e) => setRejectReason(e.target.value)}
+                />
+                <div className='flex justify-end gap-2'>
+                  <Button variant='ghost' onClick={() => setRejecting(null)}>
+                    Batal
+                  </Button>
+                  <Button variant='destructive' onClick={confirmReject}>
+                    Tolak
+                  </Button>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {paying && (
+        <div className='fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4'>
+          <Card className='w-full max-w-md'>
+            <CardHeader>
+              <CardTitle>Tandai Dibayar</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className='space-y-3'>
+                <p className='text-sm text-muted-foreground'>
+                  {paying.employee_name} — {paying.category_name} ({formatAmount(paying.amount)})
+                </p>
+                <Label className='text-xs'>Referensi Pembayaran</Label>
+                <Input
+                  placeholder='Misal: TRF/2026/08/001'
+                  value={paymentRef}
+                  onChange={(e) => setPaymentRef(e.target.value)}
+                />
+                <div className='flex justify-end gap-2'>
+                  <Button variant='ghost' onClick={() => setPaying(null)}>
+                    Batal
+                  </Button>
+                  <Button onClick={confirmPaid}>Konfirmasi</Button>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+    </div>
+  );
+}

@@ -39,6 +39,26 @@ export const employeeNavGroups: NavGroup[] = [
         ]
       },
       {
+        title: 'Reimbursement',
+        url: '/dashboard/employee/reimbursement',
+        icon: 'receipt',
+        isActive: false,
+        items: [
+          {
+            title: 'Pengajuan Saya',
+            url: '/dashboard/employee/reimbursement',
+            isActive: false,
+            items: []
+          },
+          {
+            title: 'Ajukan Reimbursement',
+            url: '/dashboard/employee/reimbursement/new',
+            isActive: false,
+            items: []
+          }
+        ]
+      },
+      {
         title: 'Kontrak',
         url: '/dashboard/employee/contract',
         icon: 'page',
@@ -110,7 +130,7 @@ export const navGroups: NavGroup[] = [
       },
       {
         title: 'Reimbursement',
-        url: '/dashboard/reimbursement',
+        url: '/dashboard/reimbursements',
         icon: 'receipt',
         isActive: false,
         items: []

@@ -77,3 +77,25 @@
 - `ProtectedRoute`: guards on `isAuthenticated` (not just `user`), renders spinner while `isLoading || !isAuthenticated` (never renders protected UI during transition), redirects `/login?returnUrl=<path>` only when `!isLoading && !isAuthenticated`, preserves intended destination (existing `returnUrl` flow in login-form).
 - Normal API errors (400/404/500) never treated as logout.
 - Validation: tsc, oxlint, next build clean; backend 66 tests OK; session-events self-check passed (fires on protected path, suppressed on /login, cleared handler no-op).
+
+## Reimbursement Module (31 Aug 2026)
+
+### Backend (`apps.reimbursement`)
+- Models: `ReimbursementCategory` (name/code/is_active/requires_attachment), `Reimbursement` (employee FK, category FK, transaction_date, amount Decimal(14,2), description, attachment fields, status DRAFT/PENDING/APPROVED/REJECTED/PAID/CANCELLED, submitted/approved/rejected/paid_at, reviewer FK, rejection_reason, payment_reference, timestamps), `ReimbursementNotification` (in-app only).
+- RBAC: `REIMBURSEMENT_ADMIN_ROLES={ADMIN,HR_STAFF,HR_LEAD}`. HR sees all, employee only own (queryset scoping → others' = 404).
+- `ReimbursementViewSet` actions: submit (DRAFT→PENDING), approve (PENDING→APPROVED), reject (PENDING only, reason required), mark_paid (APPROVED→PAID, payment_reference required), cancel (DRAFT/PENDING→CANCELLED), attachment (GET signed URL / POST upload to Supabase Storage), notifications. Self-approval & self-reject blocked.
+- Attachment validation enforced at **submit**, not create — flow is create (no file) → upload → submit. Fix: removed `requires_attachment` check from serializer create.
+- Storage: private bucket `settings.REIMBURSEMENT_STORAGE_BUCKET` (`reimbursement-documents` prod / `reimbursement-documents-dev` dev); binary never in DB.
+- `seed_reimbursement_categories` command: 5 categories (TRANSPORT/MEDICAL/MEAL/LODGING/OTHER) via `get_or_create` — idempotent; added to `docker-compose.prod.yml` startup chain.
+- Mounted at `/api/reimbursements/` (router: categories + '').
+
+### Frontend
+- `lib/reimbursements.ts` API client (categories/list/create/submit/approve/reject/mark_paid/cancel/upload/notifications) — same pattern as `lib/leaves.ts` (`unwrapList`, CSRF cookie).
+- HR page `/dashboard/reimbursements` (`features/reimbursement/reimbursement-page.tsx`): status/category/employee filters, table, approve/reject (reason required)/mark_paid (reference required) modals, skeletons.
+- Employee `/dashboard/employee/reimbursement` (`employee-reimbursement.tsx`): stats cards (pending count, total paid), history table, cancel draft/pending, rejection reason display. `/new` (`reimbursement-form.tsx`): category/date/amount/attachment/description → create → upload → submit → PENDING. DRAFT rows only "Hapus" (no draft-resume).
+- Nav (`nav-config.ts`): employee group "Reimbursement" (Pengajuan Saya / Ajukan Reimbursement); HR group `/dashboard/reimbursements`. Icon `receipt`. Old `/dashboard/reimbursement` placeholder route removed.
+- Validation: tsc, oxlint, next build clean (routes include both reimbursement pages).
+
+### Validation
+- Backend: full suite 85 tests OK (reimbursement 20: workflow, RBAC, self-approval block, attachment-at-submit, notifications, audit).
+- Frontend: tsc pass, oxlint pass, next build exit 0.
