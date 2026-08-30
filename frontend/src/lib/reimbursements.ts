@@ -140,6 +140,10 @@ export function cancelReimbursement(id: number): Promise<Reimbursement> {
   return request<Reimbursement>(`/${id}/cancel/`, { method: 'POST' });
 }
 
+export function deleteReimbursement(id: number): Promise<void> {
+  return request<void>(`/${id}/`, { method: 'DELETE' });
+}
+
 export function uploadReimbursementAttachment(id: number, file: File): Promise<Reimbursement> {
   const fd = new FormData();
   fd.append('file', file);

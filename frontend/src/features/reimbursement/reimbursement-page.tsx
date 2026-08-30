@@ -12,6 +12,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import {
   approveReimbursement,
+  deleteReimbursement,
   listReimbursementCategories,
   listReimbursements,
   markReimbursementPaid,
@@ -20,6 +21,7 @@ import {
   type ReimbursementCategory
 } from '@/lib/reimbursements';
 import { listEmployees, type Employee } from '@/lib/employees';
+import { useAuth } from '@/lib/auth/auth-provider';
 
 const STATUS_VARIANT: Record<string, 'default' | 'secondary' | 'destructive' | 'outline'> = {
   DRAFT: 'outline',
@@ -42,6 +44,8 @@ function formatAmount(n: number): string {
 
 export function ReimbursementPage() {
   const router = useRouter();
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
   const searchParams = useSearchParams();
   const fStatus = searchParams.get('status') ?? '';
   const fCategory = searchParams.get('category') ?? '';
@@ -124,6 +128,17 @@ export function ReimbursementPage() {
       load();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Gagal menandai dibayar.');
+    }
+  }
+
+  async function handleDelete(r: Reimbursement) {
+    if (!window.confirm(`Hapus reimbursement ${r.employee_name} (${r.category_name})? Tindakan ini permanen.`)) return;
+    try {
+      await deleteReimbursement(r.id);
+      toast.success('Data reimbursement dihapus.');
+      load();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Gagal menghapus.');
     }
   }
 
@@ -275,6 +290,11 @@ export function ReimbursementPage() {
                           )}
                           {r.status === 'PAID' && r.payment_reference && (
                             <span className='text-muted-foreground text-xs'>Ref: {r.payment_reference}</span>
+                          )}
+                          {isAdmin && (
+                            <Button size='sm' variant='ghost' onClick={() => handleDelete(r)}>
+                              Hapus
+                            </Button>
                           )}
                         </div>
                       </TableCell>

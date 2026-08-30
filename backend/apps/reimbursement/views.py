@@ -67,6 +67,23 @@ class ReimbursementViewSet(viewsets.ModelViewSet):
         obj = serializer.save(employee=employee)
         log_event(self.request, 'create', obj=obj, description=f'Reimbursement {obj.id} draft created')
 
+    def destroy(self, request, *args, **kwargs):
+        if _role(request.user) != 'ADMIN':
+            return Response({'detail': 'Hanya ADMIN yang dapat menghapus data reimbursement.'}, status=status.HTTP_403_FORBIDDEN)
+        return super().destroy(request, *args, **kwargs)
+
+    def perform_destroy(self, instance):
+        # Best-effort cleanup of stored binaries; DB row is the source of truth.
+        from apps.personnel.storage import delete_object
+        for path in (instance.attachment_path, instance.payment_proof_path):
+            if path:
+                try:
+                    delete_object(_bucket(), path)
+                except Exception:
+                    pass
+        log_event(self.request, 'delete', obj=instance, description=f'Reimbursement {instance.id} deleted')
+        instance.delete()
+
     @action(detail=True, methods=['post'])
     def submit(self, request, pk=None):
         obj = self._load(request, pk)

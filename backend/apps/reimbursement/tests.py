@@ -24,6 +24,7 @@ def make_user(key='ADMIN', username='admin@test.com'):
 
 class ReimbursementWorkflowTests(TestCase):
     def setUp(self):
+        self.admin = make_user('ADMIN', 'admin@test.com')
         self.hr = make_user('HR_STAFF', 'hr@test.com')
         self.emp_user = make_user('EMPLOYEE', 'emp@test.com')
         self.emp = Employee.objects.create(
@@ -346,3 +347,29 @@ class ReimbursementWorkflowTests(TestCase):
         resp = self.client.post(f'/api/reimbursements/{r.id}/payment_proof/', {}, content_type='application/json')
         self.assertEqual(resp.status_code, 400)
         self.assertIn('PAID', resp.json()['detail'])
+
+    def test_admin_can_delete_reimbursement(self):
+        self._login(self.emp_user)
+        r = self._create_draft()
+        self.client.logout()
+        self._login(self.admin)
+        resp = self.client.delete(f'/api/reimbursements/{r.id}/')
+        self.assertEqual(resp.status_code, 204)
+        self.assertFalse(Reimbursement.objects.filter(id=r.id).exists())
+
+    def test_admin_delete_creates_audit_log(self):
+        self._login(self.emp_user)
+        r = self._create_draft()
+        self.client.logout()
+        self._login(self.admin)
+        self.client.delete(f'/api/reimbursements/{r.id}/')
+        self.assertTrue(AuditLog.objects.filter(object_id=str(r.id), action='delete').exists())
+
+    def test_hr_staff_cannot_delete_reimbursement(self):
+        self._login(self.emp_user)
+        r = self._create_draft()
+        self.client.logout()
+        self._login(self.hr)
+        resp = self.client.delete(f'/api/reimbursements/{r.id}/')
+        self.assertEqual(resp.status_code, 403)
+        self.assertTrue(Reimbursement.objects.filter(id=r.id).exists())
