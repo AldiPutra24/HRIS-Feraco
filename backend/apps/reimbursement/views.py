@@ -137,10 +137,22 @@ class ReimbursementViewSet(viewsets.ModelViewSet):
         if obj.status != 'APPROVED':
             return Response({'detail': 'Hanya pengajuan APPROVED yang dapat ditandai dibayar.'}, status=status.HTTP_400_BAD_REQUEST)
         reference = (request.data.get('payment_reference') or '').strip()
+        upload = request.FILES.get('file')
         obj.status = 'PAID'
         obj.paid_at = timezone.now()
         obj.payment_reference = reference
-        obj.save(update_fields=['status', 'paid_at', 'payment_reference', 'updated_at'])
+        if upload is not None:
+            if not is_configured():
+                return Response({'file': 'Storage tidak dikonfigurasi.'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+            path = f'reimbursements/{obj.employee_id}/payment-proofs/{obj.id}-{upload.name}'
+            upload_bytes(_bucket(), path, upload.read(), content_type=upload.content_type or 'application/octet-stream')
+            obj.payment_proof_name = upload.name
+            obj.payment_proof_path = path
+            obj.payment_proof_content_type = upload.content_type or ''
+        update_fields = ['status', 'paid_at', 'payment_reference', 'updated_at']
+        if upload is not None:
+            update_fields += ['payment_proof_name', 'payment_proof_path', 'payment_proof_content_type']
+        obj.save(update_fields=update_fields)
         notify(getattr(obj.employee, 'user', None), obj, f'Reimbursement {obj.category.name} Anda telah dibayar.')
         log_event(request, 'paid', obj=obj, description=f'Reimbursement {obj.id} marked paid')
         return Response(ReimbursementSerializer(obj, context={'request': request}).data)
@@ -170,37 +182,53 @@ class ReimbursementViewSet(viewsets.ModelViewSet):
     def attachment(self, request, pk=None):
         obj = self._load(request, pk)
         if request.method == 'POST':
-            return self._upload_attachment(request, obj)
-        return self._download_attachment(request, obj)
+            return self._upload_file(request, obj, 'file', 'attachment')
+        return self._download_file(request, obj, 'attachment')
 
-    def _upload_attachment(self, request, obj):
+    @action(detail=True, methods=['get', 'post'], parser_classes=[MultiPartParser, FormParser], url_path='payment_proof')
+    def payment_proof(self, request, pk=None):
+        obj = self._load(request, pk)
+        if request.method == 'POST':
+            return self._upload_file(request, obj, 'file', 'payment_proof')
+        return self._download_file(request, obj, 'payment_proof')
+
+    def _upload_file(self, request, obj, field, kind):
+        """Upload attachment/payment_proof bytes to storage. kind in ('attachment','payment_proof')."""
         employee = _employee_for(request.user)
         if employee is not None and obj.employee_id != employee.id and _role(request.user) not in REIMBURSEMENT_ADMIN_ROLES:
             return Response({'detail': 'Tidak berwenang.'}, status=status.HTTP_403_FORBIDDEN)
-        if obj.status not in ('DRAFT', 'PENDING'):
+        if kind == 'attachment' and obj.status not in ('DRAFT', 'PENDING'):
             return Response({'detail': 'Lampiran hanya dapat diubah saat DRAFT atau PENDING.'}, status=status.HTTP_400_BAD_REQUEST)
-        upload = request.FILES.get('file')
-        if upload is None:
-            return Response({'file': 'Required.'}, status=status.HTTP_400_BAD_REQUEST)
+        if kind == 'payment_proof' and obj.status != 'PAID':
+            return Response({'detail': 'Bukti transfer hanya dapat diunggah untuk pengajuan PAID.'}, status=status.HTTP_400_BAD_REQUEST)
         if not is_configured():
             return Response({'file': 'Storage tidak dikonfigurasi.'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
-        path = f'reimbursements/{obj.employee_id}/{obj.id}-{upload.name}'
+        upload = request.FILES.get(field)
+        if upload is None:
+            return Response({'file': 'Required.'}, status=status.HTTP_400_BAD_REQUEST)
+        prefix = 'attachments' if kind == 'attachment' else 'payment-proofs'
+        path = f'reimbursements/{obj.employee_id}/{prefix}/{obj.id}-{upload.name}'
         upload_bytes(_bucket(), path, upload.read(), content_type=upload.content_type or 'application/octet-stream')
-        obj.attachment_name = upload.name
-        obj.attachment_path = path
-        obj.attachment_content_type = upload.content_type or ''
-        obj.save(update_fields=['attachment_name', 'attachment_path', 'attachment_content_type', 'updated_at'])
-        log_event(request, 'upload', obj=obj, description=f'Reimbursement {obj.id} attachment uploaded')
+        name_field = f'{kind}_name'
+        path_field = f'{kind}_path'
+        ctype_field = f'{kind}_content_type'
+        setattr(obj, name_field, upload.name)
+        setattr(obj, path_field, path)
+        setattr(obj, ctype_field, upload.content_type or '')
+        obj.save(update_fields=[name_field, path_field, ctype_field, 'updated_at'])
+        log_event(request, 'upload', obj=obj, description=f'Reimbursement {obj.id} {kind} uploaded')
         return Response(ReimbursementSerializer(obj, context={'request': request}).data)
 
-    def _download_attachment(self, request, obj):
-        if not obj.attachment_path:
-            return Response({'detail': 'Tidak ada lampiran.'}, status=status.HTTP_404_NOT_FOUND)
+    def _download_file(self, request, obj, kind):
+        path_field = f'{kind}_path'
+        name_field = f'{kind}_name'
+        if not getattr(obj, path_field):
+            return Response({'detail': 'Tidak ada ' + ('lampiran' if kind == 'attachment' else 'bukti transfer') + '.'}, status=status.HTTP_404_NOT_FOUND)
         if not is_configured():
             return Response({'detail': 'Storage tidak dikonfigurasi.'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
         from django.shortcuts import redirect
-        log_event(request, 'download', obj=obj, description=f'Reimbursement {obj.id} attachment downloaded')
-        return redirect(signed_url(_bucket(), obj.attachment_path))
+        log_event(request, 'download', obj=obj, description=f'Reimbursement {obj.id} {name_field} downloaded')
+        return redirect(signed_url(_bucket(), getattr(obj, path_field)))
 
     @action(detail=False, methods=['get'])
     def notifications(self, request):

@@ -67,6 +67,8 @@ export type Reimbursement = {
   reviewer_name: string;
   rejection_reason: string;
   payment_reference: string;
+  payment_proof_name: string;
+  payment_proof_url: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -117,7 +119,17 @@ export function rejectReimbursement(id: number, rejection_reason: string): Promi
   });
 }
 
-export function markReimbursementPaid(id: number, payment_reference: string): Promise<Reimbursement> {
+export function markReimbursementPaid(
+  id: number,
+  payment_reference: string,
+  file?: File
+): Promise<Reimbursement> {
+  if (file) {
+    const fd = new FormData();
+    fd.append('payment_reference', payment_reference);
+    fd.append('file', file);
+    return request<Reimbursement>(`/${id}/mark_paid/`, { method: 'POST', body: fd });
+  }
   return request<Reimbursement>(`/${id}/mark_paid/`, {
     method: 'POST',
     body: JSON.stringify({ payment_reference }),

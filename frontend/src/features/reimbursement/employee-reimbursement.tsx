@@ -6,7 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { cancelReimbursement, listReimbursements, type Reimbursement } from '@/lib/reimbursements';
 import { toast } from 'react-toastify';
 
@@ -112,6 +112,7 @@ export function EmployeeReimbursement() {
                     <TableHead className='text-right'>Jumlah</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Lampiran</TableHead>
+                    <TableHead>Bukti Transfer</TableHead>
                     <TableHead className='text-right'>Aksi</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -128,6 +129,15 @@ export function EmployeeReimbursement() {
                         {r.attachment_url ? (
                           <a href={r.attachment_url} target='_blank' rel='noreferrer' className='text-primary underline'>
                             {r.attachment_name}
+                          </a>
+                        ) : (
+                          <span className='text-muted-foreground'>-</span>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        {r.payment_proof_url ? (
+                          <a href={r.payment_proof_url} target='_blank' rel='noreferrer' className='text-primary underline'>
+                            {r.payment_proof_name || 'Lihat bukti'}
                           </a>
                         ) : (
                           <span className='text-muted-foreground'>-</span>

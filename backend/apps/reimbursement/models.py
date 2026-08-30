@@ -55,6 +55,10 @@ class Reimbursement(models.Model):
     )
     rejection_reason = models.TextField(blank=True)
     payment_reference = models.CharField(max_length=128, blank=True)
+    # Payment proof (bukti transfer) lives in Supabase Storage, like attachment.
+    payment_proof_name = models.CharField(max_length=255, blank=True)
+    payment_proof_path = models.CharField(max_length=512, blank=True)
+    payment_proof_content_type = models.CharField(max_length=128, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

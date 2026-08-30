@@ -305,3 +305,44 @@ class ReimbursementWorkflowTests(TestCase):
         data = resp.json()
         # Employee may have empty notifications
         self.assertIsInstance(data, list)
+
+    def test_mark_paid_without_storage_returns_503(self):
+        self._login(self.emp_user)
+        r = self._create_draft()
+        self.client.post(f'/api/reimbursements/{r.id}/submit/')
+        self.client.logout()
+        self._login(self.hr)
+        self.client.post(f'/api/reimbursements/{r.id}/approve/')
+        from io import BytesIO
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        resp = self.client.post(f'/api/reimbursements/{r.id}/mark_paid/',
+                                {'payment_reference': 'TRF001', 'file': SimpleUploadedFile('proof.jpg', b'x', content_type='image/jpeg')})
+        # storage not configured in tests -> 503, status stays APPROVED
+        self.assertEqual(resp.status_code, 503)
+        r.refresh_from_db()
+        self.assertEqual(r.status, 'APPROVED')
+
+    def test_payment_proof_fields_exposed(self):
+        self._login(self.emp_user)
+        r = self._create_draft()
+        self.client.post(f'/api/reimbursements/{r.id}/submit/')
+        self.client.logout()
+        self._login(self.hr)
+        self.client.post(f'/api/reimbursements/{r.id}/approve/')
+        self.client.post(f'/api/reimbursements/{r.id}/mark_paid/',
+                         {'payment_reference': 'TRF/2026/08/001'}, content_type='application/json')
+        resp = self.client.get(f'/api/reimbursements/{r.id}/')
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertEqual(data['payment_proof_name'], '')
+        self.assertIsNone(data['payment_proof_url'])
+
+    def test_payment_proof_requires_paid_status(self):
+        self._login(self.emp_user)
+        r = self._create_draft()
+        self.client.post(f'/api/reimbursements/{r.id}/submit/')
+        self.client.logout()
+        self._login(self.hr)
+        resp = self.client.post(f'/api/reimbursements/{r.id}/payment_proof/', {}, content_type='application/json')
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn('PAID', resp.json()['detail'])

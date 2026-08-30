@@ -9,7 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import {
   approveReimbursement,
   listReimbursementCategories,
@@ -62,6 +62,7 @@ export function ReimbursementPage() {
   const [rejectReason, setRejectReason] = useState('');
   const [paying, setPaying] = useState<Reimbursement | null>(null);
   const [paymentRef, setPaymentRef] = useState('');
+  const [paymentFile, setPaymentFile] = useState<File | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -115,10 +116,11 @@ export function ReimbursementPage() {
   async function confirmPaid() {
     if (!paying) return;
     try {
-      await markReimbursementPaid(paying.id, paymentRef.trim());
+      await markReimbursementPaid(paying.id, paymentRef.trim(), paymentFile ?? undefined);
       toast.success('Reimbursement ditandai dibayar.');
       setPaying(null);
       setPaymentRef('');
+      setPaymentFile(null);
       load();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Gagal menandai dibayar.');
@@ -219,6 +221,7 @@ export function ReimbursementPage() {
                     <TableHead className='text-right'>Jumlah</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Lampiran</TableHead>
+                    <TableHead>Bukti Transfer</TableHead>
                     <TableHead className='text-right'>Aksi</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -236,6 +239,15 @@ export function ReimbursementPage() {
                         {r.attachment_url ? (
                           <a href={r.attachment_url} target='_blank' rel='noreferrer' className='text-primary underline'>
                             {r.attachment_name}
+                          </a>
+                        ) : (
+                          <span className='text-muted-foreground'>-</span>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        {r.payment_proof_url ? (
+                          <a href={r.payment_proof_url} target='_blank' rel='noreferrer' className='text-primary underline'>
+                            {r.payment_proof_name || 'Lihat bukti'}
                           </a>
                         ) : (
                           <span className='text-muted-foreground'>-</span>
@@ -323,8 +335,21 @@ export function ReimbursementPage() {
                   value={paymentRef}
                   onChange={(e) => setPaymentRef(e.target.value)}
                 />
+                <Label className='text-xs'>Bukti Transfer (opsional)</Label>
+                <Input
+                  type='file'
+                  accept='image/*,application/pdf'
+                  onChange={(e) => setPaymentFile(e.target.files?.[0] ?? null)}
+                />
                 <div className='flex justify-end gap-2'>
-                  <Button variant='ghost' onClick={() => setPaying(null)}>
+                  <Button
+                    variant='ghost'
+                    onClick={() => {
+                      setPaying(null);
+                      setPaymentRef('');
+                      setPaymentFile(null);
+                    }}
+                  >
                     Batal
                   </Button>
                   <Button onClick={confirmPaid}>Konfirmasi</Button>

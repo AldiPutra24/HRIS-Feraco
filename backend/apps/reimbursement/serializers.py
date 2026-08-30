@@ -14,6 +14,7 @@ class ReimbursementSerializer(serializers.ModelSerializer):
     category_name = serializers.CharField(source='category.name', read_only=True)
     reviewer_name = serializers.CharField(source='reviewer.username', read_only=True)
     attachment_url = serializers.SerializerMethodField()
+    payment_proof_url = serializers.SerializerMethodField()
 
     class Meta:
         model = Reimbursement
@@ -23,11 +24,13 @@ class ReimbursementSerializer(serializers.ModelSerializer):
             'attachment_url', 'status', 'submitted_at', 'approved_at',
             'rejected_at', 'paid_at', 'reviewer', 'reviewer_name',
             'rejection_reason', 'payment_reference', 'created_at', 'updated_at',
+            'payment_proof_name', 'payment_proof_url',
         )
         read_only_fields = (
             'id', 'employee', 'status', 'submitted_at', 'approved_at',
             'rejected_at', 'paid_at', 'reviewer', 'created_at', 'updated_at',
             'employee_name', 'category_name', 'reviewer_name', 'attachment_url',
+            'payment_proof_name', 'payment_proof_url',
         )
 
     def get_attachment_url(self, obj):
@@ -37,6 +40,14 @@ class ReimbursementSerializer(serializers.ModelSerializer):
         if request is None:
             return None
         return request.build_absolute_uri(f'/api/reimbursements/{obj.id}/attachment/')
+
+    def get_payment_proof_url(self, obj):
+        if not obj.payment_proof_path:
+            return None
+        request = self.context.get('request')
+        if request is None:
+            return None
+        return request.build_absolute_uri(f'/api/reimbursements/{obj.id}/payment_proof/')
 
     def validate_amount(self, value):
         if value <= 0:
