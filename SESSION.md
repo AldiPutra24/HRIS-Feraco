@@ -99,3 +99,29 @@
 ### Validation
 - Backend: full suite 85 tests OK (reimbursement 20: workflow, RBAC, self-approval block, attachment-at-submit, notifications, audit).
 - Frontend: tsc pass, oxlint pass, next build exit 0.
+
+## Recruitment Module (31 Aug 2026)
+
+### Backend (`apps.recruitment`)
+- Models: `Job` (title/slug unique/description/requirements/employment_type FULL_TIME/PART_TIME/CONTRACT/INTERNSHIP/location/open_date/close_date/status DRAFT/OPEN/CLOSED/created_by/timestamps; slug unique, related dept+position), `Candidate` (job FK/applications, full_name/email/phone/cv_name/cv_path/cv_content_type/source PORTAL/REFERRAL/WEBSITE/OTHER). `Job.is_open()` = OPEN && close_date not past; `Job.is_complete()` = all `REQUIRED_FIELDS` (title/department/position/description/requirements/employment_type/location/open_date) filled.
+- **Status system-managed** (backend source of truth): `status` read-only in serializer. Create/update: complete → OPEN, else DRAFT. CLOSED never auto-reopens. `open`/`reopen` actions guard `is_complete()` → 400 if incomplete.
+- RBAC: `RECRUITMENT_ADMIN_ROLES={ADMIN,HR_STAFF,HR_LEAD}` via `IsRecruitmentAdmin`. Public endpoints AllowAny.
+- Serializers: `JobSerializer` (department_name/position_name/applications_count; status read-only), `JobPublicSerializer` (only id/title/slug/dept/position/description/requirements/type/location/dates — NO status/created_by), `CandidateSerializer` (`validate_job` rejects non-open job; cv_url).
+- Views: `JobViewSet` (CRUD + open/close/reopen actions; DELETE only DRAFT; unique slug generator `_unique_slug`), `PublicJobViewSet` (ReadOnly, OPEN only, excludes expired close_date, lookup by slug, no pagination), `CandidateViewSet` (create AllowAny; list/retrieve HR; cv GET signed URL / POST upload to Supabase Storage `_bucket()` = `RECRUITMENT_STORAGE_BUCKET` default `recruitment-cvs`).
+- Mounted at `/api/recruitment/` (jobs + candidates) + `/api/recruitment/public/jobs/{slug}/`.
+- Audit via existing `log_event`: create/update/delete + 'approve' for open/reopen, 'close' for close (AuditLog has no open/reopen action → reuse approve).
+- Supabase bucket `recruitment-cvs` created (private, pdf/jpg/png/doc/docx, 5MB) — prod container default bucket.
+- Tests: 23 (Job CRUD/RBAC/duplicate slug/open-close-reopen/delete-draft-only/expired close date hidden/system-status: incomplete→DRAFT, frontend cannot force status, complete DRAFT→OPEN, CLOSED not public even if complete).
+
+### Frontend
+- `lib/recruitment.ts` API client (jobs list/get/create/update/delete/open/close/reopen, candidates list/apply, public jobs get/list; `unwrapList` for paginated; `JobInput` has NO status field).
+- HR page `/dashboard/recruitment/jobs` (`features/recruitment/recruitment-jobs-page.tsx`): title/department/position/type/location/open+close date/status/application count/Public URL (Copy Link only when OPEN) columns; search + status filter (URL params); Add/Edit modal form — **no Status field**; actions per status: DRAFT→Edit/Open/Delete, OPEN→Edit/Close, CLOSED→Edit/Reopen.
+- Public portal `/jobs/[slug]` (`features/recruitment/public-job-page.tsx`): no auth, shows dept/position/type/location/dates/description/requirements + apply form (name/email/phone → `applyJob` POST); 404 via `notFound()` for non-OPEN. Public data never exposes internal HR fields.
+- `/dashboard/recruitment` redirects → `/dashboard/recruitment/jobs`.
+- CV upload not yet wired into public apply form (backend `/api/recruitment/candidates/{id}/cv/` ready) — pending.
+- Validation: tsc, oxlint, next build clean.
+
+### Validation
+- Backend: 23 recruitment tests OK (full suite 108+).
+- Frontend: tsc pass, oxlint pass, next build exit 0.
+- Deployed: VPS rebuild, Supabase bucket `recruitment-cvs` created, `GET /api/recruitment/public/jobs/` → 200 live.
