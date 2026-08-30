@@ -48,6 +48,8 @@ class JobViewSet(viewsets.ModelViewSet):
         obj = self.get_object()
         if obj.status == 'OPEN':
             return Response({'detail': 'Job sudah OPEN.'}, status=status.HTTP_400_BAD_REQUEST)
+        if not obj.is_complete():
+            return Response({'detail': 'Job tidak lengkap. Lengkapi semua field wajib sebelum membuka.'}, status=status.HTTP_400_BAD_REQUEST)
         obj.status = 'OPEN'
         obj.save(update_fields=['status', 'updated_at'])
         log_event(request, 'approve', obj=obj, description=f'Job "{obj.title}" opened')
@@ -70,6 +72,8 @@ class JobViewSet(viewsets.ModelViewSet):
             return Response({'detail': 'Hanya job CLOSED yang dapat dibuka ulang.'}, status=status.HTTP_400_BAD_REQUEST)
         if obj.close_date and obj.close_date < timezone.localdate():
             return Response({'detail': 'Close date sudah lewat. Perbarui close_date sebelum membuka ulang.'}, status=status.HTTP_400_BAD_REQUEST)
+        if not obj.is_complete():
+            return Response({'detail': 'Job tidak lengkap. Lengkapi semua field wajib sebelum membuka ulang.'}, status=status.HTTP_400_BAD_REQUEST)
         obj.status = 'OPEN'
         obj.save(update_fields=['status', 'updated_at'])
         log_event(request, 'approve', obj=obj, description=f'Job "{obj.title}" reopened')

@@ -65,6 +65,15 @@ class Job(models.Model):
             return False
         return True
 
+    REQUIRED_FIELDS = [
+        'title', 'department', 'position', 'description',
+        'requirements', 'employment_type', 'location', 'open_date',
+    ]
+
+    def is_complete(self):
+        """True when all fields required to publish are filled."""
+        return all(getattr(self, f) for f in self.REQUIRED_FIELDS)
+
 
 class Candidate(models.Model):
     """Public job applicant. CV binary lives in Supabase Storage."""

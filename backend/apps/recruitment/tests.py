@@ -33,7 +33,6 @@ def _job_data(department, position, **overrides):
         'location': 'Jakarta',
         'open_date': str(date.today()),
         'close_date': str(date.today() + timedelta(days=30)),
-        'status': 'OPEN',
     }
     data.update(overrides)
     return data
@@ -64,6 +63,21 @@ class JobTests(TestCase):
         self.assertTrue(data['slug'])
         self.assertEqual(data['status'], 'OPEN')
         self.assertTrue(AuditLog.objects.filter(action='create', object_id=str(data['id'])).exists())
+
+    def test_incomplete_create_is_draft(self):
+        resp = self._create(description='', requirements='', location='')
+        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.json()['status'], 'DRAFT')
+
+    def test_frontend_cannot_force_status(self):
+        # sending status: OPEN on incomplete job must still yield DRAFT
+        resp = self._create(status='OPEN', description='', requirements='')
+        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.json()['status'], 'DRAFT')
+        # sending status: DRAFT on complete job must still yield OPEN
+        resp = self._create(status='DRAFT')
+        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.json()['status'], 'OPEN')
 
     def test_duplicate_slug(self):
         self._create()
@@ -137,11 +151,37 @@ class JobTests(TestCase):
         self.assertEqual(resp.json(), [])
 
     def test_draft_job_hidden_from_public(self):
-        self._create(status='DRAFT')
+        self._create(description='', requirements='', location='')  # incomplete → DRAFT
         self.client.logout()
         resp = self.client.get('/api/recruitment/public/jobs/')
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.json(), [])
+
+    def test_complete_draft_becomes_open(self):
+        # create incomplete → DRAFT
+        r = self._create(description='', requirements='', location='')
+        jid = r.json()['id']
+        self.assertEqual(r.json()['status'], 'DRAFT')
+        # complete all fields → should become OPEN
+        resp = self.client.put(
+            f'/api/recruitment/jobs/{jid}/',
+            _job_data(self.department, self.position),
+            content_type='application/json',
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json()['status'], 'OPEN')
+        # now visible publicly
+        self.client.logout()
+        resp = self.client.get('/api/recruitment/public/jobs/')
+        self.assertEqual(len(resp.json()), 1)
+
+    def test_closed_job_not_public_even_if_complete(self):
+        r = self._create()
+        jid = r.json()['id']
+        self.client.post(f'/api/recruitment/jobs/{jid}/close/')
+        self.client.logout()
+        resp = self.client.get(f'/api/recruitment/public/jobs/{jid}/')
+        self.assertEqual(resp.status_code, 404)
 
     def test_public_open_job_accessible(self):
         self._create()

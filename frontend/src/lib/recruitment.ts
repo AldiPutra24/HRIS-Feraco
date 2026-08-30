@@ -110,7 +110,6 @@ export type JobInput = {
   location: string;
   open_date: string;
   close_date: string | null;
-  status: string;
 };
 
 export function createJob(input: JobInput): Promise<Job> {

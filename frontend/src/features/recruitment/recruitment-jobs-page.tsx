@@ -54,8 +54,7 @@ const emptyForm: JobInput = {
   employment_type: 'FULL_TIME',
   location: '',
   open_date: new Date().toISOString().slice(0, 10),
-  close_date: '',
-  status: 'DRAFT'
+  close_date: ''
 };
 
 export function RecruitmentJobsPage() {
@@ -120,8 +119,7 @@ export function RecruitmentJobsPage() {
       employment_type: job.employment_type,
       location: job.location,
       open_date: job.open_date,
-      close_date: job.close_date ?? '',
-      status: job.status
+      close_date: job.close_date ?? ''
     });
     setFormOpen(true);
   }
@@ -406,20 +404,6 @@ export function RecruitmentJobsPage() {
                     value={form.close_date ?? ''}
                     onChange={(e) => setForm({ ...form, close_date: e.target.value })}
                   />
-                </div>
-                <div>
-                  <Label className='text-xs'>Status</Label>
-                  <select
-                    className='border-input h-9 w-full rounded-lg border bg-transparent px-2.5 text-sm'
-                    value={form.status}
-                    onChange={(e) => setForm({ ...form, status: e.target.value })}
-                  >
-                    {STATUS_OPTIONS.map((s) => (
-                      <option key={s} value={s}>
-                        {s}
-                      </option>
-                    ))}
-                  </select>
                 </div>
                 <div className='md:col-span-2'>
                   <Label className='text-xs' htmlFor='job-description'>
