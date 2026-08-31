@@ -88,7 +88,7 @@ export function EmployeeList() {
         <div className='flex gap-2'>
           <Button variant='outline' onClick={() => setImportOpen(true)}>
             <Icons.upload />
-            Import CSV
+            Import XLSX
           </Button>
           <Button onClick={() => { setEditing(null); setShowForm((v) => !v); }}>
             <Icons.add />
