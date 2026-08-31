@@ -69,6 +69,12 @@ export function PublicJobPage({ slug }: { slug: string }) {
   return (
     <main className='bg-muted/40 min-h-screen py-10'>
       <div className='mx-auto w-full max-w-3xl px-4'>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src='/frc-recruitment.webp'
+          alt='FeraCo Recruitment'
+          className='mb-6 h-40 w-full rounded-2xl object-cover md:h-56'
+        />
         <Card>
           <CardHeader>
             <div className='flex flex-wrap items-center gap-2'>
