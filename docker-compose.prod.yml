@@ -36,6 +36,7 @@ services:
       context: ./frontend
       args:
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+        NEXT_PUBLIC_RECRUITMENT_URL: ${NEXT_PUBLIC_RECRUITMENT_URL}
     restart: unless-stopped
     ports:
       - '127.0.0.1:3000:3000'

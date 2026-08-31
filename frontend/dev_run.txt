@@ -1,0 +1,40 @@
+﻿node.exe : npm warn Unknown project config "shamefully-hoist". This will stop working in 
+the next major version of npm. See `npm help npmrc` for supported config options.
+At C:\Program Files\nodejs\npm.ps1:30 char:3
++   & $NODE_EXE $NPM_CLI_JS $args
++   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (npm warn Unknow...config options.:String) [ 
+   ], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+
+> next-shadcn-dashboard-starter@1.0.0 dev
+> next dev
+
+Γû▓ Next.js 16.2.12 (Turbopack)
+- Local:         http://localhost:3000
+- Network:       http://172.27.224.1:3000
+Γ£ô Ready in 2000ms
+Warning: Custom Cache-Control headers detected for the following routes:
+  - /_next/static/:path*
+
+Setting a custom Cache-Control header can break Next.js development behavior.
+- Experiments (use with caution):
+  ┬╖ clientTraceMetadata
+
+Γùï Compiling /jobs/[slug] ...
+ GET /jobs/tesjob 200 in 20.0s (next.js: 17.6s, application-code: 2.3s)
+ GET /jobs/tesjob 200 in 19.9s (next.js: 17.5s, application-code: 2.3s)
+ GET /dashboard/leave 200 in 20.7s (next.js: 15.0s, application-code: 5.7s)
+ GET /jobs/tesjob 200 in 2.0s (next.js: 547ms, application-code: 1492ms)
+ GET /jobs/tesjob 200 in 1085ms (next.js: 351ms, application-code: 734ms)
+ GET /jobs/logo.png 200 in 310ms (next.js: 43ms, application-code: 266ms)
+ GET /dashboard/logo.png 404 in 2.7s (next.js: 2.5s, application-code: 211ms)
+ GET /jobs/tesjob 200 in 237ms (next.js: 66ms, application-code: 170ms)
+ GET /jobs/tesjob 200 in 187ms (next.js: 42ms, application-code: 145ms)
+ GET /dashboard/overview 200 in 2.9s (next.js: 2.8s, application-code: 146ms)
+ GET /jobs/tesjob 200 in 180ms (next.js: 30ms, application-code: 150ms)
+ΓÜá The "middleware" file convention is deprecated. Please use "proxy" instead. Learn 
+more: https://nextjs.org/docs/messages/middleware-to-proxy
+Γ£ô Compiled in 211ms
+Γ£ô Compiled in 131ms

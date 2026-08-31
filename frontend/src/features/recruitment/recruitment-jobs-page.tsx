@@ -40,9 +40,12 @@ function employmentLabel(v: string): string {
   return v.replace('_', ' ').toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+const RECRUITMENT_BASE =
+  process.env.NEXT_PUBLIC_RECRUITMENT_URL || (typeof window !== 'undefined' ? window.location.origin : '');
+
 function publicUrl(slug: string): string {
-  if (typeof window === 'undefined') return '';
-  return `${window.location.origin}/jobs/${slug}`;
+  if (!RECRUITMENT_BASE) return '';
+  return `${RECRUITMENT_BASE}/jobs/${slug}`;
 }
 
 const emptyForm: JobInput = {
