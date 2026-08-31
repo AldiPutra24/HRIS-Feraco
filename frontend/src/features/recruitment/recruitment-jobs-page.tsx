@@ -268,7 +268,14 @@ export function RecruitmentJobsPage() {
                       <TableCell>
                         <StatusBadge status={j.status} />
                       </TableCell>
-                      <TableCell className='text-right'>{j.applications_count}</TableCell>
+                      <TableCell className='text-right'>
+                        <button
+                          className='text-primary hover:underline'
+                          onClick={() => router.push(`/dashboard/recruitment/jobs/${j.id}/applications`)}
+                        >
+                          {j.applications_count}
+                        </button>
+                      </TableCell>
                       <TableCell>
                         {j.status === 'OPEN' && (
                           <button

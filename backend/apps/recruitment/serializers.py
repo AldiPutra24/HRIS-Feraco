@@ -58,15 +58,17 @@ class JobPublicSerializer(serializers.ModelSerializer):
 
 class CandidateSerializer(serializers.ModelSerializer):
     cv_url = serializers.SerializerMethodField()
+    job_title = serializers.CharField(source='job.title', read_only=True)
+    applied_at = serializers.DateTimeField(source='created_at', read_only=True)
 
     class Meta:
         model = Candidate
         fields = (
-            'id', 'job', 'full_name', 'email', 'phone',
-            'cv_name', 'cv_url', 'source',
-            'created_at', 'updated_at',
+            'id', 'job', 'job_title', 'full_name', 'email', 'phone',
+            'cv_name', 'cv_url', 'source', 'status',
+            'applied_at', 'created_at', 'updated_at',
         )
-        read_only_fields = ('id', 'cv_name', 'cv_url', 'created_at', 'updated_at')
+        read_only_fields = ('id', 'job_title', 'cv_name', 'cv_url', 'source', 'status', 'applied_at', 'created_at', 'updated_at')
 
     def get_cv_url(self, obj):
         if not obj.cv_path:

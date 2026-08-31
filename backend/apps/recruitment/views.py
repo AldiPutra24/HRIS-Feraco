@@ -4,7 +4,7 @@ from django.utils import timezone
 from django.utils.text import slugify
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
-from rest_framework.parsers import FormParser, MultiPartParser
+from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
@@ -112,7 +112,8 @@ class CandidateViewSet(viewsets.ModelViewSet):
 
     queryset = Candidate.objects.select_related('job').all()
     serializer_class = CandidateSerializer
-    filterset_fields = ['job', 'source']
+    parser_classes = [JSONParser, FormParser, MultiPartParser]
+    filterset_fields = ['job', 'source', 'status']
     search_fields = ['full_name', 'email']
 
     def get_permissions(self):
@@ -120,13 +121,17 @@ class CandidateViewSet(viewsets.ModelViewSet):
             return [AllowAny()]
         return [IsRecruitmentAdmin()]
 
-    def get_queryset(self):
-        if self.action == 'create':
-            return super().get_queryset()
-        return super().get_queryset()
-
     def perform_create(self, serializer):
         obj = serializer.save()
+        file = self.request.FILES.get('cv')
+        if file and is_configured():
+            path = f'cvs/{obj.id}/{file.name}'
+            upload_bytes(_bucket(), path, file.read(), file.content_type or 'application/octet-stream')
+            obj.cv_name = file.name
+            obj.cv_path = path
+            obj.cv_content_type = file.content_type or ''
+            obj.save(update_fields=['cv_name', 'cv_path', 'cv_content_type', 'updated_at'])
+            log_event(self.request, 'upload', obj=obj, description=f'CV uploaded for candidate "{obj.full_name}"')
         log_event(self.request, 'create', obj=obj, description=f'Candidate "{obj.full_name}" applied for "{obj.job.title}"')
 
     @action(detail=True, methods=['get', 'post'])

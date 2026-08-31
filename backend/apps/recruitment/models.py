@@ -85,6 +85,9 @@ class Candidate(models.Model):
         ('WEBSITE', 'Company Website'),
         ('OTHER', 'Other'),
     ]
+    STATUS_CHOICES = [
+        ('APPLIED', 'Applied'),
+    ]
 
     job = models.ForeignKey(Job, on_delete=models.CASCADE, related_name='applications')
     full_name = models.CharField(max_length=255)
@@ -94,6 +97,7 @@ class Candidate(models.Model):
     cv_path = models.CharField(max_length=512, blank=True)
     cv_content_type = models.CharField(max_length=128, blank=True)
     source = models.CharField(max_length=32, choices=SOURCE_CHOICES, default='PORTAL')
+    status = models.CharField(max_length=32, choices=STATUS_CHOICES, default='APPLIED')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

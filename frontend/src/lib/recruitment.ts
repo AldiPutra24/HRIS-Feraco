@@ -75,12 +75,15 @@ export type PublicJob = {
 export type Candidate = {
   id: number;
   job: number;
+  job_title: string;
   full_name: string;
   email: string;
   phone: string;
   cv_name: string;
   cv_url: string | null;
   source: string;
+  status: string;
+  applied_at: string;
   created_at: string;
 };
 
@@ -147,10 +150,35 @@ export type ApplyInput = {
   email: string;
   phone: string;
   source?: string;
+  cv?: File | null;
 };
 
 export function applyJob(input: ApplyInput): Promise<Candidate> {
-  return request<Candidate>('/candidates/', { method: 'POST', body: JSON.stringify(input) });
+  const body =
+    input.cv instanceof File
+      ? (() => {
+          const fd = new FormData();
+          fd.append('job', String(input.job));
+          fd.append('full_name', input.full_name);
+          fd.append('email', input.email);
+          fd.append('phone', input.phone ?? '');
+          if (input.source) fd.append('source', input.source);
+          fd.append('cv', input.cv);
+          return fd;
+        })()
+      : JSON.stringify({ ...input, source: input.source ?? 'PORTAL' });
+  return request<Candidate>('/candidates/', {
+    method: 'POST',
+    body
+  });
+}
+
+export function getCandidate(id: number): Promise<Candidate> {
+  return request<Candidate>(`/candidates/${id}/`);
+}
+
+export function getCandidateCv(id: number): Promise<{ url: string; name: string }> {
+  return request<{ url: string; name: string }>(`/candidates/${id}/cv/`);
 }
 
 export function listPublicJobs(): Promise<PublicJob[]> {

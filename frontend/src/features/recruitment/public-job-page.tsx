@@ -20,6 +20,7 @@ export function PublicJobPage({ slug }: { slug: string }) {
   const [applying, setApplying] = useState(false);
   const [done, setDone] = useState(false);
   const [form, setForm] = useState({ full_name: '', email: '', phone: '' });
+  const [cv, setCv] = useState<File | null>(null);
 
   useEffect(() => {
     getPublicJob(slug)
@@ -44,7 +45,8 @@ export function PublicJobPage({ slug }: { slug: string }) {
         full_name: form.full_name.trim(),
         email: form.email.trim(),
         phone: form.phone.trim(),
-        source: 'PORTAL'
+        source: 'PORTAL',
+        cv
       });
       setDone(true);
     } catch (err) {
@@ -128,6 +130,14 @@ export function PublicJobPage({ slug }: { slug: string }) {
                       value={form.phone}
                       onChange={(e) => setForm({ ...form, phone: e.target.value })}
                       placeholder='08xx'
+                    />
+                  </div>
+                  <div>
+                    <Label className='text-xs'>CV (PDF/DOC)</Label>
+                    <Input
+                      type='file'
+                      accept='.pdf,.doc,.docx'
+                      onChange={(e) => setCv(e.target.files?.[0] || null)}
                     />
                   </div>
                   <Button type='submit' disabled={applying}>

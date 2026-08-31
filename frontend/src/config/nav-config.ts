@@ -148,6 +148,13 @@ export const navGroups: NavGroup[] = [
         items: []
       },
       {
+        title: 'Candidates',
+        url: '/dashboard/recruitment/candidates',
+        icon: 'teams',
+        isActive: false,
+        items: []
+      },
+      {
         title: 'Onboarding',
         url: '/dashboard/onboarding',
         icon: 'onboarding',

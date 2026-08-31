@@ -238,8 +238,17 @@ class CandidateTests(TestCase):
             content_type='application/json',
         )
         self.assertEqual(resp.status_code, 201)
-        self.assertTrue(Candidate.objects.filter(email='budi@test.com').exists())
+        c = Candidate.objects.get(email='budi@test.com')
+        self.assertEqual(c.status, 'APPLIED')
         self.assertTrue(AuditLog.objects.filter(action='create').exists())
+
+    def test_hr_lists_candidates_filters_by_status(self):
+        Candidate.objects.create(job=self.job, full_name='Budi', email='budi@test.com')
+        self.client.logout()
+        self.client.force_login(self.hr)
+        resp = self.client.get(f'/api/recruitment/candidates/?status=APPLIED&job={self.job.id}')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(len(resp.json()['results']), 1)
 
     def test_closed_job_cannot_apply(self):
         self.job.status = 'CLOSED'
