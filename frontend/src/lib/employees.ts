@@ -49,6 +49,7 @@ export type Employee = {
   address: string;
   phone: string;
   personal_email: string;
+  company_email: string;
   emergency_contact_name: string;
   emergency_contact_phone: string;
   bank_account_number: string;

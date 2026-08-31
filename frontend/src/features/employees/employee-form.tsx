@@ -16,6 +16,7 @@ type FormState = {
   address: string;
   phone: string;
   personal_email: string;
+  company_email: string;
   emergency_contact_name: string;
   emergency_contact_phone: string;
   bank_account_number: string;
@@ -42,6 +43,9 @@ function validate(f: FormState): Errors {
   else if (f.nik && f.nik.length !== 16) e.nik = 'NIK harus 16 digit.';
   if (f.phone && !PHONE_RE.test(f.phone)) e.phone = 'Format telepon tidak valid.';
   if (f.personal_email && !EMAIL_RE.test(f.personal_email)) e.personal_email = 'Email tidak valid.';
+  if (f.company_email && !EMAIL_RE.test(f.company_email)) e.company_email = 'Email tidak valid.';
+  if (!f.personal_email.trim()) e.personal_email = 'Wajib diisi.';
+  if (!f.company_email.trim()) e.company_email = 'Wajib diisi.';
   if (f.emergency_contact_phone && !PHONE_RE.test(f.emergency_contact_phone))
     e.emergency_contact_phone = 'Format telepon tidak valid.';
   if (f.bank_account_number && !/^\d+$/.test(f.bank_account_number)) e.bank_account_number = 'Hanya angka.';
@@ -69,6 +73,7 @@ const EMPTY: FormState = {
   birth_date: '',
   address: '',
   phone: '',
+  company_email: '',
   personal_email: '',
   emergency_contact_name: '',
   emergency_contact_phone: '',
@@ -95,6 +100,7 @@ function toForm(e: Employee): FormState {
     birth_date: toDate(e.birth_date),
     address: e.address ?? '',
     phone: e.phone ?? '',
+    company_email: e.company_email ?? '',
     personal_email: e.personal_email ?? '',
     emergency_contact_name: e.emergency_contact_name ?? '',
     emergency_contact_phone: e.emergency_contact_phone ?? '',
@@ -171,6 +177,7 @@ export function EmployeeForm({ employee, onSaved, onCancel }: Props) {
         birth_date: form.birth_date || null,
         address: form.address,
         phone: form.phone,
+        company_email: form.company_email,
         personal_email: form.personal_email,
         emergency_contact_name: form.emergency_contact_name,
         emergency_contact_phone: form.emergency_contact_phone,
@@ -230,6 +237,9 @@ export function EmployeeForm({ employee, onSaved, onCancel }: Props) {
           </Field>
           <Field label='Email Pribadi' error={errors.personal_email}>
             <Input type='email' value={form.personal_email} onChange={(e) => set('personal_email', e.target.value)} />
+          </Field>
+          <Field label='Email Kantor' error={errors.company_email}>
+            <Input type='email' value={form.company_email} onChange={(e) => set('company_email', e.target.value)} />
           </Field>
           <Field label='Nama Kontak Darurat'>
             <Input value={form.emergency_contact_name} onChange={(e) => set('emergency_contact_name', e.target.value)} />

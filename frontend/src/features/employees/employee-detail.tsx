@@ -332,7 +332,8 @@ export function EmployeeDetail({ id }: { id: number }) {
             </CardHeader>
             <CardContent className='space-y-2'>
               <Field label='Telepon' value={employee.phone} />
-              <Field label='Email' value={employee.personal_email} />
+              <Field label='Email Pribadi' value={employee.personal_email} />
+              <Field label='Email Kantor' value={employee.company_email} />
               <Field label='Kontak Darurat' value={employee.emergency_contact_name} />
               <Field label='Telepon Darurat' value={employee.emergency_contact_phone} />
             </CardContent>

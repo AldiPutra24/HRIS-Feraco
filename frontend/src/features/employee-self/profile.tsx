@@ -45,7 +45,8 @@ export function EmployeeProfile() {
           <CardTitle>{employee.full_name}</CardTitle>
         </CardHeader>
         <CardContent className='divide-y'>
-          <Row label='Email' value={employee.personal_email} />
+          <Row label='Email Kantor' value={employee.company_email} />
+          <Row label='Email Pribadi' value={employee.personal_email} />
           <Row label='Department' value={employee.department_name} />
           <Row label='Position' value={employee.position_name} />
           <Row label='Manager' value={employee.manager_name} />

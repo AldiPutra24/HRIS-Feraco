@@ -256,7 +256,7 @@ export function UserList() {
                           ? {
                               first_name: employee.full_name,
                               last_name: '',
-                              email: employee.personal_email || f.email,
+                              email: employee.company_email || employee.personal_email || f.email,
                               username: f.username || makeUsername(employee)
                             }
                           : {})

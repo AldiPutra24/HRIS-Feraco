@@ -1,6 +1,7 @@
 ﻿from datetime import date, timedelta
 
 from django.contrib.auth import get_user_model
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
@@ -144,6 +145,8 @@ class EmployeeApiTests(TestCase):
             'employee_id': 'E001',
             'full_name': 'John Doe',
             'nik': '1234567890',
+            'personal_email': 'john@mail.com',
+            'company_email': 'john@feraco.co.id',
             'department': self.dept.id,
             'position': self.pos.id,
             'employment_status': 'ACTIVE',
@@ -191,6 +194,24 @@ class EmployeeApiTests(TestCase):
         self.client.logout()
         res = self.client.get(reverse('employee-list'))
         self.assertEqual(res.status_code, 403)
+
+    def test_import_xlsx(self):
+        import io
+        from openpyxl import Workbook
+
+        wb = Workbook()
+        ws = wb.active
+        ws.append(['full_name', 'nik', 'birth_date', 'personal_email', 'company_email', 'employment_status'])
+        ws.append(['Xlsx User', '1234567890123456', '1995-05-05', 'xlsx@mail.com', 'xlsx@feraco.co.id', 'ACTIVE'])
+        buf = io.BytesIO()
+        wb.save(buf)
+        buf.seek(0)
+        res = self.client.post(
+            reverse('employee-import-csv'), {'file': SimpleUploadedFile('data.xlsx', buf.getvalue())}, format='multipart'
+        )
+        self.assertEqual(res.status_code, 201)
+        self.assertEqual(res.data['created'], 1)
+        self.assertTrue(Employee.objects.filter(company_email='xlsx@feraco.co.id').exists())
 
 
 class ContractApiTests(TestCase):
@@ -283,6 +304,7 @@ class DepartmentApiTests(TestCase):
         dept = Department.objects.create(name='Finance')
         res = self.client.post(reverse('employee-list'), {
             'full_name': 'Jane', 'nik': '1234567890', 'department': dept.id,
+            'personal_email': 'jane@mail.com', 'company_email': 'jane@feraco.co.id',
         }, content_type='application/json')
         self.assertEqual(res.status_code, 201)
         self.assertEqual(res.data['department'], dept.id)
@@ -291,6 +313,7 @@ class DepartmentApiTests(TestCase):
         dept = Department.objects.create(name='Finance', is_active=False)
         res = self.client.post(reverse('employee-list'), {
             'full_name': 'Jane', 'nik': '1234567890', 'department': dept.id,
+            'personal_email': 'jane@mail.com', 'company_email': 'jane@feraco.co.id',
         }, content_type='application/json')
         self.assertEqual(res.status_code, 400)
 

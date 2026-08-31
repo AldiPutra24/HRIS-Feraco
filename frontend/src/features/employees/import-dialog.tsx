@@ -1,6 +1,7 @@
 'use client';
 
 import { useRef, useState } from 'react';
+import * as XLSX from 'xlsx';
 import { Dialog as DialogPrimitive } from '@base-ui/react/dialog';
 import { Button } from '@/components/ui/button';
 import { Icons } from '@/components/icons';
@@ -9,23 +10,24 @@ import { importEmployees, type ImportResult } from '@/lib/employees';
 
 const TEMPLATE_COLUMNS = [
   'full_name', 'nik', 'birth_place', 'birth_date', 'address', 'phone',
-  'personal_email', 'emergency_contact_name', 'emergency_contact_phone',
+  'personal_email', 'company_email', 'emergency_contact_name', 'emergency_contact_phone',
   'bank_account_number', 'bank_account_name', 'npwp', 'bpjs_kesehatan',
   'bpjs_ketenagakerjaan', 'department', 'position', 'join_date', 'employment_status'
 ];
 
 function downloadTemplate() {
   const rows = [
-    TEMPLATE_COLUMNS.join(','),
-    'Budi Santoso,1234567890123456,Jakarta,1990-01-01,Jl. Merdeka 1,081234567890,budi@mail.com,Budi,081234567890,1234567890,Budi Santoso,1234567890123456,1234567890123,1234567890123,Engineering,Software Engineer,2024-01-15,ACTIVE'
+    TEMPLATE_COLUMNS,
+    [
+      'Budi Santoso', '1234567890123456', 'Jakarta', '1990-01-01', 'Jl. Merdeka 1', '081234567890',
+      'budi@mail.com', 'budi@feraco.co.id', 'Budi', '081234567890', '1234567890', 'Budi Santoso',
+      '1234567890123456', '1234567890123', '1234567890123', 'Engineering', 'Software Engineer', '2024-01-15', 'ACTIVE'
+    ]
   ];
-  const blob = new Blob([rows.join('\n')], { type: 'text/csv;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = 'template-karyawan.csv';
-  a.click();
-  URL.revokeObjectURL(url);
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Karyawan');
+  XLSX.writeFile(wb, 'template-karyawan.xlsx');
 }
 
 type Props = { open: boolean; onOpenChange: (open: boolean) => void; onImported: () => void };
@@ -84,7 +86,7 @@ export function ImportDialog({ open, onOpenChange, onImported }: Props) {
             <div>
               <DialogPrimitive.Title className='text-base font-semibold'>Import Karyawan</DialogPrimitive.Title>
               <DialogPrimitive.Description className='text-muted-foreground text-sm'>
-                Unggah file CSV untuk menambah karyawan secara massal.
+                Unggah file XLSX untuk menambah karyawan secara massal.
               </DialogPrimitive.Description>
             </div>
             <DialogPrimitive.Close
@@ -109,11 +111,11 @@ export function ImportDialog({ open, onOpenChange, onImported }: Props) {
               )}
             >
               <Icons.upload className='text-muted-foreground size-8' />
-              <span className='text-sm font-medium'>Tarik & lepas file CSV di sini</span>
+              <span className='text-sm font-medium'>Tarik & lepas file XLSX di sini</span>
               <span className='text-muted-foreground text-xs'>atau klik untuk memilih file</span>
             </button>
 
-            <input ref={inputRef} type='file' accept='.csv' className='hidden' onChange={onPick} />
+            <input ref={inputRef} type='file' accept='.xlsx' className='hidden' onChange={onPick} />
 
             <div className='flex items-center justify-between'>
               <Button variant='outline' size='sm' onClick={() => inputRef.current?.click()}>

@@ -55,7 +55,7 @@ class UserAdminSerializer(serializers.ModelSerializer):
             # Pull name/email from the employee (source of truth).
             attrs['first_name'] = employee.full_name
             attrs['last_name'] = ''
-            attrs['email'] = employee.personal_email or attrs.get('email')
+            attrs['email'] = employee.company_email or employee.personal_email or attrs.get('email')
             if not attrs.get('username'):
                 name = re.sub(r'[^a-zA-Z0-9]', '', employee.full_name)
                 dob = employee.birth_date.strftime('%Y%m%d') if employee.birth_date else ''

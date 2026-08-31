@@ -69,6 +69,7 @@ class Personnel(models.Model):
     address = models.TextField(blank=True)
     phone = models.CharField(max_length=32, blank=True)
     personal_email = models.EmailField(blank=True)
+    company_email = models.EmailField(blank=True)
     emergency_contact_name = models.CharField(max_length=255, blank=True)
     emergency_contact_phone = models.CharField(max_length=32, blank=True)
     bank_account_number = models.CharField(max_length=64, blank=True)

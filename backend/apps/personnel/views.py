@@ -1,4 +1,4 @@
-import csv
+import datetime
 import io
 
 from django.db.models import Q
@@ -40,14 +40,21 @@ def next_employee_id():
 
 IMPORT_FIELDS = [
     'full_name', 'nik', 'birth_place', 'birth_date', 'address', 'phone',
-    'personal_email', 'emergency_contact_name', 'emergency_contact_phone',
+    'personal_email', 'company_email', 'emergency_contact_name', 'emergency_contact_phone',
     'bank_account_number', 'bank_account_name', 'npwp', 'bpjs_kesehatan',
     'bpjs_ketenagakerjaan', 'department', 'position', 'join_date', 'employment_status',
 ]
 
 
 def _cell(row, key):
-    return (row.get(key) or '').strip()
+    value = row.get(key)
+    if value is None:
+        return ''
+    if isinstance(value, datetime.date):
+        return value.isoformat()[:10]
+    if isinstance(value, float) and value.is_integer():
+        value = int(value)
+    return str(value).strip()
 
 
 def _resolve_department(name):
@@ -66,7 +73,7 @@ class EmployeeViewSet(SoftHardDeleteMixin, viewsets.ModelViewSet):
     queryset = Employee.objects.select_related('department', 'position', 'manager').all()
     serializer_class = EmployeeSerializer
     permission_classes = [IsHRStaff]
-    search_fields = ['full_name', 'employee_id', 'nik', 'personal_email']
+    search_fields = ['full_name', 'employee_id', 'nik', 'personal_email', 'company_email']
     ordering_fields = ['full_name', 'employee_id', 'join_date', 'created_at']
     filterset_fields = ['department', 'position', 'employment_status', 'status']
 
@@ -84,6 +91,7 @@ class EmployeeViewSet(SoftHardDeleteMixin, viewsets.ModelViewSet):
                 | Q(employee_id__icontains=q)
                 | Q(nik__icontains=q)
                 | Q(personal_email__icontains=q)
+                | Q(company_email__icontains=q)
             )
         return qs
 
@@ -117,10 +125,19 @@ class EmployeeViewSet(SoftHardDeleteMixin, viewsets.ModelViewSet):
             return Response({'file': 'Required.'}, status=status.HTTP_400_BAD_REQUEST)
 
         raw = upload.read()
-        text = raw.decode('utf-8-sig', errors='replace')
-        reader = csv.DictReader(io.StringIO(text))
-        if not reader.fieldnames:
-            return Response({'file': 'CSV kosong.'}, status=status.HTTP_400_BAD_REQUEST)
+        name = (upload.name or '').lower()
+        if not name.endswith('.xlsx'):
+            return Response({'file': 'Hanya file XLSX yang didukung.'}, status=status.HTTP_400_BAD_REQUEST)
+        from openpyxl import load_workbook
+
+        wb = load_workbook(io.BytesIO(raw), read_only=True, data_only=True)
+        ws = wb.active
+        rows = ws.iter_rows(values_only=True)
+        header = next(rows, None)
+        if not header:
+            return Response({'file': 'XLSX kosong.'}, status=status.HTTP_400_BAD_REQUEST)
+        keys = [str(h).strip() if h is not None else '' for h in header]
+        reader = ({keys[i]: (cell if cell is not None else '') for i, cell in enumerate(row)} for row in rows)
 
         created, errors = 0, []
         for i, row in enumerate(reader, start=2):
@@ -136,6 +153,7 @@ class EmployeeViewSet(SoftHardDeleteMixin, viewsets.ModelViewSet):
                     address=_cell(row, 'address'),
                     phone=_cell(row, 'phone'),
                     personal_email=_cell(row, 'personal_email'),
+                    company_email=_cell(row, 'company_email'),
                     emergency_contact_name=_cell(row, 'emergency_contact_name'),
                     emergency_contact_phone=_cell(row, 'emergency_contact_phone'),
                     bank_account_number=_cell(row, 'bank_account_number'),
