@@ -1,6 +1,17 @@
 # HRIS FERACO - Progress Note
 
-## Status: Employee Database + Leave Module
+## Status: Recruitment — Candidate Inbox + Pipeline V1
+
+### Recruitment (`apps.recruitment`) — 31 Aug 2026
+- Job management (DRAFT/OPEN/CLOSED, system-managed status, public portal `/jobs/{slug}` apply form with optional CV upload) + Candidate Inbox + Candidate Pipeline V1.
+- Candidate Inbox: `Candidate.status` field (default `APPLIED`, migration 0003), CV upload via `perform_create` to Supabase Storage bucket `recruitment-cvs` (signed URLs), filters job/status, detail page `/dashboard/recruitment/candidates/[id]`, job→applications deep-link, nav item.
+- Pipeline V1: 9 statuses (`APPLIED/SCREENING/INTERVIEW_HR/INTERVIEW_USER/INTERVIEW_GM/OFFERING/OFFER_ACCEPTED` + terminal `REJECTED/WITHDRAWN`). `Candidate.TRANSITIONS` map (APPLIED→SCREENING→INTERVIEW_HR→INTERVIEW_USER→INTERVIEW_GM→OFFERING→OFFER_ACCEPTED; APPLIED may skip to INTERVIEW_HR; each step may go REJECTED/WITHDRAWN; terminal = no further transitions). Backend is source of truth.
+- `CandidateStatusHistory` model (candidate/from_status/to_status/changed_by/changed_at/note, migration 0004). `services.transition_candidate()` validates against map, writes history + AuditLog (`log_event` action='update').
+- `POST /api/recruitment/candidates/{id}/transition/` action — HR-only via `IsRecruitmentAdmin` (ADMIN/HR_STAFF/HR_LEAD); invalid status → 400, invalid transition → 400, terminal → 400.
+- CandidateSerializer exposes `next_statuses` (sorted allowed) + `status_history` (with `changed_by_name` via `get_username()` — User model has NO `name` field).
+- Frontend: `candidate-pipeline.ts` (shared PIPELINE/ALL_STATUSES/statusLabel); detail page = pipeline stepper + current status badge + next-status action buttons (Reject=destructive, Withdraw=outline) + optional note + status history timeline; list page filter = all 9 statuses (labeled); per-job kanban view `RecruitmentJobPipeline` (plain flex columns, no new lib) at `/dashboard/recruitment/jobs/[id]/applications` + existing table below.
+- Tests: 34 recruitment tests pass (valid transitions, full flow, invalid rejected, reject, withdraw, terminal lock, history actor, RBAC 403, next_statuses). Deployed to prod (commit 853d371, migration 0004 applied).
+- Note: `OFFER_ACCEPTED` = candidate accepted offer only. Onboarding/Employee conversion NOT implemented yet — candidate stays linked to Job.
 
 ### Backend
 - Supabase PostgreSQL primary (settings reads SUPABASE_DB_* + SUPABASE_URL/SECRET_KEY). SQLite fallback via DB_ENGINE=sqlite for local/tests.
