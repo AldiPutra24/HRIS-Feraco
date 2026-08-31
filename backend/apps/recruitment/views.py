@@ -14,7 +14,7 @@ from apps.personnel.storage import is_configured, signed_url, upload_bytes
 from .models import Candidate, Job
 from .permissions import IsRecruitmentAdmin, RECRUITMENT_ADMIN_ROLES
 from .serializers import CandidateSerializer, JobPublicSerializer, JobSerializer
-from .services import _bucket
+from .services import _bucket, transition_candidate
 
 
 class JobViewSet(viewsets.ModelViewSet):
@@ -133,6 +133,22 @@ class CandidateViewSet(viewsets.ModelViewSet):
             obj.save(update_fields=['cv_name', 'cv_path', 'cv_content_type', 'updated_at'])
             log_event(self.request, 'upload', obj=obj, description=f'CV uploaded for candidate "{obj.full_name}"')
         log_event(self.request, 'create', obj=obj, description=f'Candidate "{obj.full_name}" applied for "{obj.job.title}"')
+
+    @action(detail=True, methods=['post'])
+    def transition(self, request, pk=None):
+        """Move candidate to next status. Only HR roles (IsRecruitmentAdmin)."""
+        obj = self.get_object()
+        to_status = request.data.get('status')
+        note = (request.data.get('note') or '').strip()
+        if not to_status or to_status not in dict(Candidate.STATUS_CHOICES):
+            return Response({'detail': 'Status tidak valid.'}, status=status.HTTP_400_BAD_REQUEST)
+        candidate, history = transition_candidate(obj, to_status, request, note)
+        if candidate is None:
+            return Response(
+                {'detail': f'Transisi dari {obj.status} ke {to_status} tidak diizinkan.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response(CandidateSerializer(candidate, context={'request': request}).data)
 
     @action(detail=True, methods=['get', 'post'])
     def cv(self, request, pk=None):

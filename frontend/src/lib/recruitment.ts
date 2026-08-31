@@ -72,6 +72,15 @@ export type PublicJob = {
   close_date: string | null;
 };
 
+export type CandidateStatusHistory = {
+  id: number;
+  from_status: string;
+  to_status: string;
+  changed_by_name: string | null;
+  changed_at: string;
+  note: string;
+};
+
 export type Candidate = {
   id: number;
   job: number;
@@ -83,6 +92,8 @@ export type Candidate = {
   cv_url: string | null;
   source: string;
   status: string;
+  next_statuses: string[];
+  status_history: CandidateStatusHistory[];
   applied_at: string;
   created_at: string;
 };
@@ -179,6 +190,17 @@ export function getCandidate(id: number): Promise<Candidate> {
 
 export function getCandidateCv(id: number): Promise<{ url: string; name: string }> {
   return request<{ url: string; name: string }>(`/candidates/${id}/cv/`);
+}
+
+export function transitionCandidate(
+  id: number,
+  status: string,
+  note = ''
+): Promise<Candidate> {
+  return request<Candidate>(`/candidates/${id}/transition/`, {
+    method: 'POST',
+    body: JSON.stringify({ status, note })
+  });
 }
 
 export function listPublicJobs(): Promise<PublicJob[]> {

@@ -335,3 +335,106 @@ class CandidateTests(TestCase):
         from django.core.files.uploadedfile import SimpleUploadedFile
 
         return SimpleUploadedFile('cv.pdf', b'%PDF-1.4 test', content_type='application/pdf')
+
+
+class CandidateTransitionTests(TestCase):
+    def setUp(self):
+        self.admin = make_user('ADMIN', 'admin@test.com')
+        self.emp = make_user('EMPLOYEE', 'emp@test.com')
+        self.department = Department.objects.create(name='Engineering')
+        self.position = Position.objects.create(name='Developer', department=self.department)
+        self.job = Job.objects.create(
+            title='Software Engineer',
+            slug='software-engineer',
+            department=self.department,
+            position=self.position,
+            description='desc',
+            requirements='req',
+            employment_type='FULL_TIME',
+            location='Jakarta',
+            open_date=date.today(),
+            close_date=date.today() + timedelta(days=30),
+            status='OPEN',
+        )
+        self.candidate = Candidate.objects.create(
+            job=self.job, full_name='Budi', email='budi@test.com', status='APPLIED'
+        )
+        self.client.force_login(self.admin)
+
+    def _transition(self, to_status, note=''):
+        return self.client.post(
+            f'/api/recruitment/candidates/{self.candidate.id}/transition/',
+            {'status': to_status, 'note': note},
+            content_type='application/json',
+        )
+
+    def test_valid_transition(self):
+        resp = self._transition('SCREENING', 'lolos admin')
+        self.assertEqual(resp.status_code, 200)
+        self.candidate.refresh_from_db()
+        self.assertEqual(self.candidate.status, 'SCREENING')
+        self.assertTrue(
+            self.candidate.status_history.filter(
+                from_status='APPLIED', to_status='SCREENING', note='lolos admin'
+            ).exists()
+        )
+        self.assertTrue(AuditLog.objects.filter(action='update').exists())
+
+    def test_full_normal_flow(self):
+        for s in ['SCREENING', 'INTERVIEW_HR', 'INTERVIEW_USER', 'INTERVIEW_GM', 'OFFERING', 'OFFER_ACCEPTED']:
+            resp = self._transition(s)
+            self.assertEqual(resp.status_code, 200, s)
+        self.candidate.refresh_from_db()
+        self.assertEqual(self.candidate.status, 'OFFER_ACCEPTED')
+        self.assertEqual(self.candidate.status_history.count(), 6)
+
+    def test_invalid_transition_rejected(self):
+        resp = self._transition('OFFER_ACCEPTED')  # skip pipeline
+        self.assertEqual(resp.status_code, 400)
+        self.candidate.refresh_from_db()
+        self.assertEqual(self.candidate.status, 'APPLIED')
+
+    def test_invalid_status_value(self):
+        resp = self._transition('BOGUS')
+        self.assertEqual(resp.status_code, 400)
+
+    def test_reject(self):
+        resp = self._transition('REJECTED', 'tidak cocok')
+        self.assertEqual(resp.status_code, 200)
+        self.candidate.refresh_from_db()
+        self.assertEqual(self.candidate.status, 'REJECTED')
+        self.assertTrue(self.candidate.status_history.filter(to_status='REJECTED', note='tidak cocok').exists())
+
+    def test_withdraw(self):
+        self._transition('SCREENING')
+        resp = self._transition('WITHDRAWN')
+        self.assertEqual(resp.status_code, 200)
+        self.candidate.refresh_from_db()
+        self.assertEqual(self.candidate.status, 'WITHDRAWN')
+
+    def test_terminal_has_no_transitions(self):
+        self._transition('REJECTED')
+        resp = self._transition('WITHDRAWN')
+        self.assertEqual(resp.status_code, 400)
+        self.candidate.refresh_from_db()
+        self.assertEqual(self.candidate.status, 'REJECTED')
+
+    def test_history_changed_by(self):
+        self._transition('SCREENING')
+        h = self.candidate.status_history.first()
+        self.assertEqual(h.changed_by, self.admin)
+
+    def test_rbac_employee_cannot_transition(self):
+        self.client.logout()
+        self.client.force_login(self.emp)
+        resp = self._transition('SCREENING')
+        self.assertEqual(resp.status_code, 403)
+        self.candidate.refresh_from_db()
+        self.assertEqual(self.candidate.status, 'APPLIED')
+
+    def test_next_statuses_exposed(self):
+        resp = self.client.get(f'/api/recruitment/candidates/{self.candidate.id}/')
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertIn('next_statuses', data)
+        self.assertIn('SCREENING', data['next_statuses'])

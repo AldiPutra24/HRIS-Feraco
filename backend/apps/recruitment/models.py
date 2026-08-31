@@ -87,7 +87,29 @@ class Candidate(models.Model):
     ]
     STATUS_CHOICES = [
         ('APPLIED', 'Applied'),
+        ('SCREENING', 'Screening'),
+        ('INTERVIEW_HR', 'Interview HR'),
+        ('INTERVIEW_USER', 'Interview User'),
+        ('INTERVIEW_GM', 'Interview GM'),
+        ('OFFERING', 'Offering'),
+        ('OFFER_ACCEPTED', 'Offer Accepted'),
+        ('REJECTED', 'Rejected'),
+        ('WITHDRAWN', 'Withdrawn'),
     ]
+    # Normal pipeline order. Terminal statuses (REJECTED/WITHDRAWN) excluded.
+    PIPELINE = ['APPLIED', 'SCREENING', 'INTERVIEW_HR', 'INTERVIEW_USER', 'INTERVIEW_GM', 'OFFERING', 'OFFER_ACCEPTED']
+    TERMINAL = {'REJECTED', 'WITHDRAWN'}
+    # Allowed next status per current status. APPLIED may jump straight to
+    # INTERVIEW_HR when screening is skipped; REJECTED/WITHDRAWN are terminal.
+    TRANSITIONS = {
+        'APPLIED': {'SCREENING', 'INTERVIEW_HR', 'REJECTED', 'WITHDRAWN'},
+        'SCREENING': {'INTERVIEW_HR', 'REJECTED', 'WITHDRAWN'},
+        'INTERVIEW_HR': {'INTERVIEW_USER', 'REJECTED', 'WITHDRAWN'},
+        'INTERVIEW_USER': {'INTERVIEW_GM', 'REJECTED', 'WITHDRAWN'},
+        'INTERVIEW_GM': {'OFFERING', 'REJECTED', 'WITHDRAWN'},
+        'OFFERING': {'OFFER_ACCEPTED', 'REJECTED', 'WITHDRAWN'},
+        'OFFER_ACCEPTED': {'REJECTED', 'WITHDRAWN'},
+    }
 
     job = models.ForeignKey(Job, on_delete=models.CASCADE, related_name='applications')
     full_name = models.CharField(max_length=255)
@@ -106,3 +128,28 @@ class Candidate(models.Model):
 
     def __str__(self):
         return f'{self.full_name} -> {self.job.title}'
+
+
+class CandidateStatusHistory(models.Model):
+    """Audit trail of candidate status transitions."""
+
+    candidate = models.ForeignKey(
+        Candidate, on_delete=models.CASCADE, related_name='status_history'
+    )
+    from_status = models.CharField(max_length=32)
+    to_status = models.CharField(max_length=32)
+    changed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='candidate_status_changes',
+    )
+    changed_at = models.DateTimeField(auto_now_add=True)
+    note = models.TextField(blank=True)
+
+    class Meta:
+        ordering = ['changed_at']
+
+    def __str__(self):
+        return f'{self.candidate.full_name}: {self.from_status} -> {self.to_status}'

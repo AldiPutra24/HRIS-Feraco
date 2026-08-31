@@ -6,20 +6,18 @@ import { toast } from 'react-toastify';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import { TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { listCandidates, listJobs, type Candidate, type Job } from '@/lib/recruitment';
+import { ALL_STATUSES, statusLabel } from '@/features/recruitment/candidate-pipeline';
 
-const STATUS_OPTIONS = ['APPLIED'];
+const STATUS_OPTIONS = [...ALL_STATUSES];
 
 function statusVariant(status: string): 'default' | 'secondary' | 'outline' {
-  return status === 'APPLIED' ? 'default' : 'secondary';
-}
-
-function sourceLabel(v: string): string {
-  return v.replace('_', ' ').toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
+  if (status === 'REJECTED') return 'outline';
+  if (status === 'WITHDRAWN') return 'secondary';
+  return 'default';
 }
 
 export function RecruitmentCandidatesPage({ fixedJobId }: { fixedJobId?: string }) {
@@ -52,7 +50,7 @@ export function RecruitmentCandidatesPage({ fixedJobId }: { fixedJobId?: string 
     } finally {
       setLoading(false);
     }
-  }, [fJob, fStatus, fixedJobId]);
+  }, [fJob, fStatus]);
 
   useEffect(() => {
     load();
@@ -117,7 +115,7 @@ export function RecruitmentCandidatesPage({ fixedJobId }: { fixedJobId?: string 
                 <option value=''>Semua status</option>
                 {STATUS_OPTIONS.map((s) => (
                   <option key={s} value={s}>
-                    {s}
+                    {statusLabel(s)}
                   </option>
                 ))}
               </select>
@@ -162,7 +160,7 @@ export function RecruitmentCandidatesPage({ fixedJobId }: { fixedJobId?: string 
                       <TableCell>{c.phone || '-'}</TableCell>
                       <TableCell>{new Date(c.applied_at).toLocaleDateString('id-ID')}</TableCell>
                       <TableCell>
-                        <Badge variant={statusVariant(c.status)}>{c.status}</Badge>
+                        <Badge variant={statusVariant(c.status)}>{statusLabel(c.status)}</Badge>
                       </TableCell>
                       <TableCell>
                         {c.cv_url ? (

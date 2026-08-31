@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from .models import Candidate, Job
+from .models import Candidate, CandidateStatusHistory, Job
 
 
 class JobSerializer(serializers.ModelSerializer):
@@ -56,19 +56,35 @@ class JobPublicSerializer(serializers.ModelSerializer):
         )
 
 
+class CandidateStatusHistorySerializer(serializers.ModelSerializer):
+    changed_by_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = CandidateStatusHistory
+        fields = ('id', 'from_status', 'to_status', 'changed_by_name', 'changed_at', 'note')
+
+    def get_changed_by_name(self, obj):
+        return obj.changed_by.get_username() if obj.changed_by_id else None
+
 class CandidateSerializer(serializers.ModelSerializer):
     cv_url = serializers.SerializerMethodField()
     job_title = serializers.CharField(source='job.title', read_only=True)
     applied_at = serializers.DateTimeField(source='created_at', read_only=True)
+    next_statuses = serializers.SerializerMethodField()
+    status_history = CandidateStatusHistorySerializer(many=True, read_only=True)
 
     class Meta:
         model = Candidate
         fields = (
             'id', 'job', 'job_title', 'full_name', 'email', 'phone',
             'cv_name', 'cv_url', 'source', 'status',
+            'next_statuses', 'status_history',
             'applied_at', 'created_at', 'updated_at',
         )
-        read_only_fields = ('id', 'job_title', 'cv_name', 'cv_url', 'source', 'status', 'applied_at', 'created_at', 'updated_at')
+        read_only_fields = ('id', 'job_title', 'cv_name', 'cv_url', 'source', 'status', 'next_statuses', 'status_history', 'applied_at', 'created_at', 'updated_at')
+
+    def get_next_statuses(self, obj):
+        return sorted(Candidate.TRANSITIONS.get(obj.status, set()))
 
     def get_cv_url(self, obj):
         if not obj.cv_path:
