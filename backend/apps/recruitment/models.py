@@ -16,6 +16,7 @@ class Job(models.Model):
         ('PART_TIME', 'Part Time'),
         ('CONTRACT', 'Contract'),
         ('INTERNSHIP', 'Internship'),
+        ('FREELANCE', 'Freelance'),
     ]
 
     title = models.CharField(max_length=255)

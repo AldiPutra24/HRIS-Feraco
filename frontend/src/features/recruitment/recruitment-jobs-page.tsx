@@ -30,7 +30,7 @@ const STATUS_VARIANT: Record<string, 'default' | 'secondary' | 'destructive' | '
 };
 
 const STATUS_OPTIONS = ['DRAFT', 'OPEN', 'CLOSED'];
-const EMPLOYMENT_OPTIONS = ['FULL_TIME', 'PART_TIME', 'CONTRACT', 'INTERNSHIP'];
+const EMPLOYMENT_OPTIONS = ['FULL_TIME', 'PART_TIME', 'CONTRACT', 'INTERNSHIP', 'FREELANCE'];
 
 function StatusBadge({ status }: { status: string }) {
   return <Badge variant={STATUS_VARIANT[status] ?? 'secondary'}>{status}</Badge>;
