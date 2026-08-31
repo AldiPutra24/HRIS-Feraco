@@ -67,7 +67,7 @@ export function PublicJobPage({ slug }: { slug: string }) {
   if (!job) return null;
 
   return (
-    <main className='bg-muted/40 min-h-screen py-10'>
+    <main className='min-h-screen bg-[linear-gradient(135deg,#F7FBFD_0%,#EDF8FC_50%,#F5FAFC_100%)] py-10'>
       <div className='mx-auto w-full max-w-3xl px-4'>
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
