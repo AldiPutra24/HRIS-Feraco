@@ -228,6 +228,9 @@ class EmployeeContractSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({'end_date': 'Tanggal selesai tidak boleh sebelum tanggal mulai.'})
 
         contract_type = attrs.get('contract_type')
+        if contract_type == 'PKWT' and attrs.get('end_date'):
+            # PKWT tidak memiliki tanggal selesai.
+            attrs['end_date'] = None
         prob_enabled = attrs.get('probation_enabled', False)
         prob_start = attrs.get('probation_start_date')
         prob_end = attrs.get('probation_end_date')
@@ -258,7 +261,7 @@ class EmployeeContractSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(
                 {'status': 'Status kontrak dikelola sistem dan tidak boleh diubah manual.'}
             )
-        if attrs.get('activate') and not end:
+        if attrs.get('activate') and contract_type != 'PKWT' and not attrs.get('end_date'):
             raise serializers.ValidationError(
                 {'end_date': 'Kontrak aktif wajib memiliki tanggal selesai.'}
             )

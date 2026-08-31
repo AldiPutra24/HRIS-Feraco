@@ -144,7 +144,7 @@ export function EmployeeDetail({ id }: { id: number }) {
     const f = contractForm;
     if (!f.start_date) return 'Tanggal mulai wajib diisi.';
     if (f.end_date && f.end_date < f.start_date) return 'Tanggal selesai tidak boleh sebelum tanggal mulai.';
-    if (activate && !f.end_date) return 'Kontrak aktif wajib memiliki tanggal selesai.';
+    if (activate && f.contract_type !== 'PKWT' && !f.end_date) return 'Kontrak aktif wajib memiliki tanggal selesai.';
     if (f.contract_type === 'PKWT' && (f.probation_enabled || f.probation_start_date || f.probation_end_date)) {
       return 'Probation hanya berlaku untuk kontrak PKWTT.';
     }
@@ -387,7 +387,7 @@ export function EmployeeDetail({ id }: { id: number }) {
                     <div className='grid grid-cols-1 gap-4 md:grid-cols-4'>
                       <Field label='Tipe' value={current.contract_type} />
                       <Field label='No. Kontrak' value={current.contract_number} />
-                      <Field label='Periode' value={`${current.start_date} — ${current.end_date || '-'}`} />
+                      <Field label='Periode' value={`${current.start_date} — ${current.end_date || 'Berlangsung'}`} />
                       <Field label='Status' value={<Badge variant='default'>{current.status}</Badge>} />
                       {current.probation_enabled && (
                         <Field
@@ -426,6 +426,7 @@ export function EmployeeDetail({ id }: { id: number }) {
                   onChange={(e) => setContractForm((f) => ({
                     ...f,
                     contract_type: e.target.value,
+                    end_date: e.target.value === 'PKWT' ? '' : f.end_date,
                     probation_enabled: e.target.value === 'PKWT' ? false : f.probation_enabled,
                     probation_start_date: e.target.value === 'PKWT' ? '' : f.probation_start_date,
                     probation_end_date: e.target.value === 'PKWT' ? '' : f.probation_end_date
@@ -440,7 +441,9 @@ export function EmployeeDetail({ id }: { id: number }) {
                   onChange={(e) => setContractForm((f) => ({ ...f, contract_number: e.target.value }))}
                 />
                 <Input type='date' required value={contractForm.start_date} onChange={(e) => setContractForm((f) => ({ ...f, start_date: e.target.value }))} />
-                <Input type='date' value={contractForm.end_date} onChange={(e) => setContractForm((f) => ({ ...f, end_date: e.target.value }))} />
+                {contractForm.contract_type === 'PKWTT' && (
+                  <Input type='date' value={contractForm.end_date} onChange={(e) => setContractForm((f) => ({ ...f, end_date: e.target.value }))} />
+                )}
                 {contractForm.contract_type === 'PKWTT' && (
                   <>
                     <label className='flex items-center gap-2 text-sm'>

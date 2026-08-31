@@ -224,7 +224,7 @@ class EmployeeViewSet(SoftHardDeleteMixin, viewsets.ModelViewSet):
         contract = EmployeeContract.objects.filter(pk=contract_pk, employee=employee).first()
         if contract is None:
             return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
-        if contract.end_date is None:
+        if contract.end_date is None and contract.contract_type != 'PKWT':
             return Response({'detail': 'Kontrak aktif wajib memiliki tanggal selesai.'}, status=status.HTTP_400_BAD_REQUEST)
         set_current_contract(contract)
         log_event(request, 'activate', obj=contract, description=f'Contract {contract.contract_number or contract.contract_type} activated')

@@ -176,12 +176,12 @@ REST_FRAMEWORK = {
 from corsheaders.defaults import default_headers  # noqa: E402
 
 CORS_ALLOWED_ORIGINS = [
-    o for o in os.environ.get('CORS_ALLOWED_ORIGINS', 'http://localhost:3000,http://localhost:3002').split(',') if o
+    o for o in (os.environ.get('CORS_ALLOWED_ORIGINS') or 'http://localhost:3000,http://localhost:3001,http://localhost:3002').split(',') if o
 ]
 CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOW_HEADERS = list(default_headers) + ['x-csrftoken']
 CSRF_TRUSTED_ORIGINS = [
-    o for o in os.environ.get('CSRF_TRUSTED_ORIGINS', 'http://localhost:3000,http://localhost:3002').split(',') if o
+    o for o in (os.environ.get('CSRF_TRUSTED_ORIGINS') or 'http://localhost:3000,http://localhost:3001,http://localhost:3002').split(',') if o
 ]
 
 SESSION_COOKIE_SAMESITE = 'Lax'
