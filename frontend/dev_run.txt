@@ -38,3 +38,4 @@ Setting a custom Cache-Control header can break Next.js development behavior.
 more: https://nextjs.org/docs/messages/middleware-to-proxy
 Γ£ô Compiled in 211ms
 Γ£ô Compiled in 131ms
+Γ£ô Compiled in 123ms

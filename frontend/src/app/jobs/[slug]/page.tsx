@@ -2,7 +2,7 @@ import { Metadata } from 'next';
 import { PublicJobPage } from '@/features/recruitment/public-job-page';
 
 export const metadata: Metadata = {
-  title: 'Lowongan Kerja'
+  title: { absolute: 'Recruitment | Feraco' }
 };
 
 export default async function Page({ params }: { params: Promise<{ slug: string }> }) {
