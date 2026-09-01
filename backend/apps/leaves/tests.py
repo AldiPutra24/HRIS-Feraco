@@ -112,6 +112,25 @@ class LeaveWorkflowTests(TestCase):
         self.assertFalse(serializer.is_valid())
         self.assertIn('kind', serializer.errors)
 
+    def test_duplicate_submission_rejected(self):
+        import json
+        from rest_framework.test import APIClient
+
+        client = APIClient()
+        client.force_authenticate(self.emp_user)
+        payload = {
+            'leave_type': self.annual.id,
+            'kind': 'LEAVE',
+            'start_date': '2026-01-05',
+            'end_date': '2026-01-07',
+            'reason': 'Same request',
+        }
+        resp1 = client.post('/api/leaves/requests/', payload, format='json')
+        self.assertEqual(resp1.status_code, 201)
+        resp2 = client.post('/api/leaves/requests/', payload, format='json')
+        self.assertEqual(resp2.status_code, 400)
+        self.assertIn('Pengajuan yang sama sudah ada', json.dumps(resp2.data))
+
     def test_self_approval_rejected(self):
         # Employee (non-approver) cannot approve any request, incl. their own.
         lr = LeaveRequest.objects.create(

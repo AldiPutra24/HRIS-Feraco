@@ -49,7 +49,6 @@ class LeaveRequestSerializer(serializers.ModelSerializer):
     leave_type_kind = serializers.CharField(source='leave_type.kind', read_only=True)
     approver_name = serializers.CharField(source='approver.username', read_only=True)
     attachment_url = serializers.SerializerMethodField()
-    remaining_days = serializers.SerializerMethodField()
 
     class Meta:
         model = LeaveRequest
@@ -58,12 +57,11 @@ class LeaveRequestSerializer(serializers.ModelSerializer):
             'start_date', 'end_date', 'total_days', 'reason', 'attachment_name',
             'attachment_url', 'status', 'submitted_at', 'approved_at', 'rejected_at',
             'approver', 'approver_name', 'rejection_reason', 'created_at', 'updated_at',
-            'remaining_days',
         )
         read_only_fields = (
             'id', 'employee', 'total_days', 'status', 'submitted_at', 'approved_at',
             'rejected_at', 'approver', 'created_at', 'updated_at', 'employee_name',
-            'leave_type_name', 'leave_type_kind', 'approver_name', 'attachment_url', 'remaining_days',
+            'leave_type_name', 'leave_type_kind', 'approver_name', 'attachment_url',
         )
 
     def get_attachment_url(self, obj):
@@ -73,10 +71,6 @@ class LeaveRequestSerializer(serializers.ModelSerializer):
         if request is None:
             return None
         return request.build_absolute_uri(f'/api/leaves/requests/{obj.id}/attachment/')
-
-    def get_remaining_days(self, obj):
-        balance = get_balance(obj.employee, obj.leave_type, obj.start_date.year)
-        return balance.remaining_days if balance else 0
 
     def validate(self, attrs):
         request = self.context.get('request')

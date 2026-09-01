@@ -27,6 +27,7 @@ export function LeaveForm({ redirectTo = '/dashboard/leave' }: { redirectTo?: st
     reason: ''
   });
   const [file, setFile] = useState<File | null>(null);
+  const [submitting, setSubmitting] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -41,10 +42,12 @@ export function LeaveForm({ redirectTo = '/dashboard/leave' }: { redirectTo?: st
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    if (submitting) return; // prevent double-click/spam
     if (!form.leave_type || !form.start_date || !form.end_date) {
       toast.error('Lengkapi jenis cuti, tanggal mulai, dan selesai.');
       return;
     }
+    setSubmitting(true);
     try {
       const created = await createLeaveRequest({
         leave_type: Number(form.leave_type),
@@ -54,10 +57,11 @@ export function LeaveForm({ redirectTo = '/dashboard/leave' }: { redirectTo?: st
         reason: form.reason
       });
       if (file) await uploadLeaveAttachment(created.id, file);
-      toast.success('Pengajuan terkirim.');
+      toast.success('Pengajuan cuti berhasil dibuat');
       router.push(redirectTo);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Gagal mengirim pengajuan.');
+      setSubmitting(false); // re-enable so user can retry
     }
   }
 
@@ -148,8 +152,10 @@ export function LeaveForm({ redirectTo = '/dashboard/leave' }: { redirectTo?: st
               />
             </div>
             <div className='flex items-center gap-2 md:col-span-4'>
-              <Button type='submit'>Kirim Pengajuan</Button>
-              <Button type='button' variant='ghost' onClick={() => router.push(redirectTo)}>
+              <Button type='submit' disabled={submitting}>
+                {submitting ? 'Mengirim...' : 'Kirim Pengajuan'}
+              </Button>
+              <Button type='button' variant='ghost' onClick={() => router.push(redirectTo)} disabled={submitting}>
                 Batal
               </Button>
             </div>

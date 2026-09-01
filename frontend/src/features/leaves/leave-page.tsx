@@ -66,8 +66,24 @@ export function LeavePage() {
   const [loading, setLoading] = useState(true);
   const [rejecting, setRejecting] = useState<LeaveRequest | null>(null);
   const [rejectReason, setRejectReason] = useState('');
+  const [rejectingSubmit, setRejectingSubmit] = useState(false);
   const [deleting, setDeleting] = useState<LeaveRequest | null>(null);
+  const [deletingSubmit, setDeletingSubmit] = useState(false);
+  const [acting, setActing] = useState<Record<number, boolean>>({});
   const [employees, setEmployees] = useState<Employee[]>([]);
+
+  const applyUpdate = useCallback((updated: LeaveRequest) => {
+    setRequests((rs) => rs.map((r) => (r.id === updated.id ? updated : r)));
+  }, []);
+
+  const reloadBalances = useCallback(async () => {
+    if (!isAdmin) return;
+    try {
+      setBalances(await listBalances());
+    } catch {
+      /* non-fatal */
+    }
+  }, [isAdmin]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -98,51 +114,76 @@ export function LeavePage() {
   }, [isAdmin]);
 
   async function approve(id: number) {
+    if (acting[id]) return; // prevent double-click
+    setActing((a) => ({ ...a, [id]: true }));
     try {
-      await approveLeave(id);
-      toast.success('Pengajuan disetujui.');
-      load();
+      const updated = await approveLeave(id);
+      applyUpdate(updated);
+      toast.success('Pengajuan berhasil disetujui.');
+      reloadBalances();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Gagal menyetujui.');
+    } finally {
+      setActing((a) => {
+        const next = { ...a };
+        delete next[id];
+        return next;
+      });
     }
   }
 
   async function confirmReject() {
-    if (!rejecting) return;
+    if (!rejecting || rejectingSubmit) return;
     if (!rejectReason.trim()) {
       toast.error('Alasan penolakan wajib diisi.');
       return;
     }
+    setRejectingSubmit(true);
     try {
-      await rejectLeave(rejecting.id, rejectReason.trim());
-      toast.success('Pengajuan ditolak.');
+      const updated = await rejectLeave(rejecting.id, rejectReason.trim());
+      applyUpdate(updated);
+      toast.success('Pengajuan berhasil ditolak.');
       setRejecting(null);
       setRejectReason('');
-      load();
+      reloadBalances();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Gagal menolak.');
+    } finally {
+      setRejectingSubmit(false);
     }
   }
 
   async function cancel(id: number) {
+    if (acting[id]) return;
+    setActing((a) => ({ ...a, [id]: true }));
     try {
-      await cancelLeave(id);
+      const updated = await cancelLeave(id);
+      applyUpdate(updated);
       toast.success('Pengajuan dibatalkan.');
-      load();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Gagal membatalkan.');
+    } finally {
+      setActing((a) => {
+        const next = { ...a };
+        delete next[id];
+        return next;
+      });
     }
   }
 
   async function confirmHardDelete() {
-    if (!deleting) return;
+    if (!deleting || deletingSubmit) return;
+    setDeletingSubmit(true);
     try {
       await hardDeleteLeave(deleting.id);
       toast.success('Data cuti dihapus permanen.');
+      setRequests((rs) => rs.filter((r) => r.id !== deleting.id));
       setDeleting(null);
-      load();
+      reloadBalances();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Gagal menghapus.');
+    } finally {
+      setDeletingSubmit(false);
     }
   }
 
@@ -313,17 +354,17 @@ export function LeavePage() {
                       )}
                       {r.status === 'PENDING' && isApprover && (
                         <>
-                          <Button variant='outline' size='sm' onClick={() => approve(r.id)}>
-                            Setujui
+                          <Button variant='outline' size='sm' disabled={acting[r.id]} onClick={() => approve(r.id)}>
+                            {acting[r.id] ? 'Memproses...' : 'Setujui'}
                           </Button>
-                          <Button variant='ghost' size='sm' onClick={() => setRejecting(r)}>
+                          <Button variant='ghost' size='sm' disabled={acting[r.id]} onClick={() => setRejecting(r)}>
                             Tolak
                           </Button>
                         </>
                       )}
                       {r.status === 'PENDING' && !isApprover && (
-                        <Button variant='ghost' size='sm' onClick={() => cancel(r.id)}>
-                          Batalkan
+                        <Button variant='ghost' size='sm' disabled={acting[r.id]} onClick={() => cancel(r.id)}>
+                          {acting[r.id] ? 'Memproses...' : 'Batalkan'}
                         </Button>
                       )}
                       {canHardDelete && (
@@ -363,8 +404,10 @@ export function LeavePage() {
               />
             </div>
             <div className='flex gap-2'>
-              <Button onClick={confirmReject}>Konfirmasi Tolak</Button>
-              <Button variant='ghost' onClick={() => setRejecting(null)}>
+              <Button disabled={rejectingSubmit} onClick={confirmReject}>
+                {rejectingSubmit ? 'Memproses...' : 'Konfirmasi Tolak'}
+              </Button>
+              <Button variant='ghost' disabled={rejectingSubmit} onClick={() => setRejecting(null)}>
                 Batal
               </Button>
             </div>
@@ -381,10 +424,10 @@ export function LeavePage() {
               Yakin hapus permanen pengajuan {deleting.leave_type_name} ({deleting.start_date} — {deleting.end_date})? Tindakan ini tidak dapat dibatalkan.
             </p>
             <div className='flex gap-2'>
-              <Button variant='destructive' onClick={confirmHardDelete}>
-                Hapus Permanen
+              <Button variant='destructive' disabled={deletingSubmit} onClick={confirmHardDelete}>
+                {deletingSubmit ? 'Menghapus...' : 'Hapus Permanen'}
               </Button>
-              <Button variant='ghost' onClick={() => setDeleting(null)}>
+              <Button variant='ghost' disabled={deletingSubmit} onClick={() => setDeleting(null)}>
                 Batal
               </Button>
             </div>

@@ -87,7 +87,6 @@ export type LeaveRequest = {
   approver: number | null;
   approver_name: string;
   rejection_reason: string;
-  remaining_days: number;
   created_at: string;
   updated_at: string;
 };

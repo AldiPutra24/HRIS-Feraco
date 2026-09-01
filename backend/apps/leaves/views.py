@@ -92,6 +92,22 @@ class LeaveRequestViewSet(viewsets.ModelViewSet):
             from rest_framework.exceptions import ValidationError
 
             raise ValidationError({'detail': 'Akun tidak terhubung ke data karyawan.'})
+        data = serializer.validated_data
+        leave_type = data.get('leave_type')
+        # Idempotency: reject duplicate overlapping submission for same employee/type.
+        dup = LeaveRequest.objects.filter(
+            employee=employee,
+            leave_type=leave_type,
+            status__in=('PENDING', 'APPROVED'),
+            start_date=data.get('start_date'),
+            end_date=data.get('end_date'),
+        ).first()
+        if dup:
+            from rest_framework.exceptions import ValidationError
+
+            raise ValidationError(
+                {'detail': 'Pengajuan yang sama sudah ada. Periksa status pengajuan Anda.'}
+            )
         request_obj = serializer.save(employee=employee)
         # Notify the employee's manager (in-app).
         manager_employee = employee.manager
