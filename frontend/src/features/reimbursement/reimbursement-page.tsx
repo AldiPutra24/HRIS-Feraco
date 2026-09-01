@@ -258,7 +258,9 @@ export function ReimbursementPage() {
                     <TableHead>Status</TableHead>
                     <TableHead>Lampiran</TableHead>
                     <TableHead>Bukti Transfer</TableHead>
-                    <TableHead className='text-right'>Aksi</TableHead>
+                    <TableHead className='sticky right-0 bg-background text-right shadow-[inset_1px_0_0_var(--color-border)]'>
+                      Aksi
+                    </TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -291,7 +293,7 @@ export function ReimbursementPage() {
                           <span className='text-muted-foreground'>-</span>
                         )}
                       </TableCell>
-                      <TableCell className='text-right'>
+                      <TableCell className='sticky right-0 bg-background text-right shadow-[inset_1px_0_0_var(--color-border)]'>
                         <div className='flex justify-end gap-1'>
                           {r.status === 'PENDING' && (
                             <>
