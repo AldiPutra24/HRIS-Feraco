@@ -9,6 +9,12 @@ class LeaveType(models.Model):
     `requires_attachment` per type.
     """
 
+    KIND_CHOICES = [
+        ('LEAVE', 'Cuti'),
+        ('PERMISSION', 'Izin'),
+    ]
+
+    kind = models.CharField(max_length=16, choices=KIND_CHOICES, default='LEAVE')
     name = models.CharField(max_length=128, unique=True)
     code = models.CharField(max_length=32, unique=True)
     is_active = models.BooleanField(default=True)

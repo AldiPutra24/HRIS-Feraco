@@ -14,7 +14,7 @@ STATUS_CHOICES = set(dict(LeaveRequest.STATUS_CHOICES).keys())
 class LeaveTypeSerializer(serializers.ModelSerializer):
     class Meta:
         model = LeaveType
-        fields = ('id', 'name', 'code', 'is_active', 'default_quota', 'requires_attachment', 'description')
+        fields = ('id', 'name', 'code', 'kind', 'is_active', 'default_quota', 'requires_attachment', 'description')
         read_only_fields = ('id',)
 
     def validate_code(self, value):
@@ -41,6 +41,7 @@ class LeaveBalanceSerializer(serializers.ModelSerializer):
 class LeaveRequestSerializer(serializers.ModelSerializer):
     employee_name = serializers.CharField(source='employee.full_name', read_only=True)
     leave_type_name = serializers.CharField(source='leave_type.name', read_only=True)
+    leave_type_kind = serializers.CharField(source='leave_type.kind', read_only=True)
     approver_name = serializers.CharField(source='approver.username', read_only=True)
     attachment_url = serializers.SerializerMethodField()
     remaining_days = serializers.SerializerMethodField()
@@ -48,7 +49,7 @@ class LeaveRequestSerializer(serializers.ModelSerializer):
     class Meta:
         model = LeaveRequest
         fields = (
-            'id', 'employee', 'employee_name', 'leave_type', 'leave_type_name',
+            'id', 'employee', 'employee_name', 'leave_type', 'leave_type_name', 'leave_type_kind',
             'start_date', 'end_date', 'total_days', 'reason', 'attachment_name',
             'attachment_url', 'status', 'submitted_at', 'approved_at', 'rejected_at',
             'approver', 'approver_name', 'rejection_reason', 'created_at', 'updated_at',
@@ -57,7 +58,7 @@ class LeaveRequestSerializer(serializers.ModelSerializer):
         read_only_fields = (
             'id', 'employee', 'total_days', 'status', 'submitted_at', 'approved_at',
             'rejected_at', 'approver', 'created_at', 'updated_at', 'employee_name',
-            'leave_type_name', 'approver_name', 'attachment_url', 'remaining_days',
+            'leave_type_name', 'leave_type_kind', 'approver_name', 'attachment_url', 'remaining_days',
         )
 
     def get_attachment_url(self, obj):
@@ -74,14 +75,25 @@ class LeaveRequestSerializer(serializers.ModelSerializer):
 
     def validate(self, attrs):
         request = self.context.get('request')
+        start = attrs.get('start_date')
+        end = attrs.get('end_date')
+        leave_type = attrs.get('leave_type')
+        kind = self.initial_data.get('kind')
+
+        # Category kind must match the request's kind (only on create).
+        if self.instance is None and kind and leave_type:
+            if kind not in ('LEAVE', 'PERMISSION'):
+                raise serializers.ValidationError({'kind': 'Jenis tidak valid (LEAVE/PERMISSION).'})
+            if leave_type.kind != kind:
+                raise serializers.ValidationError(
+                    {'kind': f'Kategori "{leave_type.name}" tidak termasuk dalam jenis yang dipilih.'}
+                )
+
         employee = attrs.get('employee')
         if employee is None:
             employee = getattr(self.instance, 'employee', None)
         if employee is None and request is not None:
             employee = _employee_for(request.user)
-        start = attrs.get('start_date')
-        end = attrs.get('end_date')
-        leave_type = attrs.get('leave_type')
 
         # Only on create (status locked after submission).
         if self.instance is None:

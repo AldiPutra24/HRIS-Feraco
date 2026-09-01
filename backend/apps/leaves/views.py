@@ -22,7 +22,7 @@ class LeaveTypeViewSet(viewsets.ModelViewSet):
     serializer_class = LeaveTypeSerializer
     permission_classes = [IsLeaveAdmin]
     search_fields = ['name', 'code']
-    filterset_fields = ['is_active']
+    filterset_fields = ['is_active', 'kind']
     pagination_class = None
 
     def get_queryset(self):
@@ -71,7 +71,7 @@ class LeaveRequestViewSet(viewsets.ModelViewSet):
     queryset = LeaveRequest.objects.select_related('employee', 'leave_type', 'approver').all()
     serializer_class = LeaveRequestSerializer
     permission_classes = [LeaveRequestPermission]
-    filterset_fields = ['status', 'employee', 'leave_type']
+    filterset_fields = ['status', 'employee', 'leave_type', 'leave_type__kind']
     search_fields = ['employee__full_name', 'reason']
 
     def get_queryset(self):

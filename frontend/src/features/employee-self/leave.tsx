@@ -115,7 +115,12 @@ export function EmployeeLeave() {
                 <tbody>
                   {requests.map((r) => (
                     <tr key={r.id} className='border-b'>
-                      <td className='px-4 py-2'>{r.leave_type_name}</td>
+                      <td className='px-4 py-2'>
+                        {r.leave_type_name}
+                        {r.leave_type_kind === 'PERMISSION' && (
+                          <span className='text-muted-foreground ml-1 text-xs'>(Izin)</span>
+                        )}
+                      </td>
                       <td className='px-4 py-2'>
                         {r.start_date} — {r.end_date}
                       </td>

@@ -43,6 +43,7 @@ export function LeavePage() {
   const searchParams = useSearchParams();
   const fStatus = searchParams.get('status') ?? '';
   const fType = searchParams.get('leave_type') ?? '';
+  const fKind = searchParams.get('kind') ?? '';
   const fEmployee = searchParams.get('employee') ?? '';
 
   function setFilter(key: string, value: string) {
@@ -69,6 +70,7 @@ export function LeavePage() {
     setLoading(true);
     const params: Record<string, string> = {};
     if (fStatus) params.status = fStatus;
+    if (fKind) params.leave_type__kind = fKind;
     if (fType) params.leave_type = fType;
     if (fEmployee) params.employee = fEmployee;
     const [t, r] = await Promise.all([listLeaveTypes(), listLeaveRequests(params)]);
@@ -79,7 +81,7 @@ export function LeavePage() {
       setBalances(b);
     }
     setLoading(false);
-  }, [fStatus, fType, fEmployee, isAdmin]);
+  }, [fStatus, fType, fKind, fEmployee, isAdmin]);
 
   useEffect(() => {
     load();
@@ -193,13 +195,37 @@ export function LeavePage() {
                 </option>
               ))}
             </select>
-            <select aria-label='Filter jenis cuti' className='border-input h-8 rounded-lg border bg-transparent px-2.5 text-sm' value={fType} onChange={(e) => setFilter('leave_type', e.target.value)}>
+            <select
+              aria-label='Filter jenis'
+              className='border-input h-8 rounded-lg border bg-transparent px-2.5 text-sm'
+              value={fKind}
+              onChange={(e) => {
+                const k = e.target.value;
+                const params = new URLSearchParams(searchParams);
+                if (k) params.set('kind', k);
+                else params.delete('kind');
+                params.delete('leave_type'); // reset category; may not belong to new kind
+                router.replace(`/dashboard/leave${params.size ? `?${params}` : ''}`);
+              }}
+            >
               <option value=''>Semua Jenis</option>
-              {types.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.name}
-                </option>
-              ))}
+              <option value='LEAVE'>Cuti</option>
+              <option value='PERMISSION'>Izin</option>
+            </select>
+            <select
+              aria-label='Filter kategori'
+              className='border-input h-8 rounded-lg border bg-transparent px-2.5 text-sm'
+              value={fType}
+              onChange={(e) => setFilter('leave_type', e.target.value)}
+            >
+              <option value=''>Semua Kategori</option>
+              {types
+                .filter((t) => !fKind || t.kind === fKind)
+                .map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                  </option>
+                ))}
             </select>
             {isApprover && (
               <select aria-label='Filter karyawan' className='border-input h-8 rounded-lg border bg-transparent px-2.5 text-sm' value={fEmployee} onChange={(e) => setFilter('employee', e.target.value)}>
@@ -211,13 +237,13 @@ export function LeavePage() {
                 ))}
               </select>
             )}
-            {(fStatus || fType || fEmployee) && (
+            {(fStatus || fKind || fType || fEmployee) && (
               <Button
                 variant='ghost'
                 size='sm'
                 onClick={() => {
                   const params = new URLSearchParams(searchParams);
-                  for (const k of ['status', 'leave_type', 'employee']) params.delete(k);
+                  for (const k of ['status', 'kind', 'leave_type', 'employee']) params.delete(k);
                   router.replace(`/dashboard/leave${params.size ? `?${params}` : ''}`);
                 }}
               >
@@ -249,7 +275,12 @@ export function LeavePage() {
               {requests.map((r) => (
                 <TableRow key={r.id}>
                   <TableCell>{r.employee_name}</TableCell>
-                  <TableCell>{r.leave_type_name}</TableCell>
+                  <TableCell>
+                    {r.leave_type_name}
+                    {r.leave_type_kind === 'PERMISSION' && (
+                      <span className='text-muted-foreground ml-1 text-xs'>(Izin)</span>
+                    )}
+                  </TableCell>
                   <TableCell>
                     {r.start_date} — {r.end_date}
                   </TableCell>

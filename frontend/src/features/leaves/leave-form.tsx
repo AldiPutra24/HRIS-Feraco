@@ -19,6 +19,7 @@ export function LeaveForm({ redirectTo = '/dashboard/leave' }: { redirectTo?: st
   const router = useRouter();
   const [types, setTypes] = useState<LeaveType[]>([]);
   const [loading, setLoading] = useState(true);
+  const [kind, setKind] = useState<'LEAVE' | 'PERMISSION'>('LEAVE');
   const [form, setForm] = useState({
     leave_type: '',
     start_date: '',
@@ -47,6 +48,7 @@ export function LeaveForm({ redirectTo = '/dashboard/leave' }: { redirectTo?: st
     try {
       const created = await createLeaveRequest({
         leave_type: Number(form.leave_type),
+        kind,
         start_date: form.start_date,
         end_date: form.end_date,
         reason: form.reason
@@ -82,15 +84,30 @@ export function LeaveForm({ redirectTo = '/dashboard/leave' }: { redirectTo?: st
         <CardContent>
           <form onSubmit={submit} className='grid grid-cols-1 gap-3 md:grid-cols-4'>
             <div>
-              <Label className='text-xs'>Jenis Cuti</Label>
+              <Label className='text-xs'>Jenis</Label>
+              <select
+                className='border-input h-9 w-full rounded-lg border bg-transparent px-2.5 text-sm'
+                value={kind}
+                onChange={(e) => {
+                  const k = e.target.value as 'LEAVE' | 'PERMISSION';
+                  setKind(k);
+                  setForm((f) => ({ ...f, leave_type: '' }));
+                }}
+              >
+                <option value='LEAVE'>Cuti</option>
+                <option value='PERMISSION'>Izin</option>
+              </select>
+            </div>
+            <div>
+              <Label className='text-xs'>Kategori</Label>
               <select
                 className='border-input h-9 w-full rounded-lg border bg-transparent px-2.5 text-sm'
                 value={form.leave_type}
                 onChange={(e) => setForm((f) => ({ ...f, leave_type: e.target.value }))}
               >
-                <option value=''>Pilih jenis</option>
+                <option value=''>Pilih kategori</option>
                 {types
-                  .filter((t) => t.is_active)
+                  .filter((t) => t.is_active && t.kind === kind)
                   .map((t) => (
                     <option key={t.id} value={t.id}>
                       {t.name}

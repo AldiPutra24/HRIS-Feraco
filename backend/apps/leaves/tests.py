@@ -95,6 +95,23 @@ class LeaveWorkflowTests(TestCase):
         )
         self.assertFalse(serializer.is_valid())
 
+    def test_kind_mismatch_rejected(self):
+        from .serializers import LeaveRequestSerializer
+
+        LeaveType.objects.create(name='Izin Pribadi', code='PERSONAL', kind='PERMISSION')
+        # Leave (annual) with kind=PERMISSION => mismatch.
+        serializer = LeaveRequestSerializer(
+            data={
+                'leave_type': self.annual.id,
+                'kind': 'PERMISSION',
+                'start_date': '2026-01-05',
+                'end_date': '2026-01-07',
+            },
+            context={'request': None},
+        )
+        self.assertFalse(serializer.is_valid())
+        self.assertIn('kind', serializer.errors)
+
     def test_self_approval_rejected(self):
         # Employee (non-approver) cannot approve any request, incl. their own.
         lr = LeaveRequest.objects.create(
@@ -122,7 +139,7 @@ class SeedLeaveTypesTests(TestCase):
         from django.core.management import call_command
 
         call_command('seed_leave_types')
-        self.assertEqual(LeaveType.objects.count(), 7)
+        self.assertEqual(LeaveType.objects.count(), 13)
         self.assertTrue(all(t.is_active for t in LeaveType.objects.all()))
 
     def test_seed_idempotent(self):
@@ -130,7 +147,14 @@ class SeedLeaveTypesTests(TestCase):
 
         call_command('seed_leave_types')
         call_command('seed_leave_types')
-        self.assertEqual(LeaveType.objects.count(), 7)
+        self.assertEqual(LeaveType.objects.count(), 13)
+
+    def test_seed_kinds(self):
+        from django.core.management import call_command
+
+        call_command('seed_leave_types')
+        self.assertEqual(LeaveType.objects.filter(kind='LEAVE').count(), 9)
+        self.assertEqual(LeaveType.objects.filter(kind='PERMISSION').count(), 4)
 
     def test_api_returns_active_types(self):
         from django.core.management import call_command

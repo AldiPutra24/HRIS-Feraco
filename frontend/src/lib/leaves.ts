@@ -42,6 +42,7 @@ export type LeaveType = {
   id: number;
   name: string;
   code: string;
+  kind: string;
   is_active: boolean;
   default_quota: number;
   requires_attachment: boolean;
@@ -66,6 +67,7 @@ export type LeaveRequest = {
   employee_name: string;
   leave_type: number;
   leave_type_name: string;
+  leave_type_kind: string;
   start_date: string;
   end_date: string;
   total_days: number;
@@ -110,7 +112,7 @@ export function listLeaveRequests(params?: Record<string, string>): Promise<Leav
   return request<LeaveRequest[]>(`/requests/${qs}`).then(unwrapList);
 }
 
-export function createLeaveRequest(data: Partial<LeaveRequest>): Promise<LeaveRequest> {
+export function createLeaveRequest(data: Record<string, unknown>): Promise<LeaveRequest> {
   return request<LeaveRequest>('/requests/', { method: 'POST', body: JSON.stringify(data) });
 }
 
