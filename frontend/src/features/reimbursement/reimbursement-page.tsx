@@ -246,7 +246,7 @@ export function ReimbursementPage() {
             <p className='text-muted-foreground p-6 text-center'>Belum ada pengajuan.</p>
           ) : (
             <div className='overflow-x-auto'>
-              <table className='w-full text-sm'>
+              <table className='w-full min-w-[960px] text-sm'>
                 <TableHeader>
                   <TableRow>
                     <TableHead>Karyawan</TableHead>

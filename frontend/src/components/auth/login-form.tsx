@@ -94,7 +94,7 @@ export function LoginForm() {
           <Checkbox
             id='remember'
             checked={rememberMe}
-            onCheckedChange={(checked) => setRememberMe(checked === true)}
+            onCheckedChange={(checked: boolean) => setRememberMe(checked === true)}
             disabled={isLoading}
           />
           <Label htmlFor='remember' className='text-sm font-normal'>
