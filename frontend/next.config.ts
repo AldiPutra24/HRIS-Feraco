@@ -28,6 +28,8 @@ const baseConfig: NextConfig = {
     ];
   },
   async headers() {
+    // Dev mode: don't override _next/static caching — Next.js dev server handles it
+    if (process.env.NODE_ENV === 'development') return [];
     return [
       {
         // Hashed assets — cache forever (content hash = built-in cache bust)
