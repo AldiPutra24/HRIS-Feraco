@@ -64,6 +64,9 @@ export function LeavePage() {
   const [balances, setBalances] = useState<LeaveBalance[]>([]);
   const [requests, setRequests] = useState<LeaveRequest[]>([]);
   const [loading, setLoading] = useState(true);
+  const [balanceLoading, setBalanceLoading] = useState(false);
+  const [balanceEmpId, setBalanceEmpId] = useState<number | null>(null);
+  const [balanceYear, setBalanceYear] = useState(new Date().getFullYear());
   const [rejecting, setRejecting] = useState<LeaveRequest | null>(null);
   const [rejectReason, setRejectReason] = useState('');
   const [rejectingSubmit, setRejectingSubmit] = useState(false);
@@ -76,14 +79,26 @@ export function LeavePage() {
     setRequests((rs) => rs.map((r) => (r.id === updated.id ? updated : r)));
   }, []);
 
-  const reloadBalances = useCallback(async () => {
-    if (!isAdmin) return;
-    try {
-      setBalances(await listBalances());
-    } catch {
-      /* non-fatal */
-    }
-  }, [isAdmin]);
+  const reloadBalances = useCallback(
+    async (employeeId?: number, year?: number) => {
+      if (!isAdmin) return;
+      const emp = employeeId ?? balanceEmpId;
+      const yr = year ?? balanceYear;
+      if (!emp) {
+        setBalances([]);
+        return;
+      }
+      setBalanceLoading(true);
+      try {
+        setBalances(await listBalances({ employee: String(emp), year: String(yr) }));
+      } catch {
+        /* non-fatal */
+      } finally {
+        setBalanceLoading(false);
+      }
+    },
+    [isAdmin, balanceEmpId, balanceYear]
+  );
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -95,12 +110,8 @@ export function LeavePage() {
     const [t, r] = await Promise.all([listLeaveTypes(), listLeaveRequests(params)]);
     setTypes(t);
     setRequests(r);
-    if (isAdmin) {
-      const b = await listBalances();
-      setBalances(b);
-    }
     setLoading(false);
-  }, [fStatus, fType, fKind, fEmployee, isAdmin]);
+  }, [fStatus, fType, fKind, fEmployee]);
 
   useEffect(() => {
     load();
@@ -109,9 +120,18 @@ export function LeavePage() {
   useEffect(() => {
     if (!isAdmin) return;
     listEmployees({ employment_status: 'ACTIVE', page_size: '1000' })
-      .then((d) => setEmployees(d.results))
+      .then((d) => {
+        setEmployees(d.results);
+        // Default to first employee; show their balances.
+        if (d.results.length > 0) setBalanceEmpId((prev) => prev ?? d.results[0].id);
+      })
       .catch(() => {});
   }, [isAdmin]);
+
+  useEffect(() => {
+    if (isAdmin && balanceEmpId) reloadBalances();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAdmin, balanceEmpId, balanceYear]);
 
   async function approve(id: number) {
     if (acting[id]) return; // prevent double-click
@@ -205,34 +225,70 @@ export function LeavePage() {
         </div>
       </div>
 
-      {isAdmin && balances.length > 0 && (
+      {isAdmin && (
         <Card>
           <CardHeader>
-            <CardTitle>Sisa Kuota</CardTitle>
+            <CardTitle>Kuota Karyawan</CardTitle>
           </CardHeader>
-          <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Jenis</TableHead>
-                  <TableHead>Tahun</TableHead>
-                  <TableHead>Dialokasikan</TableHead>
-                  <TableHead>Terpakai</TableHead>
-                  <TableHead>Sisa</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {balances.map((b) => (
-                  <TableRow key={b.id}>
-                    <TableCell>{b.leave_type_name}</TableCell>
-                    <TableCell>{b.year}</TableCell>
-                    <TableCell>{b.allocated_days}</TableCell>
-                    <TableCell>{b.used_days}</TableCell>
-                    <TableCell>{b.remaining_days}</TableCell>
-                  </TableRow>
+          <CardContent className='space-y-3'>
+            <div className='flex flex-wrap items-center gap-2'>
+              <select
+                aria-label='Pilih karyawan'
+                className='border-input h-9 rounded-lg border bg-transparent px-2.5 text-sm'
+                value={balanceEmpId ?? ''}
+                onChange={(e) => setBalanceEmpId(e.target.value ? Number(e.target.value) : null)}
+              >
+                <option value=''>Pilih Karyawan</option>
+                {employees.map((e) => (
+                  <option key={e.id} value={e.id}>
+                    {e.full_name}
+                  </option>
                 ))}
-              </TableBody>
-            </Table>
+              </select>
+              <select
+                aria-label='Pilih tahun'
+                className='border-input h-9 rounded-lg border bg-transparent px-2.5 text-sm'
+                value={balanceYear}
+                onChange={(e) => setBalanceYear(Number(e.target.value))}
+              >
+                {[2024, 2025, 2026, 2027].map((y) => (
+                  <option key={y} value={y}>
+                    {y}
+                  </option>
+                ))}
+              </select>
+            </div>
+            {balanceLoading ? (
+              <Skeleton className='h-32 w-full' />
+            ) : balanceEmpId && balances.length === 0 ? (
+              <p className='text-muted-foreground text-sm'>Belum ada data kuota untuk karyawan ini.</p>
+            ) : balanceEmpId ? (
+              <>
+                <p className='text-sm font-medium text-slate-700'>{employees.find((e) => e.id === balanceEmpId)?.full_name}</p>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Jenis</TableHead>
+                      <TableHead>Tahun</TableHead>
+                      <TableHead>Dialokasikan</TableHead>
+                      <TableHead>Terpakai</TableHead>
+                      <TableHead>Sisa</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {balances.map((b) => (
+                      <TableRow key={b.id}>
+                        <TableCell>{b.leave_type_name}</TableCell>
+                        <TableCell>{b.year}</TableCell>
+                        <TableCell>{b.allocated_days}</TableCell>
+                        <TableCell>{b.used_days}</TableCell>
+                        <TableCell>{b.remaining_days}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </>
+            ) : null}
           </CardContent>
         </Card>
       )}

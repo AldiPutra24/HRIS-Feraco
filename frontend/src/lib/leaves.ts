@@ -108,8 +108,9 @@ function unwrapList<T>(data: T[] | { results?: T[] }): T[] {
   return Array.isArray(data) ? data : (data.results ?? []);
 }
 
-export function listBalances(): Promise<LeaveBalance[]> {
-  return request<LeaveBalance[]>('/balances/').then(unwrapList);
+export function listBalances(params?: Record<string, string>): Promise<LeaveBalance[]> {
+  const qs = params ? `?${new URLSearchParams(params)}` : '';
+  return request<LeaveBalance[]>(`/balances/${qs}`).then(unwrapList);
 }
 
 export function listLeaveRequests(params?: Record<string, string>): Promise<LeaveRequest[]> {
