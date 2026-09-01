@@ -16,8 +16,16 @@ from .serializers import ReimbursementCategorySerializer, ReimbursementSerialize
 from .services import notify
 
 
+MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10MB — keep uploads under gunicorn timeout
+
+
 def _bucket():
     return settings.REIMBURSEMENT_STORAGE_BUCKET
+
+
+def _upload_path(obj, kind, filename):
+    prefix = 'attachments' if kind == 'attachment' else 'payment-proofs'
+    return f'reimbursements/{obj.id}/{prefix}/{filename}'
 
 
 class ReimbursementCategoryViewSet(viewsets.ModelViewSet):
@@ -179,8 +187,13 @@ class ReimbursementViewSet(viewsets.ModelViewSet):
         if upload is not None:
             if not is_configured():
                 return Response({'file': 'Storage tidak dikonfigurasi.'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
-            path = f'reimbursements/{obj.employee_id}/payment-proofs/{obj.id}-{upload.name}'
-            upload_bytes(_bucket(), path, upload.read(), content_type=upload.content_type or 'application/octet-stream')
+            if upload.size > MAX_UPLOAD_BYTES:
+                return Response({'file': f'File melebihi batas {MAX_UPLOAD_BYTES // (1024 * 1024)}MB.'}, status=status.HTTP_400_BAD_REQUEST)
+            path = _upload_path(obj, 'payment_proof', upload.name)
+            try:
+                upload_bytes(_bucket(), path, upload.read(), content_type=upload.content_type or 'application/octet-stream')
+            except Exception as e:
+                return Response({'file': f'Upload gagal: {str(e)[:120]}'}, status=status.HTTP_502_BAD_GATEWAY)
             obj.payment_proof_name = upload.name
             obj.payment_proof_path = path
             obj.payment_proof_content_type = upload.content_type or ''
@@ -241,9 +254,13 @@ class ReimbursementViewSet(viewsets.ModelViewSet):
         upload = request.FILES.get(field)
         if upload is None:
             return Response({'file': 'Required.'}, status=status.HTTP_400_BAD_REQUEST)
-        prefix = 'attachments' if kind == 'attachment' else 'payment-proofs'
-        path = f'reimbursements/{obj.employee_id}/{prefix}/{obj.id}-{upload.name}'
-        upload_bytes(_bucket(), path, upload.read(), content_type=upload.content_type or 'application/octet-stream')
+        if upload.size > MAX_UPLOAD_BYTES:
+            return Response({'file': f'File melebihi batas {MAX_UPLOAD_BYTES // (1024 * 1024)}MB.'}, status=status.HTTP_400_BAD_REQUEST)
+        path = _upload_path(obj, kind, upload.name)
+        try:
+            upload_bytes(_bucket(), path, upload.read(), content_type=upload.content_type or 'application/octet-stream')
+        except Exception as e:
+            return Response({'file': f'Upload gagal: {str(e)[:120]}'}, status=status.HTTP_502_BAD_GATEWAY)
         name_field = f'{kind}_name'
         path_field = f'{kind}_path'
         ctype_field = f'{kind}_content_type'

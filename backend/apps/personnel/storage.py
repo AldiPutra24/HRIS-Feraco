@@ -29,7 +29,7 @@ def upload_bytes(bucket, path, data: bytes, content_type='application/octet-stre
         url,
         headers={**_headers(), 'Content-Type': content_type, 'x-upsert': 'false'},
         data=data,
-        timeout=60,
+        timeout=120,
     )
     if res.status_code not in (200, 201):
         raise RuntimeError(f'Storage upload failed ({res.status_code}): {res.text[:200]}')

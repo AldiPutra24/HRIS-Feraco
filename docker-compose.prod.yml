@@ -11,7 +11,7 @@ services:
              python manage.py seed_org_structure &&
              python manage.py seed_leave_types &&
              python manage.py seed_reimbursement_categories &&
-             gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers 2"
+             gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers 2 --timeout 120"
     environment:
       APP_ENV: ${APP_ENV:-production}
       DB_ENGINE: ${DB_ENGINE:-supabase}
