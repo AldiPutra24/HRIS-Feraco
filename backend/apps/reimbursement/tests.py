@@ -119,7 +119,8 @@ class ReimbursementWorkflowTests(TestCase):
         self.client.post(f'/api/reimbursements/{r.id}/submit/')
         self.client.logout()
         self._login(self.hr)
-        resp = self.client.post(f'/api/reimbursements/{r.id}/approve/')
+        resp = self.client.post(f'/api/reimbursements/{r.id}/approve/',
+                                {'approved_amount': 40000}, content_type='application/json')
         self.assertEqual(resp.status_code, 200)
         r.refresh_from_db()
         self.assertEqual(r.status, 'APPROVED')
@@ -150,7 +151,8 @@ class ReimbursementWorkflowTests(TestCase):
         self.client.post(f'/api/reimbursements/{r.id}/submit/')
         self.client.logout()
         self._login(self.hr)
-        self.client.post(f'/api/reimbursements/{r.id}/approve/')
+        self.client.post(f'/api/reimbursements/{r.id}/approve/',
+                         {'approved_amount': 40000}, content_type='application/json')
         resp = self.client.post(f'/api/reimbursements/{r.id}/mark_paid/',
                                 {'payment_reference': 'TRF/2026/08/001'},
                                 content_type='application/json')
@@ -234,7 +236,8 @@ class ReimbursementWorkflowTests(TestCase):
         self.client.post(f'/api/reimbursements/{rid}/submit/')
         self.client.logout()
         self._login(self.hr)
-        self.client.post(f'/api/reimbursements/{rid}/approve/')
+        self.client.post(f'/api/reimbursements/{rid}/approve/',
+                         {'approved_amount': 40000}, content_type='application/json')
         logs = AuditLog.objects.filter(object_id=str(rid))
         actions = set(logs.values_list('action', flat=True))
         # create + update (submit) + approve
@@ -260,7 +263,8 @@ class ReimbursementWorkflowTests(TestCase):
         self.client.logout()
         # approve
         self._login(self.hr)
-        self.client.post(f'/api/reimbursements/{r.id}/approve/')
+        self.client.post(f'/api/reimbursements/{r.id}/approve/',
+                         {'approved_amount': 40000}, content_type='application/json')
         r.refresh_from_db()
         self.assertEqual(r.status, 'APPROVED')
         # reject from approved should fail
@@ -313,7 +317,8 @@ class ReimbursementWorkflowTests(TestCase):
         self.client.post(f'/api/reimbursements/{r.id}/submit/')
         self.client.logout()
         self._login(self.hr)
-        self.client.post(f'/api/reimbursements/{r.id}/approve/')
+        self.client.post(f'/api/reimbursements/{r.id}/approve/',
+                         {'approved_amount': 40000}, content_type='application/json')
         from io import BytesIO
         from django.core.files.uploadedfile import SimpleUploadedFile
         resp = self.client.post(f'/api/reimbursements/{r.id}/mark_paid/',
@@ -329,7 +334,8 @@ class ReimbursementWorkflowTests(TestCase):
         self.client.post(f'/api/reimbursements/{r.id}/submit/')
         self.client.logout()
         self._login(self.hr)
-        self.client.post(f'/api/reimbursements/{r.id}/approve/')
+        self.client.post(f'/api/reimbursements/{r.id}/approve/',
+                         {'approved_amount': 40000}, content_type='application/json')
         self.client.post(f'/api/reimbursements/{r.id}/mark_paid/',
                          {'payment_reference': 'TRF/2026/08/001'}, content_type='application/json')
         resp = self.client.get(f'/api/reimbursements/{r.id}/')
@@ -373,3 +379,121 @@ class ReimbursementWorkflowTests(TestCase):
         resp = self.client.delete(f'/api/reimbursements/{r.id}/')
         self.assertEqual(resp.status_code, 403)
         self.assertTrue(Reimbursement.objects.filter(id=r.id).exists())
+
+    # --- approved_amount + project_category ---
+
+    def _submit_as_emp(self, r=None):
+        self._login(self.emp_user)
+        r = r or self._create_draft()
+        resp = self.client.post(f'/api/reimbursements/{r.id}/submit/')
+        self.assertEqual(resp.status_code, 200)
+        self.client.logout()
+        return r
+
+    def test_employee_cannot_set_approved_amount(self):
+        self._login(self.emp_user)
+        r = self._create_draft()
+        resp = self.client.patch(f'/api/reimbursements/{r.id}/', {'approved_amount': 10000}, content_type='application/json')
+        # PATCH not routed on this viewset (list only POST/GET) — use POST create instead
+        # Employee attempting approved_amount on create must be rejected.
+        resp = self.client.post('/api/reimbursements/', {
+            'category': self.cat_no_attach.id,
+            'transaction_date': '2026-08-01',
+            'amount': 75000,
+            'approved_amount': 50000,
+            'project_category': 'GPFE',
+            'description': 'X',
+        }, content_type='application/json')
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn('approved_amount', resp.json())
+
+    def test_hr_can_set_approved_amount(self):
+        r = self._submit_as_emp()
+        self._login(self.hr)
+        resp = self.client.post(f'/api/reimbursements/{r.id}/approve/',
+                                {'approved_amount': 40000}, content_type='application/json')
+        self.assertEqual(resp.status_code, 200)
+        r.refresh_from_db()
+        self.assertEqual(r.status, 'APPROVED')
+        self.assertEqual(float(r.approved_amount), 40000)
+
+    def test_approve_without_approved_amount_rejected(self):
+        r = self._submit_as_emp()
+        self._login(self.hr)
+        resp = self.client.post(f'/api/reimbursements/{r.id}/approve/',
+                                {}, content_type='application/json')
+        self.assertEqual(resp.status_code, 400)
+        r.refresh_from_db()
+        self.assertEqual(r.status, 'PENDING')
+
+    def test_approved_amount_cannot_exceed_amount(self):
+        r = self._submit_as_emp()
+        self._login(self.hr)
+        resp = self.client.post(f'/api/reimbursements/{r.id}/approve/',
+                                {'approved_amount': 999999}, content_type='application/json')
+        self.assertEqual(resp.status_code, 400)
+        r.refresh_from_db()
+        self.assertEqual(r.status, 'PENDING')
+
+    def test_project_category_valid_choices(self):
+        self._login(self.emp_user)
+        resp = self.client.post('/api/reimbursements/', {
+            'category': self.cat_no_attach.id,
+            'transaction_date': '2026-08-01',
+            'amount': 75000,
+            'project_category': 'BOGUS',
+            'description': 'X',
+        }, content_type='application/json')
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn('project_category', resp.json())
+
+    def test_other_requires_other_text(self):
+        self._login(self.emp_user)
+        resp = self.client.post('/api/reimbursements/', {
+            'category': self.cat_no_attach.id,
+            'transaction_date': '2026-08-01',
+            'amount': 75000,
+            'project_category': 'OTHER',
+            'project_category_other': '',
+            'description': 'X',
+        }, content_type='application/json')
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn('project_category_other', resp.json())
+
+    def test_non_other_rejects_other_text(self):
+        self._login(self.emp_user)
+        resp = self.client.post('/api/reimbursements/', {
+            'category': self.cat_no_attach.id,
+            'transaction_date': '2026-08-01',
+            'amount': 75000,
+            'project_category': 'GPFE',
+            'project_category_other': 'Should be cleared',
+            'description': 'X',
+        }, content_type='application/json')
+        self.assertEqual(resp.status_code, 201)
+        rid = resp.json()['id']
+        r = Reimbursement.objects.get(id=rid)
+        self.assertEqual(r.project_category_other, '')
+
+    def test_other_with_text_ok(self):
+        self._login(self.emp_user)
+        resp = self.client.post('/api/reimbursements/', {
+            'category': self.cat_no_attach.id,
+            'transaction_date': '2026-08-01',
+            'amount': 75000,
+            'project_category': 'OTHER',
+            'project_category_other': 'Project ABC',
+            'description': 'X',
+        }, content_type='application/json')
+        self.assertEqual(resp.status_code, 201)
+        r = Reimbursement.objects.get(id=resp.json()['id'])
+        self.assertEqual(r.project_category, 'OTHER')
+        self.assertEqual(r.project_category_other, 'Project ABC')
+
+    def test_audit_approved_amount_change(self):
+        r = self._submit_as_emp()
+        self._login(self.hr)
+        self.client.post(f'/api/reimbursements/{r.id}/approve/',
+                         {'approved_amount': 40000}, content_type='application/json')
+        log = AuditLog.objects.filter(object_id=str(r.id), action='approve').latest('created_at')
+        self.assertEqual(log.changes_after['approved_amount'], '40000.0')

@@ -62,6 +62,8 @@ export function ReimbursementPage() {
   const [categories, setCategories] = useState<ReimbursementCategory[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [loading, setLoading] = useState(true);
+  const [approving, setApproving] = useState<Reimbursement | null>(null);
+  const [approveAmount, setApproveAmount] = useState('');
   const [rejecting, setRejecting] = useState<Reimbursement | null>(null);
   const [rejectReason, setRejectReason] = useState('');
   const [paying, setPaying] = useState<Reimbursement | null>(null);
@@ -91,9 +93,26 @@ export function ReimbursementPage() {
   }, []);
 
   async function approve(r: Reimbursement) {
+    setApproving(r);
+    setApproveAmount(r.amount != null ? String(r.amount) : '');
+  }
+
+  async function confirmApprove() {
+    if (!approving) return;
+    const val = Number(approveAmount);
+    if (!approveAmount.trim() || !val || val <= 0) {
+      toast.error('Nominal disetujui wajib diisi dan lebih dari 0.');
+      return;
+    }
+    if (val > approving.amount) {
+      toast.error('Nominal disetujui tidak boleh melebihi nominal diajukan.');
+      return;
+    }
     try {
-      await approveReimbursement(r.id);
+      await approveReimbursement(approving.id, val);
       toast.success('Reimbursement disetujui.');
+      setApproving(null);
+      setApproveAmount('');
       load();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Gagal menyetujui.');
@@ -232,8 +251,10 @@ export function ReimbursementPage() {
                   <TableRow>
                     <TableHead>Karyawan</TableHead>
                     <TableHead>Kategori</TableHead>
+                    <TableHead>Kategori Project</TableHead>
                     <TableHead>Tanggal</TableHead>
-                    <TableHead className='text-right'>Jumlah</TableHead>
+                    <TableHead className='text-right'>Nominal Diajukan</TableHead>
+                    <TableHead className='text-right'>Nominal Disetujui</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Lampiran</TableHead>
                     <TableHead>Bukti Transfer</TableHead>
@@ -245,8 +266,10 @@ export function ReimbursementPage() {
                     <TableRow key={r.id}>
                       <TableCell>{r.employee_name}</TableCell>
                       <TableCell>{r.category_name}</TableCell>
+                      <TableCell>{r.project_category === 'OTHER' ? r.project_category_other : r.project_category.replace(/_/g, ' ')}</TableCell>
                       <TableCell>{r.transaction_date}</TableCell>
                       <TableCell className='text-right'>{formatAmount(r.amount)}</TableCell>
+                      <TableCell className='text-right'>{r.approved_amount != null ? formatAmount(r.approved_amount) : '-'}</TableCell>
                       <TableCell>
                         <StatusBadge status={r.status} />
                       </TableCell>
@@ -306,6 +329,46 @@ export function ReimbursementPage() {
           )}
         </CardContent>
       </Card>
+
+      {approving && (
+        <div className='fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4'>
+          <Card className='w-full max-w-md'>
+            <CardHeader>
+              <CardTitle>Setujui Reimbursement</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className='space-y-3'>
+                <p className='text-sm text-muted-foreground'>
+                  {approving.employee_name} — {approving.category_name} ({formatAmount(approving.amount)})
+                </p>
+                <div>
+                  <Label className='text-xs'>Nominal Disetujui (IDR)</Label>
+                  <Input
+                    type='number'
+                    min='0'
+                    step='0.01'
+                    placeholder='Nominal disetujui'
+                    value={approveAmount}
+                    onChange={(e) => setApproveAmount(e.target.value)}
+                  />
+                </div>
+                <div className='flex justify-end gap-2'>
+                  <Button
+                    variant='ghost'
+                    onClick={() => {
+                      setApproving(null);
+                      setApproveAmount('');
+                    }}
+                  >
+                    Batal
+                  </Button>
+                  <Button onClick={confirmApprove}>Setujui</Button>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       {rejecting && (
         <div className='fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4'>

@@ -22,6 +22,8 @@ export function ReimbursementForm({ redirectTo = '/dashboard/employee/reimbursem
   const [loading, setLoading] = useState(true);
   const [form, setForm] = useState({
     category: '',
+    project_category: '',
+    project_category_other: '',
     transaction_date: '',
     amount: '',
     description: ''
@@ -48,6 +50,14 @@ export function ReimbursementForm({ redirectTo = '/dashboard/employee/reimbursem
       toast.error('Lengkapi kategori dan tanggal transaksi.');
       return;
     }
+    if (!form.project_category) {
+      toast.error('Pilih kategori project.');
+      return;
+    }
+    if (form.project_category === 'OTHER' && !form.project_category_other.trim()) {
+      toast.error('Isi detail kategori project (OTHER).');
+      return;
+    }
     const amount = Number(form.amount);
     if (!amount || amount <= 0) {
       toast.error('Jumlah harus lebih dari 0.');
@@ -61,6 +71,8 @@ export function ReimbursementForm({ redirectTo = '/dashboard/employee/reimbursem
     try {
       const created = await createReimbursement({
         category: Number(form.category),
+        project_category: form.project_category,
+        project_category_other: form.project_category_other,
         transaction_date: form.transaction_date,
         amount,
         description: form.description
@@ -115,6 +127,33 @@ export function ReimbursementForm({ redirectTo = '/dashboard/employee/reimbursem
                   ))}
               </select>
             </div>
+            <div>
+              <Label className='text-xs'>Kategori Project</Label>
+              <select
+                className='border-input h-9 w-full rounded-lg border bg-transparent px-2.5 text-sm'
+                value={form.project_category}
+                onChange={(e) => setForm((f) => ({ ...f, project_category: e.target.value, project_category_other: '' }))}
+              >
+                <option value=''>Pilih project</option>
+                <option value='OPERASIONAL_FERACO_JAKARTA'>Operasional Feraco Jakarta</option>
+                <option value='OPERASIONAL_FERACO_JOGJA'>Operasional Feraco Jogja</option>
+                <option value='GPFE'>GPFE</option>
+                <option value='INACRAFT'>Inacraft</option>
+                <option value='PENAS'>Penas</option>
+                <option value='LEARNING_DEVELOPMENT'>Learning &amp; Development</option>
+                <option value='OTHER'>Other</option>
+              </select>
+            </div>
+            {form.project_category === 'OTHER' && (
+              <div>
+                <Label className='text-xs'>Detail Project (wajib)</Label>
+                <Input
+                  placeholder='Sebutkan project'
+                  value={form.project_category_other}
+                  onChange={(e) => setForm((f) => ({ ...f, project_category_other: e.target.value }))}
+                />
+              </div>
+            )}
             <div>
               <Label className='text-xs'>Tanggal Transaksi</Label>
               <Input

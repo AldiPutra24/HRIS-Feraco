@@ -108,8 +108,10 @@ export function EmployeeReimbursement() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Kategori</TableHead>
+                    <TableHead>Kategori Project</TableHead>
                     <TableHead>Tanggal</TableHead>
-                    <TableHead className='text-right'>Jumlah</TableHead>
+                    <TableHead className='text-right'>Nominal Diajukan</TableHead>
+                    <TableHead className='text-right'>Nominal Disetujui</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Lampiran</TableHead>
                     <TableHead>Bukti Transfer</TableHead>
@@ -120,8 +122,10 @@ export function EmployeeReimbursement() {
                   {items.map((r) => (
                     <TableRow key={r.id}>
                       <TableCell>{r.category_name}</TableCell>
+                      <TableCell>{r.project_category === 'OTHER' ? r.project_category_other : r.project_category.replace(/_/g, ' ')}</TableCell>
                       <TableCell>{r.transaction_date}</TableCell>
                       <TableCell className='text-right'>{formatAmount(r.amount)}</TableCell>
+                      <TableCell className='text-right'>{r.approved_amount != null ? formatAmount(r.approved_amount) : '-'}</TableCell>
                       <TableCell>
                         <StatusBadge status={r.status} />
                       </TableCell>

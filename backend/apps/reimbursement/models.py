@@ -28,6 +28,16 @@ class Reimbursement(models.Model):
         ('CANCELLED', 'Cancelled'),
     ]
 
+    PROJECT_CATEGORY_CHOICES = [
+        ('OPERASIONAL_FERACO_JAKARTA', 'Operasional Feraco Jakarta'),
+        ('OPERASIONAL_FERACO_JOGJA', 'Operasional Feraco Jogja'),
+        ('GPFE', 'GPFE'),
+        ('INACRAFT', 'Inacraft'),
+        ('PENAS', 'Penas'),
+        ('LEARNING_DEVELOPMENT', 'Learning & Development'),
+        ('OTHER', 'Other'),
+    ]
+
     employee = models.ForeignKey(
         'personnel.Employee',
         on_delete=models.CASCADE,
@@ -36,6 +46,9 @@ class Reimbursement(models.Model):
     category = models.ForeignKey(ReimbursementCategory, on_delete=models.PROTECT, related_name='reimbursements')
     transaction_date = models.DateField()
     amount = models.DecimalField(max_digits=14, decimal_places=2)
+    approved_amount = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    project_category = models.CharField(max_length=32, choices=PROJECT_CATEGORY_CHOICES, blank=True, default='')
+    project_category_other = models.CharField(max_length=255, blank=True, default='')
     description = models.TextField(blank=True)
     # Attachment binary lives in Supabase Storage (like LeaveRequest).
     attachment_name = models.CharField(max_length=255, blank=True)

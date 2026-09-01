@@ -55,6 +55,9 @@ export type Reimbursement = {
   category_name: string;
   transaction_date: string;
   amount: number;
+  approved_amount: number | null;
+  project_category: string;
+  project_category_other: string;
   description: string;
   attachment_name: string;
   attachment_url: string | null;
@@ -97,6 +100,8 @@ export function listReimbursements(params?: Record<string, string>): Promise<Rei
 
 export function createReimbursement(data: {
   category: number;
+  project_category: string;
+  project_category_other?: string;
   transaction_date: string;
   amount: number;
   description: string;
@@ -108,8 +113,11 @@ export function submitReimbursement(id: number): Promise<Reimbursement> {
   return request<Reimbursement>(`/${id}/submit/`, { method: 'POST' });
 }
 
-export function approveReimbursement(id: number): Promise<Reimbursement> {
-  return request<Reimbursement>(`/${id}/approve/`, { method: 'POST' });
+export function approveReimbursement(id: number, approved_amount: number): Promise<Reimbursement> {
+  return request<Reimbursement>(`/${id}/approve/`, {
+    method: 'POST',
+    body: JSON.stringify({ approved_amount }),
+  });
 }
 
 export function rejectReimbursement(id: number, rejection_reason: string): Promise<Reimbursement> {

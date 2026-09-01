@@ -113,13 +113,31 @@ class ReimbursementViewSet(viewsets.ModelViewSet):
             return Response({'detail': 'Tidak dapat menyetujui pengajuan sendiri.'}, status=status.HTTP_400_BAD_REQUEST)
         if obj.status != 'PENDING':
             return Response({'detail': 'Hanya pengajuan PENDING yang dapat disetujui.'}, status=status.HTTP_400_BAD_REQUEST)
+        approved_amount = request.data.get('approved_amount')
+        if approved_amount is None:
+            return Response({'approved_amount': 'Nominal disetujui wajib diisi.'}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            approved_amount = float(approved_amount)
+        except (TypeError, ValueError):
+            return Response({'approved_amount': 'Nominal disetujui tidak valid.'}, status=status.HTTP_400_BAD_REQUEST)
+        if approved_amount < 0:
+            return Response({'approved_amount': 'Nominal disetujui tidak boleh negatif.'}, status=status.HTTP_400_BAD_REQUEST)
+        if approved_amount > float(obj.amount):
+            return Response({'approved_amount': 'Nominal disetujui tidak boleh melebihi nominal diajukan.'}, status=status.HTTP_400_BAD_REQUEST)
         with transaction.atomic():
+            prev_approved = str(obj.approved_amount) if obj.approved_amount is not None else None
             obj.status = 'APPROVED'
+            obj.approved_amount = approved_amount
             obj.approved_at = timezone.now()
             obj.reviewer = request.user
-            obj.save(update_fields=['status', 'approved_at', 'reviewer', 'updated_at'])
+            obj.save(update_fields=['status', 'approved_amount', 'approved_at', 'reviewer', 'updated_at'])
         notify(getattr(obj.employee, 'user', None), obj, f'Reimbursement {obj.category.name} Anda disetujui.')
-        log_event(request, 'approve', obj=obj, description=f'Reimbursement {obj.id} approved')
+        log_event(
+            request, 'approve', obj=obj,
+            description=f'Reimbursement {obj.id} approved',
+            changes_before={'approved_amount': prev_approved},
+            changes_after={'approved_amount': str(approved_amount)},
+        )
         return Response(ReimbursementSerializer(obj, context={'request': request}).data)
 
     @action(detail=True, methods=['post'])
