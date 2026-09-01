@@ -276,15 +276,30 @@ export function LeavePage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {balances.map((b) => (
-                      <TableRow key={b.id}>
-                        <TableCell>{b.leave_type_name}</TableCell>
-                        <TableCell>{b.year}</TableCell>
-                        <TableCell>{b.allocated_days}</TableCell>
-                        <TableCell>{b.used_days}</TableCell>
-                        <TableCell>{b.remaining_days}</TableCell>
-                      </TableRow>
-                    ))}
+                    {balances.map((b) => {
+                      const meta = types.find((t) => t.id === b.leave_type);
+                      const deductTarget = meta?.deducts_from != null ? types.find((t) => t.id === meta.deducts_from) : null;
+                      const hasQuota = b.allocated_days > 0;
+                      return (
+                        <TableRow key={b.id}>
+                          <TableCell>{b.leave_type_name}</TableCell>
+                          <TableCell>{b.year}</TableCell>
+                          {hasQuota ? (
+                            <>
+                              <TableCell>{b.allocated_days}</TableCell>
+                              <TableCell>{b.used_days}</TableCell>
+                              <TableCell>{b.remaining_days}</TableCell>
+                            </>
+                          ) : (
+                            <TableCell colSpan={3}>
+                              <span className='text-muted-foreground text-sm'>
+                                {deductTarget ? `Mengurangi ${deductTarget.name}` : 'Tanpa kuota (hak khusus)'}
+                              </span>
+                            </TableCell>
+                          )}
+                        </TableRow>
+                      );
+                    })}
                   </TableBody>
                 </Table>
               </>

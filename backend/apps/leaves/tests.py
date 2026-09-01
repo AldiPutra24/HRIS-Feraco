@@ -295,7 +295,7 @@ class BusinessRuleTests(TestCase):
         self.req = SimpleNamespace(user=self.emp_user)
 
     def _valid(self, lt, start='2026-01-05', end='2026-01-07', extra=None):
-        data = {'leave_type': lt.id, 'start_date': start, 'end_date': end, 'kind': lt.kind}
+        data = {'leave_type': lt.id, 'start_date': start, 'end_date': end, 'kind': lt.kind, 'reason': 'x'}
         if extra:
             data.update(extra)
         return self.SR(data=data, context={'request': self.req})
