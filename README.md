@@ -78,6 +78,10 @@ Catatan: filtering menu di frontend (`use-nav.ts`) hanya UI; otorisasi di backen
 
 ## Last Progress
 
+**Leave Module — Admin Hard Delete (Phase 2.1)** — last updated 2026-09-02
+
+- **Admin hard delete (`apps.leaves`)** — admin/superadmin can permanently delete leave requests on `/dashboard/leave`. `LeaveRequestViewSet` `destroy` override + `DELETE /requests/{id}/hard-delete/` action, both restricted to `is_superuser or role == 'ADMIN'` (403 otherwise — also fixes pre-existing hole where request owner could DELETE own request). Hard-deleting an APPROVED request restores deducted quota on the target type (`deducts_from or leave_type`); notifications cascade; audit logged. 27 leaves tests pass (4 new). Frontend: `hardDeleteLeave(id)` in `lib/leaves.ts`; admin-only "Hapus" button + confirm modal in `leave-page.tsx`.
+
 **Leave Module — HR Business Rules (Phase 2)** — last updated 2026-09-01
 
 - **Leave Business Rules (`apps.leaves`)** — 6 new `LeaveType` fields (migration `0004`): `max_days_per_request` (per-request duration cap), `min_tenure_months` (tenure eligibility), `max_days_without_attachment` (attachment mandatory above this many days), `carry_forward_max` (unused days carried to next year, capped), `deducts_from` (deduct from another type's balance, e.g. Cuti Berobat uses Cuti Tahunan), `is_paid`. `None/0` = rule not enforced. Carry-forward + target-type deduction in `services.get_balance()`/`apply_approval_deduction()` (still idempotent via `balance_deducted`). Serializer validates tenure/duration/attachment/quota at submit. `seed_leave_types` now seeds 13 types (9 LEAVE incl. MEDICAL→ANNUAL deduct + 4 PERMISSION incl. SICK 1-day-no-note/unpaid; Cuti Tidak Berbayar = no category, note in reason). 23 leaves tests pass.

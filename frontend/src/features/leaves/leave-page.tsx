@@ -14,6 +14,7 @@ import { useAuth } from '@/lib/auth/auth-provider';
 import {
   approveLeave,
   cancelLeave,
+  hardDeleteLeave,
   listBalances,
   listLeaveRequests,
   listLeaveTypes,
@@ -57,6 +58,7 @@ export function LeavePage() {
   const role = user?.role;
   const isApprover = role === 'admin' || role === 'hr_staff' || role === 'hr_lead' || role === 'management';
   const isAdmin = role === 'admin' || role === 'hr_staff' || role === 'hr_lead';
+  const canHardDelete = role === 'admin'; // backend: ADMIN/superadmin only
 
   const [types, setTypes] = useState<LeaveType[]>([]);
   const [balances, setBalances] = useState<LeaveBalance[]>([]);
@@ -64,6 +66,7 @@ export function LeavePage() {
   const [loading, setLoading] = useState(true);
   const [rejecting, setRejecting] = useState<LeaveRequest | null>(null);
   const [rejectReason, setRejectReason] = useState('');
+  const [deleting, setDeleting] = useState<LeaveRequest | null>(null);
   const [employees, setEmployees] = useState<Employee[]>([]);
 
   const load = useCallback(async () => {
@@ -128,6 +131,18 @@ export function LeavePage() {
       load();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Gagal membatalkan.');
+    }
+  }
+
+  async function confirmHardDelete() {
+    if (!deleting) return;
+    try {
+      await hardDeleteLeave(deleting.id);
+      toast.success('Data cuti dihapus permanen.');
+      setDeleting(null);
+      load();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Gagal menghapus.');
     }
   }
 
@@ -311,6 +326,11 @@ export function LeavePage() {
                           Batalkan
                         </Button>
                       )}
+                      {canHardDelete && (
+                        <Button variant='ghost' size='sm' onClick={() => setDeleting(r)}>
+                          Hapus
+                        </Button>
+                      )}
                     </div>
                   </TableCell>
                 </TableRow>
@@ -345,6 +365,26 @@ export function LeavePage() {
             <div className='flex gap-2'>
               <Button onClick={confirmReject}>Konfirmasi Tolak</Button>
               <Button variant='ghost' onClick={() => setRejecting(null)}>
+                Batal
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+      {deleting && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Hapus Permanen</CardTitle>
+          </CardHeader>
+          <CardContent className='space-y-3'>
+            <p className='text-muted-foreground text-sm'>
+              Yakin hapus permanen pengajuan {deleting.leave_type_name} ({deleting.start_date} — {deleting.end_date})? Tindakan ini tidak dapat dibatalkan.
+            </p>
+            <div className='flex gap-2'>
+              <Button variant='destructive' onClick={confirmHardDelete}>
+                Hapus Permanen
+              </Button>
+              <Button variant='ghost' onClick={() => setDeleting(null)}>
                 Batal
               </Button>
             </div>

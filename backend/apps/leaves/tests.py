@@ -133,6 +133,73 @@ class LeaveWorkflowTests(TestCase):
         )
         self.assertGreaterEqual(AuditLog.objects.count(), before)
 
+    def test_hard_delete_non_admin_forbidden(self):
+        """HR_STAFF is not ADMIN → hard delete forbidden (403)."""
+        lr = LeaveRequest.objects.create(
+            employee=self.emp, leave_type=self.annual,
+            start_date=date(2026, 1, 5), end_date=date(2026, 1, 7), total_days=3,
+        )
+        self.client.force_login(self.hr)  # HR_STAFF in LEAVE_ADMIN_ROLES but not ADMIN
+        url = reverse('leave-request-hard-delete', args=[lr.id])
+        res = self.client.delete(url)
+        self.assertEqual(res.status_code, 403)
+        self.assertTrue(LeaveRequest.objects.filter(pk=lr.id).exists())
+
+    def test_hard_delete_admin_ok_superadmin(self):
+        """Superuser can hard-delete."""
+        admin = make_user('ADMIN', 'admin@test.com')
+        admin.is_superuser = True
+        admin.save()
+        lr = LeaveRequest.objects.create(
+            employee=self.emp, leave_type=self.annual,
+            start_date=date(2026, 1, 5), end_date=date(2026, 1, 7), total_days=3,
+        )
+        self.client.force_login(admin)
+        url = reverse('leave-request-hard-delete', args=[lr.id])
+        res = self.client.delete(url)
+        self.assertEqual(res.status_code, 204)
+        self.assertFalse(LeaveRequest.objects.filter(pk=lr.id).exists())
+
+    def test_hard_delete_restores_balance(self):
+        """Hard-deleting an approved request restores the deducted quota."""
+        lr = LeaveRequest.objects.create(
+            employee=self.emp, leave_type=self.annual,
+            start_date=date(2026, 1, 5), end_date=date(2026, 1, 7), total_days=3,
+        )
+        lr.status = 'APPROVED'
+        lr.save(update_fields=['status'])
+        apply_approval_deduction(lr)
+        bal = get_balance(self.emp, self.annual, 2026)
+        self.assertEqual(bal.used_days, 3)
+        admin = make_user('ADMIN', 'admin@test.com')
+        admin.is_superuser = True
+        admin.save()
+        self.client.force_login(admin)
+        url = reverse('leave-request-hard-delete', args=[lr.id])
+        self.client.delete(url)
+        bal.refresh_from_db()
+        self.assertEqual(bal.used_days, 0)
+        self.assertEqual(bal.remaining_days, 12)
+
+    def test_hard_delete_destroy_endpoint_only_admin(self):
+        """Plain DELETE /requests/{id}/ also restricted to admin."""
+        lr = LeaveRequest.objects.create(
+            employee=self.emp, leave_type=self.annual,
+            start_date=date(2026, 1, 5), end_date=date(2026, 1, 7), total_days=3,
+        )
+        # Employee owner cannot delete
+        self.client.force_login(self.emp_user)
+        url = reverse('leave-request-detail', args=[lr.id])
+        res = self.client.delete(url)
+        self.assertEqual(res.status_code, 403)
+        # Admin can
+        admin = make_user('ADMIN', 'admin@test.com')
+        admin.is_superuser = True
+        admin.save()
+        self.client.force_login(admin)
+        res = self.client.delete(url)
+        self.assertEqual(res.status_code, 204)
+
 
 class SeedLeaveTypesTests(TestCase):
     def test_seed_creates_all_types(self):

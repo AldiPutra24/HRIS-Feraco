@@ -1,5 +1,15 @@
 # HRIS FERACO - Progress Note
 
+## Status: Leave Module — Admin Hard Delete (Phase 2.1)
+
+### Leave hard delete (`apps.leaves`) — 02 Sep 2026
+- Admin/superadmin can permanently delete leave requests (data cuti) on `/dashboard/leave`.
+- `LeaveRequestViewSet.destroy` override + `@action(detail=True, methods=['delete'], url_path='hard-delete')` — both restricted to `is_superuser or role == 'ADMIN'` (403 otherwise, incl. HR_STAFF/HR_LEAD/owner). Fixes pre-existing hole where request owner could DELETE own request via plain `DELETE /requests/{id}/`.
+- **Balance restore**: hard-deleting an APPROVED request with `balance_deducted=True` restores quota on the target type (`deducts_from or leave_type`): `used_days -= total_days`, recompute `remaining_days`, inside `transaction.atomic`.
+- `LeaveNotification` rows cascade (FK on_delete=CASCADE). Audit: `log_event(..., 'delete', obj=None, description=f'Leave request {id} hard-deleted')`.
+- Tests: 27 leaves tests pass (4 new: non-admin 403, superadmin 204, balance restored, plain-DELETE admin-only).
+- Frontend: `src/lib/leaves.ts` `hardDeleteLeave(id)` (DELETE `/requests/{id}/hard-delete/`); `leave-page.tsx` "Hapus" button shown only for `role === 'admin'` + confirm modal ("Hapus Permanen" destructive / "Batal"), toast + reload after delete.
+
 ## Status: Leave Module — HR Business Rules (Phase 2)
 
 ### Leave Business Rules (`apps.leaves`) — 01 Sep 2026

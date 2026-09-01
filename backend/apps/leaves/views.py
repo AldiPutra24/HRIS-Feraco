@@ -109,6 +109,41 @@ class LeaveRequestViewSet(viewsets.ModelViewSet):
             return None, Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
         return obj, None
 
+    @staticmethod
+    def _is_admin(request):
+        return request.user.is_superuser or _role(request.user) == 'ADMIN'
+
+    def destroy(self, request, *args, **kwargs):
+        """Hard delete only for admin/superadmin (real DB delete)."""
+        leave = self.get_object()
+        if not self._is_admin(request):
+            return Response({'detail': 'Hanya admin yang dapat menghapus permanen.'}, status=status.HTTP_403_FORBIDDEN)
+        self._hard_delete(leave, request)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(detail=True, methods=['delete'], url_path='hard-delete')
+    def hard_delete(self, request, pk=None):
+        leave, err = self._load_request(request, pk)
+        if err:
+            return err
+        if not self._is_admin(request):
+            return Response({'detail': 'Hanya admin yang dapat menghapus permanen.'}, status=status.HTTP_403_FORBIDDEN)
+        self._hard_delete(leave, request)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    def _hard_delete(self, leave, request):
+        """Delete the request; restore quota if its days were deducted."""
+        with transaction.atomic():
+            if leave.balance_deducted and leave.status == 'APPROVED':
+                target_type = leave.leave_type.deducts_from or leave.leave_type
+                balance = get_balance(leave.employee, target_type, leave.start_date.year)
+                balance.used_days = max(0, balance.used_days - leave.total_days)
+                balance.remaining_days = balance.allocated_days - balance.used_days
+                balance.save(update_fields=['used_days', 'remaining_days'])
+            leave_id = leave.id
+            leave.delete()  # notifications cascade
+        log_event(request, 'delete', obj=None, description=f'Leave request {leave_id} hard-deleted')
+
     @action(detail=True, methods=['post'])
     def approve(self, request, pk=None):
         leave, err = self._load_request(request, pk)

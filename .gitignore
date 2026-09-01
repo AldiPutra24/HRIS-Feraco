@@ -23,6 +23,7 @@ yarn-debug.log*
 yarn-error.log*
 frontend/dev_err.txt
 frontend/dev_out.txt
+frontend/dev_run2.txt
 
 # local env files
 .env*

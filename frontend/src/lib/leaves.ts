@@ -137,6 +137,10 @@ export function cancelLeave(id: number): Promise<LeaveRequest> {
   return request<LeaveRequest>(`/requests/${id}/cancel/`, { method: 'POST' });
 }
 
+export function hardDeleteLeave(id: number): Promise<void> {
+  return request<void>(`/requests/${id}/hard-delete/`, { method: 'DELETE' });
+}
+
 export function uploadLeaveAttachment(id: number, file: File): Promise<LeaveRequest> {
   const fd = new FormData();
   fd.append('file', file);
