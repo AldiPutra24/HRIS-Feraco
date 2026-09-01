@@ -106,6 +106,7 @@ class LeaveWorkflowTests(TestCase):
                 'kind': 'PERMISSION',
                 'start_date': '2026-01-05',
                 'end_date': '2026-01-07',
+                'reason': 'Keperluan pribadi',
             },
             context={'request': None},
         )

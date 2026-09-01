@@ -49,6 +49,15 @@ class LeaveRequestSerializer(serializers.ModelSerializer):
     leave_type_kind = serializers.CharField(source='leave_type.kind', read_only=True)
     approver_name = serializers.CharField(source='approver.username', read_only=True)
     attachment_url = serializers.SerializerMethodField()
+    # Model allows blank; enforce required at API level (no migration needed).
+    reason = serializers.CharField(
+        required=True,
+        allow_blank=False,
+        error_messages={
+            'required': 'Alasan pengajuan wajib diisi.',
+            'blank': 'Alasan pengajuan wajib diisi.',
+        },
+    )
 
     class Meta:
         model = LeaveRequest

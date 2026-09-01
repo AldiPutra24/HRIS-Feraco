@@ -43,8 +43,8 @@ export function LeaveForm({ redirectTo = '/dashboard/leave' }: { redirectTo?: st
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (submitting) return; // prevent double-click/spam
-    if (!form.leave_type || !form.start_date || !form.end_date) {
-      toast.error('Lengkapi jenis cuti, tanggal mulai, dan selesai.');
+    if (!form.leave_type || !form.start_date || !form.end_date || !form.reason.trim()) {
+      toast.error('Lengkapi jenis cuti, tanggal mulai, tanggal selesai, dan alasan pengajuan.');
       return;
     }
     setSubmitting(true);
@@ -135,17 +135,25 @@ export function LeaveForm({ redirectTo = '/dashboard/leave' }: { redirectTo?: st
                 onChange={(e) => setForm((f) => ({ ...f, end_date: e.target.value }))}
               />
             </div>
-            <div>
-              <Label className='text-xs'>Lampiran</Label>
+            <div className='md:col-span-4'>
+              <Label className='text-xs'>
+                Berkas/Dokumen Pendukung <span className='text-muted-foreground'>(opsional sesuai jenis pengajuan)</span>
+              </Label>
               <input
                 type='file'
                 className='mt-1 block w-full text-sm text-muted-foreground file:mr-3 file:rounded-md file:border-0 file:bg-primary file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-primary-foreground hover:file:bg-primary/80'
                 onChange={(e) => setFile(e.target.files?.[0] || null)}
               />
+              <p className='text-muted-foreground mt-1 text-xs'>
+                Lampirkan dokumen pendukung yang relevan, seperti surat keterangan dokter untuk izin sakit lebih dari 1 hari, atau dokumen lainnya yang diperlukan. Untuk pengajuan izin, harap melampirkan bukti persetujuan dari User/Atasan (misalnya screenshot persetujuan melalui WhatsApp).
+              </p>
             </div>
             <div className='md:col-span-4'>
-              <Label className='text-xs'>Alasan</Label>
+              <Label className='text-xs'>
+                Alasan Pengajuan <span className='text-destructive'>*</span>
+              </Label>
               <Input
+                required
                 placeholder='Alasan pengajuan'
                 value={form.reason}
                 onChange={(e) => setForm((f) => ({ ...f, reason: e.target.value }))}
