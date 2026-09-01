@@ -5,8 +5,8 @@ from .models import LeaveBalance, LeaveNotification, LeaveRequest, LeaveType
 
 @admin.register(LeaveType)
 class LeaveTypeAdmin(admin.ModelAdmin):
-    list_display = ('name', 'code', 'kind', 'is_active', 'default_quota', 'requires_attachment')
-    list_filter = ('kind', 'is_active')
+    list_display = ('name', 'code', 'kind', 'is_active', 'default_quota', 'max_days_per_request', 'requires_attachment', 'is_paid')
+    list_filter = ('kind', 'is_active', 'is_paid')
 
 
 @admin.register(LeaveBalance)

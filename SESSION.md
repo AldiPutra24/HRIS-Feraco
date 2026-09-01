@@ -1,5 +1,19 @@
 # HRIS FERACO - Progress Note
 
+## Status: Leave Module — HR Business Rules (Phase 2)
+
+### Leave Business Rules (`apps.leaves`) — 01 Sep 2026
+- 6 new `LeaveType` fields (migration `0004`): `max_days_per_request` (per-request duration cap), `min_tenure_months` (tenure eligibility), `max_days_without_attachment` (attachment mandatory above this many days), `carry_forward_max` (unused days carried to next year, capped), `deducts_from` (self-FK — deduct from another type's balance, e.g. Cuti Berobat uses Cuti Tahunan), `is_paid`. `None/0` = rule not enforced for that type.
+- **Carry-forward** in `services.get_balance()`: on first balance row creation for a year, carries up to `carry_forward_max` unused days from previous year's balance (e.g. ANNUAL: unused 2025 days carry into 2026, capped at 3).
+- **`deducts_from` deduction** in `apply_approval_deduction()`: quota deducted from target type's balance (`leave_type.deducts_from or leave_type`); still idempotent via `balance_deducted` flag; `allocated_days==0` (unlimited types) skip deduction.
+- **Serializer validation** (`LeaveRequestSerializer.validate`, create only): tenure check via `employee.join_date` months vs `min_tenure_months`; per-request cap `total_days > max_days_per_request` → 400; attachment rules — `requires_attachment` OR (`max_days_without_attachment` and days exceed threshold, e.g. Izin Sakit: 1 day free, >1 day needs doctor's note); quota check against the **target** type's balance (`deducts_from or leave_type`).
+- **`seed_leave_types` command**: 13 types via `get_or_create` (idempotent) — 9 LEAVE (ANNUAL 12d/quota carry-3 max-3d/3mo tenure; MATERNITY 90d; MARRIAGE 3d; MISCARRIAGE 45d+attach; MEDICAL→deducts ANNUAL; VACCINE 1d; PATERNITY 3d; CHILD_CIRCUMCISION 2d; SPECIAL unlimited) + 4 PERMISSION (SICK max-no-attach 1d unpaid; FAMILY/PERSONAL/LATE unpaid). `deducts_from` re-pointed after create (self-referential FK). Cuti Tidak Berbayar = no category; note in reason, HR handles at approval.
+- `admin.py`: LeaveType list_display + filter/sort by new rule fields.
+- Tests: 23 leaves tests pass (7 new `BusinessRuleTests`: max-days cap, min tenure, sick doctor's note, requires attachment, MEDICAL→ANNUAL deduct, carry-forward capped, unpaid permission; existing workflow/seed tests unchanged).
+- Frontend: `src/lib/leaves.ts` `LeaveType` type extended with the 6 new fields (consumers unchanged).
+- **Turbopack icon fix**: 5 shadcn ui components (`checkbox/sheet/breadcrumb/dropdown-menu/sidebar`) switched from named `import { IconX } from '@tabler/icons-react'` to the centralized `Icons.xxx` object (`Icons.check/close/chevronRight/dots/panelLeft`) — `icons.tsx` exports only the `Icons` object, no named exports; named imports broke Turbopack static analysis (`Export IconCheck doesn't exist`). Dev server 200, tsc/oxlint clean.
+- Validation: backend `manage.py check` + 23 leaves tests OK; frontend tsc clean.
+
 ## Status: Recruitment — Candidate Inbox + Pipeline V1
 
 ### Recruitment (`apps.recruitment`) — 31 Aug 2026

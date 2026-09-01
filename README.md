@@ -16,6 +16,7 @@ Internal Human Resource Information System.
 |   `-- apps/
 |       +-- accounts/      # User, Role, Permission, auth endpoints
 |       +-- personnel/     # Personnel/Employee/Freelancer/Department/Position
+|       +-- leaves/        # LeaveType/LeaveBalance/LeaveRequest + business rules
 |       `-- audit/         # AuditLog
 +-- docs/
 +-- docker-compose.yml
@@ -77,8 +78,10 @@ Catatan: filtering menu di frontend (`use-nav.ts`) hanya UI; otorisasi di backen
 
 ## Last Progress
 
-**Recruitment Module — Candidate Inbox + Pipeline V1** — last updated 2026-08-31
+**Leave Module — HR Business Rules (Phase 2)** — last updated 2026-09-01
 
+- **Leave Business Rules (`apps.leaves`)** — 6 new `LeaveType` fields (migration `0004`): `max_days_per_request` (per-request duration cap), `min_tenure_months` (tenure eligibility), `max_days_without_attachment` (attachment mandatory above this many days), `carry_forward_max` (unused days carried to next year, capped), `deducts_from` (deduct from another type's balance, e.g. Cuti Berobat uses Cuti Tahunan), `is_paid`. `None/0` = rule not enforced. Carry-forward + target-type deduction in `services.get_balance()`/`apply_approval_deduction()` (still idempotent via `balance_deducted`). Serializer validates tenure/duration/attachment/quota at submit. `seed_leave_types` now seeds 13 types (9 LEAVE incl. MEDICAL→ANNUAL deduct + 4 PERMISSION incl. SICK 1-day-no-note/unpaid; Cuti Tidak Berbayar = no category, note in reason). 23 leaves tests pass.
+- **Turbopack icon registry fix** — 5 shadcn ui components (`checkbox/sheet/breadcrumb/dropdown-menu/sidebar`) moved to centralized `Icons.xxx` object (`Icons.check/close/chevronRight/dots/panelLeft`); `icons.tsx` has no named exports so direct named imports broke Turbopack.
 - **Candidate Pipeline V1 (`apps.recruitment`)** — 9 statuses (`APPLIED/SCREENING/INTERVIEW_HR/INTERVIEW_USER/INTERVIEW_GM/OFFERING/OFFER_ACCEPTED` + terminal `REJECTED/WITHDRAWN`). Backend-enforced transition map (`Candidate.TRANSITIONS`) — no arbitrary jumps; `POST /api/recruitment/candidates/{id}/transition/` (HR-only RBAC) writes `CandidateStatusHistory` (from/to/changed_by/note) + AuditLog per change. `APPLIED` may skip to `INTERVIEW_HR`; terminal statuses have no further transitions. Candidate detail shows pipeline stepper, next-status action buttons (Reject/Withdraw), optional note, and status history timeline. Candidate list filters all statuses + job. Per-job kanban view (no new lib — plain flex columns) at `/dashboard/recruitment/jobs/{id}/applications`. Migration `0004`. 34 recruitment tests.
 - **Candidate Inbox** — CV upload to Supabase Storage bucket `recruitment-cvs` (signed download URLs), `Candidate.status` field (default `APPLIED`), list filters (job/status), detail page `/dashboard/recruitment/candidates/[id]`. Migration `0003`.
 - **Recruitment Module (jobs)** — Job management + public job portal. HR page `/dashboard/recruitment/jobs` (list/search/filter, Add/Edit, Open/Close/Reopen, Delete DRAFT-only, Copy Link); public portal `/jobs/{slug}` (no auth, apply form — name/email/phone + optional CV). Status is **system-managed by backend**: complete required fields → `OPEN`, incomplete → `DRAFT`; `DRAFT` editable + hidden, auto-`OPEN` when completed, public only `OPEN` (excludes expired close_date); frontend cannot force status. RBAC `RECRUITMENT_ADMIN_ROLES` = ADMIN/HR_STAFF/HR_LEAD; audit via existing `log_event`.

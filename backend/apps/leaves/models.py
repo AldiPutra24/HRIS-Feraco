@@ -21,6 +21,23 @@ class LeaveType(models.Model):
     default_quota = models.PositiveIntegerField(default=0)
     requires_attachment = models.BooleanField(default=False)
     description = models.TextField(blank=True)
+    # Business rules (None/0 = not enforced for that type).
+    max_days_per_request = models.PositiveIntegerField(null=True, blank=True)
+    min_tenure_months = models.PositiveIntegerField(null=True, blank=True)
+    # Attachment becomes mandatory only above this many days (e.g. sick leave:
+    # 1 day free, >1 day needs a doctor's note).
+    max_days_without_attachment = models.PositiveIntegerField(default=0)
+    # Unused days carried to next year's balance, capped.
+    carry_forward_max = models.PositiveIntegerField(default=0)
+    # Deducts from another type's balance (e.g. Cuti Berobat uses Cuti Tahunan).
+    deducts_from = models.ForeignKey(
+        'self',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='+',
+    )
+    is_paid = models.BooleanField(default=True)
 
     class Meta:
         ordering = ['name']

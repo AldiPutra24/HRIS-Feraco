@@ -46,6 +46,12 @@ export type LeaveType = {
   is_active: boolean;
   default_quota: number;
   requires_attachment: boolean;
+  max_days_per_request: number | null;
+  min_tenure_months: number | null;
+  max_days_without_attachment: number;
+  carry_forward_max: number;
+  deducts_from: number | null;
+  is_paid: boolean;
   description: string;
 };
 

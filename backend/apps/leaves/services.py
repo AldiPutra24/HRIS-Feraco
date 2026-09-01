@@ -13,17 +13,31 @@ def compute_total_days(start_date, end_date):
 
 
 def get_balance(employee, leave_type, year):
-    """Fetch or lazily create the balance row for an employee/type/year."""
-    balance, _ = LeaveBalance.objects.get_or_create(
+    """Fetch or lazily create the balance row for an employee/type/year.
+
+    On first creation, carries forward up to `carry_forward_max` unused days
+    from the previous year's balance (e.g. Cuti Tahunan carry-forward).
+    """
+    defaults = {
+        'allocated_days': leave_type.default_quota,
+        'used_days': 0,
+        'remaining_days': leave_type.default_quota,
+    }
+    balance, created = LeaveBalance.objects.get_or_create(
         employee=employee,
         leave_type=leave_type,
         year=year,
-        defaults={
-            'allocated_days': leave_type.default_quota,
-            'used_days': 0,
-            'remaining_days': leave_type.default_quota,
-        },
+        defaults=defaults,
     )
+    if created and leave_type.carry_forward_max:
+        prev = LeaveBalance.objects.filter(
+            employee=employee, leave_type=leave_type, year=year - 1,
+        ).first()
+        if prev and prev.remaining_days > 0:
+            carry = min(prev.remaining_days, leave_type.carry_forward_max)
+            balance.allocated_days += carry
+            balance.remaining_days += carry
+            balance.save(update_fields=['allocated_days', 'remaining_days'])
     return balance
 
 
@@ -32,10 +46,13 @@ def apply_approval_deduction(leave_request):
     """Deduct quota exactly once when a request becomes APPROVED.
 
     Idempotent via `balance_deducted` flag: re-processing never double-counts.
+    Types with `deducts_from` (e.g. Cuti Berobat) deduct from that target
+    type's balance (Cuti Tahunan).
     """
     if leave_request.balance_deducted:
         return get_balance(leave_request.employee, leave_request.leave_type, leave_request.start_date.year)
-    balance = get_balance(leave_request.employee, leave_request.leave_type, leave_request.start_date.year)
+    target_type = leave_request.leave_type.deducts_from or leave_request.leave_type
+    balance = get_balance(leave_request.employee, target_type, leave_request.start_date.year)
     balance.refresh_from_db()
     if balance.allocated_days == 0:
         # Unlimited quota types skip deduction entirely.

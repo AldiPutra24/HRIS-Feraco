@@ -14,7 +14,12 @@ STATUS_CHOICES = set(dict(LeaveRequest.STATUS_CHOICES).keys())
 class LeaveTypeSerializer(serializers.ModelSerializer):
     class Meta:
         model = LeaveType
-        fields = ('id', 'name', 'code', 'kind', 'is_active', 'default_quota', 'requires_attachment', 'description')
+        fields = (
+            'id', 'name', 'code', 'kind', 'is_active', 'default_quota',
+            'max_days_per_request', 'min_tenure_months', 'max_days_without_attachment',
+            'carry_forward_max', 'deducts_from', 'is_paid',
+            'requires_attachment', 'description',
+        )
         read_only_fields = ('id',)
 
     def validate_code(self, value):
@@ -106,10 +111,42 @@ class LeaveRequestSerializer(serializers.ModelSerializer):
             if start and leave_type:
                 total = compute_total_days(start, end or start)
                 attrs['total_days'] = total
-                if leave_type.requires_attachment and not self.initial_data.get('attachment_name'):
-                    raise serializers.ValidationError({'attachment_name': 'Lampiran wajib untuk jenis cuti ini.'})
-                # Quota check only for quota-bearing types.
-                balance = get_balance(employee, leave_type, start.year)
+
+                # Tenure eligibility (e.g. Cuti Tahunan: hak mulai setelah 3 bulan).
+                if leave_type.min_tenure_months and employee.join_date:
+                    months = (start.year - employee.join_date.year) * 12 + (start.month - employee.join_date.month)
+                    if months < leave_type.min_tenure_months:
+                        raise serializers.ValidationError(
+                            {'start_date': (
+                                f'Belum memenuhi masa kerja minimal '
+                                f'{leave_type.min_tenure_months} bulan untuk {leave_type.name}.'
+                            )}
+                        )
+
+                # Per-request duration cap (e.g. Cuti Tahunan maks 3 hari berturut-turut).
+                if leave_type.max_days_per_request and total > leave_type.max_days_per_request:
+                    raise serializers.ValidationError(
+                        {'end_date': (
+                            f'{leave_type.name} maksimal {leave_type.max_days_per_request} hari '
+                            f'berturut-turut per permohonan.'
+                        )}
+                    )
+
+                # Attachment rules: mandatory types OR doctor's note above threshold
+                # (e.g. Izin Sakit: 1 hari tanpa surat, >1 hari wajib surat dokter).
+                needs_attachment = leave_type.requires_attachment or (
+                    leave_type.max_days_without_attachment
+                    and total > leave_type.max_days_without_attachment
+                )
+                if needs_attachment and not self.initial_data.get('attachment_name'):
+                    raise serializers.ValidationError(
+                        {'attachment_name': 'Lampiran wajib untuk pengajuan ini.'}
+                    )
+
+                # Quota check against the type that actually gets deducted
+                # (Cuti Berobat deducts from Cuti Tahunan).
+                target_type = leave_type.deducts_from or leave_type
+                balance = get_balance(employee, target_type, start.year)
                 if balance.allocated_days > 0 and total > balance.remaining_days:
                     raise serializers.ValidationError(
                         {'start_date': f'Sisa kuota tidak mencukupi ({balance.remaining_days} hari tersisa).'}
