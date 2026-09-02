@@ -123,7 +123,12 @@ function ComponentForm({
               <Label>Kategori</Label>
               <select
                 value={form.category}
-                onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))}
+                onChange={(e) =>
+                  setForm((f) => ({
+                    ...f,
+                    category: e.target.value as 'EARNING_FIXED' | 'EARNING_VARIABLE' | 'DEDUCTION',
+                  }))
+                }
                 className='border-input h-8 w-full rounded-lg border bg-transparent px-2.5 text-sm'
               >
                 {CATEGORY.map((c) => (
