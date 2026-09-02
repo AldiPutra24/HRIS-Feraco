@@ -1,6 +1,8 @@
 # HRIS FERACO - Progress Note
 
-## Status: Leave Module — Admin Hard Delete (Phase 2.1)
+## Status: Payroll Tahap 1 — Payment Type + Salary Structure
+
+### Payroll (`apps.payroll`) — 02 Sep 2026
 
 ### Leave hard delete (`apps.leaves`) — 02 Sep 2026
 - Admin/superadmin can permanently delete leave requests (data cuti) on `/dashboard/leave`.
@@ -160,3 +162,62 @@
 - Backend: 23 recruitment tests OK (full suite 108+).
 - Frontend: tsc pass, oxlint pass, next build exit 0.
 - Deployed: VPS rebuild, Supabase bucket `recruitment-cvs` created, `GET /api/recruitment/public/jobs/` → 200 live.
+
+## Payroll Tahap 1 — Payment Type + Salary Structure (02 Sep 2026)
+
+### Backend (`apps/payroll`)
+- New Django app `apps/payroll` registered in `INSTALLED_APPS` + mounted at `/api/payroll/` in `config/urls.py`.
+- `PayrollComponent` (Payment Type): name/code (unique, uppercase)/category (`EARNING_FIXED`/`EARNING_VARIABLE`/`DEDUCTION`)/calculation_type (`FIXED_AMOUNT`/`VARIABLE`/`PERCENTAGE`)/default_amount/is_active/is_reimbursement/sort_order/description. CRUD via `PayrollComponentViewSet`, search/filter, pagination=None.
+- `SalaryStructure`: per-employee FK, effective_from/effective_to, basic_salary, components JSONField (list of `{code, name, amount}`), is_active, timestamps. History preserved via insert-only (no overwrite). Overlap validation: any date intersection with existing active structures → 400.
+- RBAC: `IsPayrollAdmin` — write for `{ADMIN,HR_STAFF,HR_LEAD}`, read for `{MANAGEMENT}`. `SalaryStructurePermission` — HR full, employee read-only own (queryset scoped). EMPLOYEE role blocked from components entirely.
+- `seed_payroll_components` command: 13 components idempotent (BASIC, ALLOW_TRANSPORT, ALLOW_MEAL, ALLOW_POSITION, OVERTIME, INCENTIVE, BONUS, REIMBURSEMENT, BPJS_KS, BPJS_TK, PPh21, LOAN, LATE_FEE) — upserts config on re-run.
+- `SalaryStructureViewSet` actions: `history` (employee PK → full history, HR only), `active` (current employee self-service → active structure today).
+- Admin: both models registered with list_display/filter.
+- Migration `0001_initial` applied; 12 backend tests pass (component CRUD, RBAC, salary overlap, non-overlap, history, self-service isolation, employee can't see others, seed idempotency).
+
+### Frontend
+- `lib/payroll.ts` — typed API client (listComponents, createComponent, updateComponent, deleteComponent, listStructures, createStructure, historyStructures, activeStructure) with CSRF + unwrapList.
+- `features/payroll/payroll-page.tsx` — two-tab page: **Payment Types** (CRUD table with search + category filter, inline form card with name/code/category/calculation_type/default_amount/sort_order/description/is_reimbursement) + **Struktur Gaji** (employee selector filter, add form with employee/effective_from/basic_salary, history popup per employee with effective period + basic_salary + status). Skeleton loading, empty states, confirm dialogs.
+- `app/dashboard/payroll/page.tsx` — wired to PayrollPage (replaces placeholder).
+- Nav already had `/dashboard/payroll` with `wallet` icon under Finance & Reporting.
+- tsc clean, lint matches existing baseline.
+
+### Skipped (per spec)
+- PPh21/BPJS/lembur/pro-rata — deferred to perhitungan gaji tahap.
+- `effective_to`/`is_active` toggle in UI — history insert-only model; new structure auto-actives by date.
+- Employee detail page salary section — can be added separately.
+
+### Validation
+- Backend: `manage.py check` OK, 12 payroll tests OK (full suite ~120).
+- Frontend: tsc clean, oxlint baseline-identical errors only.
+## Payroll Tahap 2 — Payroll Processing / Payroll Period (02 Sep 2026)
+
+### Backend (`apps/payroll`) — COMPLETE
+- `PayrollPeriod` model: `period_month`/`period_year`/`period_start`/`period_end`/`status` (DRAFT/CALCULATED/REVIEW/APPROVED/PAID/LOCKED TextChoices)/`created_by` (FK SET_NULL)/`notes`/timestamps. `unique_together=['period_month','period_year']`. `clean()` validates month 1-12, start<=end, forward-only transitions via `TRANSITIONS` dict + `can_transition_to(target)`. `save()` calls `full_clean()`. All 6 statuses with guarded forward-only transitions.
+- `Payroll` model (per-employee): FK `period` (related_name='payrolls'), FK `employee` (related_name='payrolls'), `basic_salary`/`total_fixed_earning`/`total_variable_earning`/`total_deduction`/`reimbursement_total`/`gross_salary`/`net_salary` (Decimal 14,2 default 0). `unique_together=['period','employee']`.
+- `PayrollItem` model: FK `payroll` (related_name='items'), FK `payroll_component` (SET_NULL nullable), snapshot fields: `component_name`/`component_code`/`category`/`amount`/`source` (SYSTEM/MANUAL)/`description`/timestamps.
+- `services.py`: `_effective_structure(employee, on_date)` — reads SalaryStructure where effective_from <= on_date AND (effective_to is NULL OR effective_to >= on_date), latest first. `_unpaid_leave_data()` — placeholder for attendance deduction (amount 0, skips for now). `_approved_reimbursements()` — reads Reimbursement where status='APPROVED', amount=approved_amount if not None else amount. `refresh_payroll_totals(payroll)` — recomputes gross=basic+fixed+variable+reimbursement, net=gross-deduction. `calculate_period(period)` — validates DRAFT, reads existing MANUAL items from DB, iterates all Employees, get-or-create Payroll, deletes only SYSTEM items then recreates, skips MANUAL, wraps in transaction.atomic.
+- `serializers.py`: `PayrollPeriodSerializer` (status_display via get_status_display, payroll_count via payrolls.count, read-only created_by/timestamps/count; validate month 1-12 + dup month/year excluded self), `PayrollItemSerializer` (read-only), `PayrollSerializer` (employee_name source='employee.full_name', nested items, all totals read-only).
+- `permissions.py`: `PayrollPeriodPermission` (SAFE_METHODS → PAYROLL_VIEW_ROLES, write → PAYROLL_ADMIN_ROLES).
+- `views.py`: `PayrollPeriodViewSet` (ModelViewSet, PayrollPeriodPermission, filters period_month/year/status, search notes; perform_create sets created_by; perform_update/destroy log_event; `_transition()` helper; actions: `calculate`, `review`, `approve`, `mark-paid` (url_path='mark-paid'), `lock`). `PayrollViewSet` (ReadOnlyModelViewSet, select_related/prefetch, IsPayrollAdmin, filters period/employee; `manual_item` POST action, `remove_manual_item` POST action, both check role + LOCKED guard).
+- `urls.py`: registers `periods`, `payrolls` alongside existing `components`, `salary-structures`.
+- Migration `0002` applied, `manage.py check` clean.
+- 32 tests total (12 existing + 8 PayrollPeriodTests + 10 PayrollCalculateTests + 4 PayrollManualItemApiTests) — ALL PASSING.
+
+### Frontend (`lib/payroll.ts`) — COMPLETE
+- Added types: `PayrollPeriod`, `PayrollItem`, `Payroll`.
+- Added functions: `listPeriods()`, `createPeriod(data)`, `deletePeriod(id)`, `transitionPeriod(id, action)`, `listPayrolls(periodId)`, `addManualItem(payrollId, componentCode, amount, description?)`, `removeManualItem(payrollId, componentCode)`. All use `request<T>()` + `unwrapList`.
+
+### Frontend (`features/payroll/payroll-page.tsx`) — COMPLETE
+- Third tab **Payroll Processing** added with:
+  - `PeriodForm` — create period modal, auto-computes start/end dates from month/year via `new Date(y, m, 0).getDate()`.
+  - `PayrollEmployeeTable` — loads payrolls + components, displays employee rows with manual item add/remove.
+  - `PayrollRow` — per-employee row with totals, manual item add (select component + amount input + OK) and remove (confirm + trash icon), LOCKED guard.
+  - `PayrollProcessingSection` — period list (searchable, status badges, transition buttons per next action, delete with confirm), drill into selected period.
+- Tab bar now has 3 buttons: Payment Types / Struktur Gaji / Payroll Processing.
+- Conditional render: 3-way `tab === 'components' ? <ComponentsTable /> : tab === 'structures' ? <StructuresSection /> : <PayrollProcessingSection />`.
+- tsc, oxlint, next build — all clean.
+
+### Skipped (per spec)
+- PPh21, BPJS, lembur, pro-rata, attendance deduction, formula pajak — deferred to Tahap 3 (Calculation Engine).
+- No changes to Employee/Leave/Reimbursement modules.

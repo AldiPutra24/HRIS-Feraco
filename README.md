@@ -78,6 +78,12 @@ Catatan: filtering menu di frontend (`use-nav.ts`) hanya UI; otorisasi di backen
 
 ## Last Progress
 
+**Payroll Module — Payroll Processing (Phase 2)** — last updated 2026-09-02
+
+- **Payroll Periods & Processing (`apps.payroll`)** — `PayrollPeriod` (unique month/year, status DRAFT→CALCULATED→REVIEW→APPROVED→PAID→LOCKED with backend-enforced forward-only transitions + `can_transition_to()`), `Payroll` (per-employee, unique period+employee, totals basic/fixed/variable/deduction/reimbursement/gross/net), `PayrollItem` (SYSTEM/MANUAL source, snapshot fields). `services.calculate_period()` validates DRAFT, iterates all Employees, get-or-create Payroll, regenerates SYSTEM items (preserves MANUAL), `transaction.atomic`; reads effective SalaryStructure (`_effective_structure`) + APPROVED reimbursements. Manual item add/remove actions on LOCKED period → 400; non-admin → 403. Period transition actions: `calculate`/`review`/`approve`/`mark-paid`/`lock` (`url_path='mark-paid'`). RBAC `PAYROLL_ADMIN_ROLES` = ADMIN/HR_STAFF/HR_LEAD, read adds MANAGEMENT. Migration `0002`. 32 payroll tests pass (8 period + 10 calculate + 4 manual item).
+- **Frontend (`payroll-page.tsx`)** — 3 tabs: Payment Types / Struktur Gaji / **Payroll Processing**. Period list (status badges, next-action transition buttons, delete with confirm), create-period form (auto start/end dates from month/year), drill-in per-period payroll table with per-employee totals + manual item add/remove (LOCKED guard). `lib/payroll.ts` +7 API fns (listPeriods/createPeriod/deletePeriod/transitionPeriod/listPayrolls/addManualItem/removeManualItem).
+- **Skipped per spec** — PPh21/BPJS/lembur/pro-rata/attendance deduction deferred to Tahap 3 (Calculation Engine).
+
 **Leave Module — Admin Hard Delete (Phase 2.1)** — last updated 2026-09-02
 
 - **Admin hard delete (`apps.leaves`)** — admin/superadmin can permanently delete leave requests on `/dashboard/leave`. `LeaveRequestViewSet` `destroy` override + `DELETE /requests/{id}/hard-delete/` action, both restricted to `is_superuser or role == 'ADMIN'` (403 otherwise — also fixes pre-existing hole where request owner could DELETE own request). Hard-deleting an APPROVED request restores deducted quota on the target type (`deducts_from or leave_type`); notifications cascade; audit logged. 27 leaves tests pass (4 new). Frontend: `hardDeleteLeave(id)` in `lib/leaves.ts`; admin-only "Hapus" button + confirm modal in `leave-page.tsx`.

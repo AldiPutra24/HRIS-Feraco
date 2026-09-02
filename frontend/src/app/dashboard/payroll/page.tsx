@@ -1,12 +1,7 @@
-import { PlaceholderPage } from '@/components/placeholder-page';
+import { PayrollPage } from '@/features/payroll/payroll-page';
 
 export const metadata = { title: 'Payroll' };
 
 export default function Page() {
-  return (
-    <PlaceholderPage
-      title='Payroll'
-      description='Kelola proses penggajian karyawan dan freelancer.'
-    />
-  );
+  return <PayrollPage />;
 }
