@@ -142,7 +142,12 @@ function ComponentForm({
               <Label>Tipe Perhitungan</Label>
               <select
                 value={form.calculation_type}
-                onChange={(e) => setForm((f) => ({ ...f, calculation_type: e.target.value }))}
+                onChange={(e) =>
+                  setForm((f) => ({
+                    ...f,
+                    calculation_type: e.target.value as 'FIXED_AMOUNT' | 'VARIABLE' | 'PERCENTAGE',
+                  }))
+                }
                 className='border-input h-8 w-full rounded-lg border bg-transparent px-2.5 text-sm'
               >
                 {CALC.map((c) => (
@@ -357,7 +362,7 @@ function StructureForm({
   const [error, setError] = useState('');
 
   useEffect(() => {
-    listEmployees().then(setEmployees).catch(() => {});
+    listEmployees({ page_size: '1000' }).then((p) => setEmployees(p.results)).catch(() => {});
   }, []);
 
   async function submit(e: React.FormEvent) {
@@ -452,9 +457,9 @@ function StructuresSection() {
     setLoading(true);
     setError('');
     try {
-      const [s, e] = await Promise.all([listStructures(), listEmployees()]);
+      const [s, e] = await Promise.all([listStructures(), listEmployees({ page_size: '1000' })]);
       setStructures(s);
-      setEmployees(e);
+      setEmployees(e.results);
     } catch (err) {
       setError(apiError(err));
     } finally {
