@@ -1,5 +1,19 @@
 # HRIS FERACO - Progress Note
 
+## Status: Recruitment Onboarding — Tahap 1
+
+### Onboarding (`apps.onboarding`) — 03 Sep 2026
+- Bridge Candidate (`OFFER_ACCEPTED`) → future Employee conversion (Tahap 1: onboarding process tracking only, no Employee auto-creation yet).
+- `Onboarding` model: OneToOneField→Candidate, status PENDING/IN_PROGRESS/DOCUMENT_REVIEW/READY/COMPLETED/CANCELLED (COMPLETED/CANCELLED terminal), `TRANSITIONS` forward-only map, `is_editable()` helper, `target_join_date`, `notes`, `created_by`, `completed_at` (set on COMPLETED, cleared on CANCELLED).
+- `OnboardingStatusHistory` model (from/to/changed_by/note) — written by `services.transition_onboarding()`; audit via `log_event`.
+- API: `OnboardingViewSet` (ModelViewSet) at `/api/onboarding/` — create validates OFFER_ACCEPTED + no duplicate; update/PATCH blocked on terminal states; `POST /{id}/transition/` validates against `TRANSITIONS` (forward-only, 400 otherwise).
+- RBAC: `IsOnboardingAdmin` — ADMIN/HR_STAFF/HR_LEAD full; MANAGEMENT read-only; EMPLOYEE denied (uses `_role()` from `apps.personnel.permissions`).
+- Serializer exposes `candidate_name/email/status`, `job_title`, `department_name`, `position_name`, `next_statuses`, `created_by_name`, `status_history` (with `changed_by_name`).
+- Tests: 12 pass (create from OFFER_ACCEPTED, reject non-accepted/duplicate, CRUD, forward transitions, backward 400, terminal lock, invalid status, RBAC 403, no Employee auto-creation).
+- Frontend: `src/lib/onboarding.ts` (types + list/get/create/update/transition + status label/variant helpers); `features/onboarding/onboarding-page.tsx` (filter/search table, status badge, per-row next-status action buttons, "Buat Onboarding" modal listing OFFER_ACCEPTED candidates via `listCandidates`); `features/onboarding/onboarding-detail-page.tsx` (candidate/pipeline/action cards + status history table).
+- Routes: `/dashboard/recruitment/onboarding` + `/dashboard/recruitment/onboarding/[id]`. Nav "Onboarding" url fixed from `/dashboard/onboarding` → `/dashboard/recruitment/onboarding`; orphaned placeholder route dir deleted.
+- Validation: backend 12 tests OK; frontend tsc clean, oxlint clean (onboarding files), `next build` OK (both routes registered).
+
 ## Status: Payroll Tahap 1 — Payment Type + Salary Structure
 
 ### Payroll (`apps.payroll`) — 02 Sep 2026

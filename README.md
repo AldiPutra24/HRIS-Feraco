@@ -78,6 +78,14 @@ Catatan: filtering menu di frontend (`use-nav.ts`) hanya UI; otorisasi di backen
 
 ## Last Progress
 
+**Recruitment Onboarding — Tahap 1 (`apps.onboarding`)** — last updated 2026-09-03
+
+- **Onboarding tracking** — bridges `Candidate` (`OFFER_ACCEPTED`) → future Employee conversion. `Onboarding` (OneToOne→Candidate) with status `PENDING→IN_PROGRESS→DOCUMENT_REVIEW→READY→COMPLETED` (+ `CANCELLED`), backend-enforced forward-only `TRANSITIONS` map, `completed_at` set on COMPLETED/cleared on CANCELLED, terminal states immutable. `OnboardingStatusHistory` (from/to/changed_by/note) written per transition + AuditLog.
+- **API** — `OnboardingViewSet` at `/api/onboarding/`: create validates candidate is `OFFER_ACCEPTED` + no duplicate; update/PATCH blocked on terminal states; `POST /{id}/transition/` validates against the map (invalid/backward/terminal → 400). RBAC `IsOnboardingAdmin` — ADMIN/HR_STAFF/HR_LEAD full, MANAGEMENT read-only, EMPLOYEE denied. Serializer exposes candidate/job/department/position names, `next_statuses`, `created_by_name`, `status_history`.
+- **Frontend** — `/dashboard/recruitment/onboarding` list (filter/search table, status badges, per-row next-status buttons, "Buat Onboarding" modal listing `OFFER_ACCEPTED` candidates) + `/[id]` detail (candidate/pipeline/action cards + status history table). `lib/onboarding.ts` API client; nav url fixed from `/dashboard/onboarding`.
+- **Validation** — 12 onboarding tests pass; frontend `tsc`, `oxlint`, `next build` clean.
+- **Skipped per spec** — Employee auto-creation from COMPLETED onboarding deferred to Tahap 2.
+
 **Payroll Module — Payroll Processing (Phase 2)** — last updated 2026-09-02
 
 - **Payroll Periods & Processing (`apps.payroll`)** — `PayrollPeriod` (unique month/year, status DRAFT→CALCULATED→REVIEW→APPROVED→PAID→LOCKED with backend-enforced forward-only transitions + `can_transition_to()`), `Payroll` (per-employee, unique period+employee, totals basic/fixed/variable/deduction/reimbursement/gross/net), `PayrollItem` (SYSTEM/MANUAL source, snapshot fields). `services.calculate_period()` validates DRAFT, iterates all Employees, get-or-create Payroll, regenerates SYSTEM items (preserves MANUAL), `transaction.atomic`; reads effective SalaryStructure (`_effective_structure`) + APPROVED reimbursements. Manual item add/remove actions on LOCKED period → 400; non-admin → 403. Period transition actions: `calculate`/`review`/`approve`/`mark-paid`/`lock` (`url_path='mark-paid'`). RBAC `PAYROLL_ADMIN_ROLES` = ADMIN/HR_STAFF/HR_LEAD, read adds MANAGEMENT. Migration `0002`. 32 payroll tests pass (8 period + 10 calculate + 4 manual item).

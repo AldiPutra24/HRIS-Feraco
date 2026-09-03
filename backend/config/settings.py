@@ -42,6 +42,7 @@ INSTALLED_APPS = [
     'apps.reimbursement',
     'apps.recruitment',
     'apps.payroll',
+    'apps.onboarding',
 ]
 
 MIDDLEWARE = [

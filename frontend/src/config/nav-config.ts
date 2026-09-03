@@ -156,7 +156,7 @@ export const navGroups: NavGroup[] = [
       },
       {
         title: 'Onboarding',
-        url: '/dashboard/onboarding',
+        url: '/dashboard/recruitment/onboarding',
         icon: 'onboarding',
         isActive: false,
         items: []
