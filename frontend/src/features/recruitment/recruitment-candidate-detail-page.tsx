@@ -7,7 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
-import { getCandidate, getCandidateCv, transitionCandidate, deleteCandidate, hardDeleteCandidate, type Candidate } from '@/lib/recruitment';
+import { getCandidate, getCandidateCv, transitionCandidate, hardDeleteCandidate, type Candidate } from '@/lib/recruitment';
 import { PIPELINE, statusLabel } from '@/features/recruitment/candidate-pipeline';
 import { useAuth } from '@/lib/auth/auth-provider';
 
@@ -107,14 +107,12 @@ export function RecruitmentCandidateDetailPage({ id }: { id: string }) {
     }
   }
 
-  async function handleDelete(hard: boolean) {
+  async function handleDelete() {
     if (!candidate) return;
-    const verb = hard ? 'Hapus permanen' : 'Hapus';
-    if (!window.confirm(`${verb} kandidat "${candidate.full_name}"?${hard ? ' Tidak dapat dibatalkan.' : ''}`)) return;
+    if (!window.confirm(`Hapus permanen kandidat "${candidate.full_name}"? Tidak dapat dibatalkan.`)) return;
     try {
-      if (hard) await hardDeleteCandidate(candidate.id);
-      else await deleteCandidate(candidate.id);
-      toast.success(`${verb} kandidat berhasil.`);
+      await hardDeleteCandidate(candidate.id);
+      toast.success('Kandidat dihapus permanen.');
       router.push('/dashboard/recruitment/candidates');
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Gagal menghapus kandidat.');
@@ -146,14 +144,9 @@ export function RecruitmentCandidateDetailPage({ id }: { id: string }) {
         </div>
         <div className='flex items-center gap-2'>
           {isAdmin && (
-            <>
-              <Button variant='destructive' size='sm' onClick={() => handleDelete(false)}>
-                Hapus
-              </Button>
-              <Button variant='destructive' size='sm' onClick={() => handleDelete(true)}>
-                Hapus Permanen
-              </Button>
-            </>
+            <Button variant='destructive' size='sm' onClick={() => handleDelete()}>
+              Hapus Permanen
+            </Button>
           )}
           <Button variant='ghost' onClick={() => router.back()}>
             Kembali

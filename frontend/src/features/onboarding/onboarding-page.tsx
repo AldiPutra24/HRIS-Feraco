@@ -3,7 +3,6 @@
 import {
   createOnboarding,
   listOnboarding,
-  deleteOnboarding,
   hardDeleteOnboarding,
   onboardingStatusLabel,
   onboardingStatusVariant,
@@ -116,13 +115,11 @@ export function OnboardingPage() {
     }
   }
 
-  async function handleDelete(o: Onboarding, hard: boolean) {
-    const verb = hard ? 'Hapus permanen' : 'Hapus';
-    if (!window.confirm(`${verb} onboarding "${o.candidate_name}"?${hard ? ' Tidak dapat dibatalkan.' : ''}`)) return;
+  async function handleDelete(o: Onboarding) {
+    if (!window.confirm(`Hapus permanen onboarding "${o.candidate_name}"? Tidak dapat dibatalkan.`)) return;
     try {
-      if (hard) await hardDeleteOnboarding(o.id);
-      else await deleteOnboarding(o.id);
-      toast.success(`${verb} onboarding berhasil.`);
+      await hardDeleteOnboarding(o.id);
+      toast.success('Onboarding dihapus permanen.');
       await load();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Gagal menghapus onboarding.');
@@ -220,14 +217,9 @@ export function OnboardingPage() {
                               </Button>
                             ))}
                           {isAdmin && (
-                            <>
-                              <Button size='sm' variant='destructive' onClick={() => handleDelete(o, false)}>
-                                Hapus
-                              </Button>
-                              <Button size='sm' variant='destructive' onClick={() => handleDelete(o, true)}>
-                                Hapus Permanen
-                              </Button>
-                            </>
+                            <Button size='sm' variant='destructive' onClick={() => handleDelete(o)}>
+                              Hapus Permanen
+                            </Button>
                           )}
                         </div>
                       </TableCell>

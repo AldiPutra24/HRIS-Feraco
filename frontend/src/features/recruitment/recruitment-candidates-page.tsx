@@ -9,7 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import { TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { listCandidates, listJobs, deleteCandidate, hardDeleteCandidate, type Candidate, type Job } from '@/lib/recruitment';
+import { listCandidates, listJobs, hardDeleteCandidate, type Candidate, type Job } from '@/lib/recruitment';
 import { ALL_STATUSES, statusLabel } from '@/features/recruitment/candidate-pipeline';
 import { useAuth } from '@/lib/auth/auth-provider';
 
@@ -63,13 +63,11 @@ export function RecruitmentCandidatesPage({ fixedJobId }: { fixedJobId?: string 
     listJobs().then(setJobs).catch(() => {});
   }, []);
 
-  async function handleDelete(c: Candidate, hard: boolean) {
-    const verb = hard ? 'Hapus permanen' : 'Hapus';
-    if (!window.confirm(`${verb} kandidat "${c.full_name}"?${hard ? ' Tidak dapat dibatalkan.' : ''}`)) return;
+  async function handleDelete(c: Candidate) {
+    if (!window.confirm(`Hapus permanen kandidat "${c.full_name}"? Tidak dapat dibatalkan.`)) return;
     try {
-      if (hard) await hardDeleteCandidate(c.id);
-      else await deleteCandidate(c.id);
-      toast.success(`${verb} kandidat berhasil.`);
+      await hardDeleteCandidate(c.id);
+      toast.success('Kandidat dihapus permanen.');
       await load();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Gagal menghapus kandidat.');
@@ -200,14 +198,9 @@ export function RecruitmentCandidatesPage({ fixedJobId }: { fixedJobId?: string 
                             Detail
                           </Button>
                           {isAdmin && (
-                            <>
-                              <Button size='sm' variant='destructive' onClick={() => handleDelete(c, false)}>
-                                Hapus
-                              </Button>
-                              <Button size='sm' variant='destructive' onClick={() => handleDelete(c, true)}>
-                                Hapus Permanen
-                              </Button>
-                            </>
+                            <Button size='sm' variant='destructive' onClick={() => handleDelete(c)}>
+                              Hapus Permanen
+                            </Button>
                           )}
                         </div>
                       </TableCell>
