@@ -8,6 +8,7 @@ import {
   IconBox,
   IconBrandGithub,
   IconBrandTwitter,
+  IconBriefcase,
   IconBrightness,
   IconCalendar,
   IconCalendarEvent,
@@ -33,6 +34,7 @@ import {
   IconCommand,
   IconCreditCard,
   IconDeviceLaptop,
+  IconDownload,
   IconDots,
   IconDotsVertical,
   IconEdit,
@@ -174,6 +176,7 @@ export const Icons = {
   // Actions
   add: IconPlus,
   edit: IconEdit,
+  download: IconDownload,
   upload: IconUpload,
   share: IconShare,
   login: IconLogin,
@@ -236,6 +239,7 @@ export const Icons = {
   onboarding: IconClipboardCheck,
   receipt: IconReceipt,
   report: IconReportAnalytics,
+  briefcase: IconBriefcase,
   wallet: IconWallet,
   galleryVerticalEnd: IconStack2,
   moreHorizontal: IconDots

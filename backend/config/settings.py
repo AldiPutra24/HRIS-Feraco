@@ -138,6 +138,10 @@ RECRUITMENT_STORAGE_BUCKET = os.environ.get(
     'RECRUITMENT_STORAGE_BUCKET',
     'recruitment-cvs' if APP_ENV == 'production' else 'recruitment-cvs-dev',
 )
+ONBOARDING_STORAGE_BUCKET = os.environ.get(
+    'ONBOARDING_STORAGE_BUCKET',
+    'onboarding-documents' if APP_ENV == 'production' else 'onboarding-documents-dev',
+)
 
 AUTH_USER_MODEL = 'accounts.User'
 

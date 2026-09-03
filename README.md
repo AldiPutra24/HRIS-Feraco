@@ -78,13 +78,13 @@ Catatan: filtering menu di frontend (`use-nav.ts`) hanya UI; otorisasi di backen
 
 ## Last Progress
 
-**Recruitment Onboarding — Tahap 1 (`apps.onboarding`)** — last updated 2026-09-03
+**Recruitment Onboarding — Tahap 3 (`apps.onboarding`)** — last updated 2026-09-04
 
-- **Onboarding tracking** — bridges `Candidate` (`OFFER_ACCEPTED`) → future Employee conversion. `Onboarding` (OneToOne→Candidate) with status `PENDING→IN_PROGRESS→DOCUMENT_REVIEW→READY→COMPLETED` (+ `CANCELLED`), backend-enforced forward-only `TRANSITIONS` map, `completed_at` set on COMPLETED/cleared on CANCELLED, terminal states immutable. `OnboardingStatusHistory` (from/to/changed_by/note) written per transition + AuditLog.
-- **API** — `OnboardingViewSet` at `/api/onboarding/`: create validates candidate is `OFFER_ACCEPTED` + no duplicate; update/PATCH blocked on terminal states; `POST /{id}/transition/` validates against the map (invalid/backward/terminal → 400). RBAC `IsOnboardingAdmin` — ADMIN/HR_STAFF/HR_LEAD full, MANAGEMENT read-only, EMPLOYEE denied. Serializer exposes candidate/job/department/position names, `next_statuses`, `created_by_name`, `status_history`.
-- **Frontend** — `/dashboard/recruitment/onboarding` list (filter/search table, status badges, per-row next-status buttons, "Buat Onboarding" modal listing `OFFER_ACCEPTED` candidates) + `/[id]` detail (candidate/pipeline/action cards + status history table). `lib/onboarding.ts` API client; nav url fixed from `/dashboard/onboarding`.
-- **Validation** — 12 onboarding tests pass; frontend `tsc`, `oxlint`, `next build` clean.
-- **Skipped per spec** — Employee auto-creation from COMPLETED onboarding deferred to Tahap 2.
+- **Onboarding tracking** — bridges `Candidate` (`OFFER_ACCEPTED`) → Employee conversion. `Onboarding` (OneToOne→Candidate) with status `PENDING→IN_PROGRESS→DOCUMENT_REVIEW→READY→COMPLETED` (+ `CANCELLED`), backend-enforced forward-only `TRANSITIONS` map. `COMPLETED` is terminal and reachable ONLY via the `complete` action — PATCH status and `transition` to `COMPLETED` are both blocked (400). `OnboardingStatusHistory` (from/to/changed_by/note) written per transition + AuditLog. `Onboarding` now also links `employee` (OneToOne→`personnel.Employee`) + `completed_by` (FK user).
+- **API** — `OnboardingViewSet` at `/api/onboarding/`: create validates candidate is `OFFER_ACCEPTED` + no duplicate; update/PATCH blocked on terminal states; `POST /{id}/transition/` validates against the map (invalid/backward/terminal → 400). `POST /{id}/complete/` (READY→200, COMPLETED→200 idempotent, else 400) creates Employee + EmployeeContract + User account (EMPLOYEE role, random password, never exposed) inside a transaction, sets onboarding COMPLETED, and logs 4 audit events. RBAC `IsOnboardingAdmin` — ADMIN/HR_STAFF/HR_LEAD full, MANAGEMENT read-only, EMPLOYEE denied. Serializer exposes candidate/job/department/position names, `next_statuses`, `created_by_name`, `status_history`, `completed_by_name`, `employee_id`/`employee_name`/`employee_status`, `account_status`.
+- **Frontend** — `/dashboard/recruitment/onboarding` list (filter/search table, status badges, per-row next-status buttons, "Buat Onboarding" modal listing `OFFER_ACCEPTED` candidates) + `/[id]` detail (4 tabs: Data/Checklist/Documents/Summary; Aksi card shows transition buttons until READY, then "Complete Onboarding" button; COMPLETED shows Hasil Onboarding with employee/account info). `lib/onboarding.ts` API client incl. `completeOnboarding(id)`; nav url fixed from `/dashboard/onboarding`.
+- **Validation** — 94 onboarding tests pass; frontend `tsc`, `oxlint`, `next build` clean.
+- **Skipped per spec** — none; full Tahap 1+2+3 implemented.
 
 **Payroll Module — Payroll Processing (Phase 2)** — last updated 2026-09-02
 
