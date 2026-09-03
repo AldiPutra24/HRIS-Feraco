@@ -15,6 +15,8 @@ import {
   updateDocument,
   deleteDocument,
   getReadiness,
+  deleteOnboarding,
+  hardDeleteOnboarding,
   type Onboarding,
   type OnboardingData,
   type OnboardingChecklistItem,
@@ -861,6 +863,20 @@ export function OnboardingDetailPage() {
     }
   }
 
+  async function handleDelete(hard: boolean) {
+    if (!item) return;
+    const verb = hard ? 'Hapus permanen' : 'Hapus';
+    if (!window.confirm(`${verb} onboarding "${item.candidate_name}"?${hard ? ' Tidak dapat dibatalkan.' : ''}`)) return;
+    try {
+      if (hard) await hardDeleteOnboarding(item.id);
+      else await deleteOnboarding(item.id);
+      toast.success(`${verb} onboarding berhasil.`);
+      router.push('/dashboard/onboarding');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Gagal menghapus onboarding.');
+    }
+  }
+
   function primaryAction() {
     if (!canManage || item!.status === 'CANCELLED' || item!.status === 'COMPLETED') return null;
     const labels: Record<string, string> = {
@@ -934,6 +950,16 @@ export function OnboardingDetailPage() {
         </div>
         <div className='flex items-center gap-2'>
           {primaryAction()}
+          {canManage && user?.role === 'admin' && (
+            <>
+              <Button variant='destructive' size='sm' onClick={() => handleDelete(false)}>
+                Hapus
+              </Button>
+              <Button variant='destructive' size='sm' onClick={() => handleDelete(true)}>
+                Hapus Permanen
+              </Button>
+            </>
+          )}
           <Button variant='ghost' onClick={() => router.back()}>
             Kembali
           </Button>

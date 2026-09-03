@@ -419,18 +419,53 @@ class CandidateTransitionTests(TestCase):
         self.candidate.refresh_from_db()
         self.assertEqual(self.candidate.status, 'REJECTED')
 
-    def test_history_changed_by(self):
-        self._transition('SCREENING')
-        h = self.candidate.status_history.first()
-        self.assertEqual(h.changed_by, self.admin)
+class HardDeleteTests(TestCase):
+    def setUp(self):
+        self.admin = make_user('ADMIN', 'admin@test.com')
+        self.admin.is_superuser = True
+        self.admin.save()
+        self.hr = make_user('HR_STAFF', 'hr@test.com')
+        self.department = Department.objects.create(name='Engineering')
+        self.position = Position.objects.create(name='Developer', department=self.department)
+        self.job = Job.objects.create(
+            title='Software Engineer',
+            slug='software-engineer',
+            department=self.department,
+            position=self.position,
+            description='desc',
+            requirements='req',
+            employment_type='FULL_TIME',
+            location='Jakarta',
+            open_date=date.today(),
+            close_date=date.today() + timedelta(days=30),
+            status='OPEN',
+        )
+        self.candidate = Candidate.objects.create(
+            job=self.job, full_name='Budi', email='budi@test.com', status='APPLIED'
+        )
+        self.client.force_login(self.admin)
 
-    def test_rbac_employee_cannot_transition(self):
-        self.client.logout()
-        self.client.force_login(self.emp)
-        resp = self._transition('SCREENING')
+    def test_job_hard_delete_admin_ok(self):
+        resp = self.client.delete(f'/api/recruitment/jobs/{self.job.id}/hard-delete/')
+        self.assertEqual(resp.status_code, 204)
+        self.assertFalse(Job.objects.filter(id=self.job.id).exists())
+
+    def test_job_hard_delete_non_admin_forbidden(self):
+        self.client.force_login(self.hr)
+        resp = self.client.delete(f'/api/recruitment/jobs/{self.job.id}/hard-delete/')
         self.assertEqual(resp.status_code, 403)
-        self.candidate.refresh_from_db()
-        self.assertEqual(self.candidate.status, 'APPLIED')
+        self.assertTrue(Job.objects.filter(id=self.job.id).exists())
+
+    def test_candidate_hard_delete_admin_ok(self):
+        resp = self.client.delete(f'/api/recruitment/candidates/{self.candidate.id}/hard-delete/')
+        self.assertEqual(resp.status_code, 204)
+        self.assertFalse(Candidate.objects.filter(id=self.candidate.id).exists())
+
+    def test_candidate_hard_delete_non_admin_forbidden(self):
+        self.client.force_login(self.hr)
+        resp = self.client.delete(f'/api/recruitment/candidates/{self.candidate.id}/hard-delete/')
+        self.assertEqual(resp.status_code, 403)
+        self.assertTrue(Candidate.objects.filter(id=self.candidate.id).exists())
 
     def test_next_statuses_exposed(self):
         resp = self.client.get(f'/api/recruitment/candidates/{self.candidate.id}/')

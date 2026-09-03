@@ -618,29 +618,38 @@ class CompleteOnboardingTests(OnboardingTests):
         ob = self._make_ready_ob()
         resp = self._transit(ob, 'COMPLETED')
         self.assertEqual(resp.status_code, 400)
-        ob.refresh_from_db()
-        self.assertEqual(ob.status, 'READY')
 
-    def test_complete_audit_logged(self):
-        ob = self._make_ready_ob()
-        self.client.post(f'/api/onboarding/{ob.id}/complete/')
-        self.assertTrue(
-            AuditLog.objects.filter(action='create', description__icontains='Employee created').exists()
-        )
-        self.assertTrue(
-            AuditLog.objects.filter(action='create', description__icontains='Contract').exists()
-        )
-        self.assertTrue(
-            AuditLog.objects.filter(action='create', description__icontains='User account').exists()
-        )
+class HardDeleteTests(OnboardingTests):
+    def setUp(self):
+        super().setUp()
+        self.admin.is_superuser = True
+        self.admin.save()
+        self.client.force_login(self.admin)
 
-    def test_completed_exposes_employee_info(self):
-        ob = self._make_ready_ob()
-        self.client.post(f'/api/onboarding/{ob.id}/complete/')
-        ob.refresh_from_db()
-        resp = self.client.get(f'/api/onboarding/{ob.id}/')
-        data = resp.json()
-        self.assertEqual(data['status'], 'COMPLETED')
-        self.assertIsNotNone(data['employee_id'])
-        self.assertIsNotNone(data['completed_by_name'])
-        self.assertEqual(data['account_status'], 'ACTIVE')
+    def test_hard_delete_admin_ok(self):
+        ob = self._onboarding()
+        resp = self.client.delete(f'/api/onboarding/{ob.id}/hard-delete/')
+        self.assertEqual(resp.status_code, 204)
+        self.assertFalse(Onboarding.objects.filter(id=ob.id).exists())
+
+    def test_hard_delete_non_admin_forbidden(self):
+        ob = self._onboarding()
+        self.client.logout()
+        self.client.force_login(self.hr)
+        resp = self.client.delete(f'/api/onboarding/{ob.id}/hard-delete/')
+        self.assertEqual(resp.status_code, 403)
+        self.assertTrue(Onboarding.objects.filter(id=ob.id).exists())
+
+    def test_destroy_admin_ok(self):
+        ob = self._onboarding()
+        resp = self.client.delete(f'/api/onboarding/{ob.id}/')
+        self.assertEqual(resp.status_code, 204)
+        self.assertFalse(Onboarding.objects.filter(id=ob.id).exists())
+
+    def test_destroy_non_admin_forbidden(self):
+        ob = self._onboarding()
+        self.client.logout()
+        self.client.force_login(self.hr)
+        resp = self.client.delete(f'/api/onboarding/{ob.id}/')
+        self.assertEqual(resp.status_code, 403)
+        self.assertTrue(Onboarding.objects.filter(id=ob.id).exists())

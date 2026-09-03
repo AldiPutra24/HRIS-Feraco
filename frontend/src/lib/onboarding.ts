@@ -133,6 +133,14 @@ export function updateOnboarding(id: number, input: Partial<OnboardingInput>): P
   return request<Onboarding>(`/${id}/`, { method: 'PATCH', body: JSON.stringify(input) });
 }
 
+export function deleteOnboarding(id: number): Promise<void> {
+  return request<void>(`/${id}/`, { method: 'DELETE' });
+}
+
+export function hardDeleteOnboarding(id: number): Promise<void> {
+  return request<void>(`/${id}/hard-delete/`, { method: 'DELETE' });
+}
+
 export function transitionOnboarding(
   id: number,
   status: string,

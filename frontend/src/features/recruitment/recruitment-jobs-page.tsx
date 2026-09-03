@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { toast } from 'react-toastify';
+import { useAuth } from '@/lib/auth/auth-provider';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -15,6 +16,7 @@ import {
   closeJob,
   createJob,
   deleteJob,
+  hardDeleteJob,
   listJobs,
   openJob,
   reopenJob,
@@ -63,6 +65,8 @@ const emptyForm: JobInput = {
 export function RecruitmentJobsPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
   const fStatus = searchParams.get('status') ?? '';
   const fSearch = searchParams.get('q') ?? '';
 
@@ -163,6 +167,11 @@ export function RecruitmentJobsPage() {
   async function handleDelete(job: Job) {
     if (!window.confirm(`Hapus job "${job.title}"? Tindakan ini permanen.`)) return;
     await act(job.id, deleteJob, 'Job dihapus.');
+  }
+
+  async function handleHardDelete(job: Job) {
+    if (!window.confirm(`Hapus permanen job "${job.title}"? Tidak dapat dibatalkan.`)) return;
+    await act(job.id, hardDeleteJob, 'Job dihapus permanen.');
   }
 
   function copyLink(slug: string) {
@@ -312,6 +321,11 @@ export function RecruitmentJobsPage() {
                           {j.status === 'DRAFT' && (
                             <Button size='sm' variant='destructive' onClick={() => handleDelete(j)}>
                               Delete
+                            </Button>
+                          )}
+                          {isAdmin && (
+                            <Button size='sm' variant='destructive' onClick={() => handleHardDelete(j)}>
+                              Hapus Permanen
                             </Button>
                           )}
                         </div>

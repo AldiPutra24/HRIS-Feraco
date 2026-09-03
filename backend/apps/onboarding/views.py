@@ -132,6 +132,20 @@ class OnboardingViewSet(viewsets.ModelViewSet):
             description=f'Onboarding "{obj.candidate.full_name}" diperbarui',
         )
 
+    def destroy(self, request, *args, **kwargs):
+        """Permanent delete — admin/superuser only."""
+        if not (request.user.is_superuser or getattr(getattr(request.user, 'role', None), 'key', None) == 'ADMIN'):
+            return Response({'detail': 'Hanya admin yang dapat menghapus onboarding.'}, status=status.HTTP_403_FORBIDDEN)
+        obj = self.get_object()
+        name = obj.candidate.full_name
+        obj.delete()
+        log_event(request, 'delete', obj=None, description=f'Onboarding "{name}" deleted')
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(detail=True, methods=['delete'], url_path='hard-delete')
+    def hard_delete(self, request, pk=None):
+        return self.destroy(request, pk=pk)
+
     # ---- Employment data -------------------------------------------------
 
     @action(detail=True, methods=['get', 'patch'])

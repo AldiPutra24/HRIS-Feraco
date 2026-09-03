@@ -138,6 +138,10 @@ export function deleteJob(id: number): Promise<void> {
   return request<void>(`/jobs/${id}/`, { method: 'DELETE' });
 }
 
+export function hardDeleteJob(id: number): Promise<void> {
+  return request<void>(`/jobs/${id}/hard-delete/`, { method: 'DELETE' });
+}
+
 export function openJob(id: number): Promise<Job> {
   return request<Job>(`/jobs/${id}/open/`, { method: 'POST' });
 }
@@ -186,6 +190,14 @@ export function applyJob(input: ApplyInput): Promise<Candidate> {
 
 export function getCandidate(id: number): Promise<Candidate> {
   return request<Candidate>(`/candidates/${id}/`);
+}
+
+export function deleteCandidate(id: number): Promise<void> {
+  return request<void>(`/candidates/${id}/`, { method: 'DELETE' });
+}
+
+export function hardDeleteCandidate(id: number): Promise<void> {
+  return request<void>(`/candidates/${id}/hard-delete/`, { method: 'DELETE' });
 }
 
 export function getCandidateCv(id: number): Promise<{ url: string; name: string }> {

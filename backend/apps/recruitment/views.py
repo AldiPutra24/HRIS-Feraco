@@ -9,6 +9,7 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
 from apps.audit.services import log_event
+from apps.personnel.permissions import _role
 from apps.personnel.storage import is_configured, signed_url, upload_bytes
 
 from .models import Candidate, Job
@@ -42,6 +43,17 @@ class JobViewSet(viewsets.ModelViewSet):
             return Response({'detail': 'Hanya job DRAFT yang dapat dihapus.'}, status=status.HTTP_400_BAD_REQUEST)
         log_event(request, 'delete', obj=obj, description=f'Job "{obj.title}" deleted')
         return super().destroy(request, *args, **kwargs)
+
+    @action(detail=True, methods=['delete'], url_path='hard-delete')
+    def hard_delete(self, request, pk=None):
+        """Permanent delete — admin/superuser only (bypasses DRAFT restriction)."""
+        if not (request.user.is_superuser or _role(request.user) == 'ADMIN'):
+            return Response({'detail': 'Hanya admin yang dapat menghapus permanen.'}, status=status.HTTP_403_FORBIDDEN)
+        obj = self.get_object()
+        title = obj.title
+        obj.delete()
+        log_event(request, 'delete', obj=None, description=f'Job "{title}" hard-deleted')
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     @action(detail=True, methods=['post'])
     def open(self, request, pk=None):
@@ -186,3 +198,17 @@ class CandidateViewSet(viewsets.ModelViewSet):
             return Response({'url': url, 'name': obj.cv_name})
         except Exception as e:
             return Response({'detail': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    def destroy(self, request, *args, **kwargs):
+        """Permanent delete — admin/superuser only."""
+        if not (request.user.is_superuser or _role(request.user) == 'ADMIN'):
+            return Response({'detail': 'Hanya admin yang dapat menghapus kandidat.'}, status=status.HTTP_403_FORBIDDEN)
+        obj = self.get_object()
+        name = obj.full_name
+        obj.delete()
+        log_event(request, 'delete', obj=None, description=f'Candidate "{name}" deleted')
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(detail=True, methods=['delete'], url_path='hard-delete')
+    def hard_delete(self, request, pk=None):
+        return self.destroy(request, pk=pk)

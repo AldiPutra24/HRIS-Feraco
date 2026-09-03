@@ -7,8 +7,9 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
-import { getCandidate, getCandidateCv, transitionCandidate, type Candidate } from '@/lib/recruitment';
+import { getCandidate, getCandidateCv, transitionCandidate, deleteCandidate, hardDeleteCandidate, type Candidate } from '@/lib/recruitment';
 import { PIPELINE, statusLabel } from '@/features/recruitment/candidate-pipeline';
+import { useAuth } from '@/lib/auth/auth-provider';
 
 function sourceLabel(v: string): string {
   return v.replace('_', ' ').toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
@@ -56,6 +57,8 @@ function PipelineSteps({ current }: { current: string }) {
 
 export function RecruitmentCandidateDetailPage({ id }: { id: string }) {
   const router = useRouter();
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
   const [candidate, setCandidate] = useState<Candidate | null>(null);
   const [notFoundState, setNotFoundState] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -104,6 +107,20 @@ export function RecruitmentCandidateDetailPage({ id }: { id: string }) {
     }
   }
 
+  async function handleDelete(hard: boolean) {
+    if (!candidate) return;
+    const verb = hard ? 'Hapus permanen' : 'Hapus';
+    if (!window.confirm(`${verb} kandidat "${candidate.full_name}"?${hard ? ' Tidak dapat dibatalkan.' : ''}`)) return;
+    try {
+      if (hard) await hardDeleteCandidate(candidate.id);
+      else await deleteCandidate(candidate.id);
+      toast.success(`${verb} kandidat berhasil.`);
+      router.push('/dashboard/recruitment/candidates');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Gagal menghapus kandidat.');
+    }
+  }
+
   if (loading) {
     return (
       <div className='space-y-2 p-4 md:p-6'>
@@ -127,9 +144,21 @@ export function RecruitmentCandidateDetailPage({ id }: { id: string }) {
           <h2 className='text-2xl font-bold tracking-tight'>{candidate.full_name}</h2>
           <p className='text-muted-foreground text-sm'>Detail lamaran kandidat.</p>
         </div>
-        <Button variant='ghost' onClick={() => router.back()}>
-          Kembali
-        </Button>
+        <div className='flex items-center gap-2'>
+          {isAdmin && (
+            <>
+              <Button variant='destructive' size='sm' onClick={() => handleDelete(false)}>
+                Hapus
+              </Button>
+              <Button variant='destructive' size='sm' onClick={() => handleDelete(true)}>
+                Hapus Permanen
+              </Button>
+            </>
+          )}
+          <Button variant='ghost' onClick={() => router.back()}>
+            Kembali
+          </Button>
+        </div>
       </div>
 
       {/* Pipeline */}
