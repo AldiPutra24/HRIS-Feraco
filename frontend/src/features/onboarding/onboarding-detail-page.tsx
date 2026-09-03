@@ -31,7 +31,7 @@ import { Label } from '@/components/ui/label';
 import { Progress } from '@/components/ui/progress';
 import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from 'react-toastify';
-import { useCallback, useEffect, useState } from 'react';
+import { Fragment, useCallback, useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 // Select — native <select> styled with Tailwind
 import {
@@ -73,6 +73,48 @@ function formatBytes(bytes: number): string {
 
 // ── Tab: Data ────────────────────────────────────────────────────────
 
+const DATA_SECTIONS: { title: string; keys: { key: string; label: string; type?: string; sensitive?: boolean }[] }[] = [
+  {
+    title: 'Biodata',
+    keys: [
+      { key: 'full_name', label: 'Nama Lengkap' },
+      { key: 'nik', label: 'NIK', sensitive: true },
+      { key: 'birth_place', label: 'Tempat Lahir' },
+      { key: 'birth_date', label: 'Tanggal Lahir', type: 'date' },
+      { key: 'gender', label: 'Jenis Kelamin' },
+      { key: 'religion', label: 'Agama' },
+      { key: 'address', label: 'Alamat' },
+    ],
+  },
+  {
+    title: 'Kontak Darurat',
+    keys: [
+      { key: 'phone', label: 'Telepon' },
+      { key: 'emergency_contact_name', label: 'Nama Kontak Darurat' },
+      { key: 'emergency_contact_phone', label: 'Telepon Kontak Darurat' },
+    ],
+  },
+  {
+    title: 'Data Legal & Finansial',
+    keys: [
+      { key: 'bank_account_number', label: 'No. Rekening', sensitive: true },
+      { key: 'bank_account_name', label: 'Nama Rekening' },
+      { key: 'npwp', label: 'NPWP', sensitive: true },
+      { key: 'bpjs_kesehatan', label: 'BPJS Kesehatan' },
+      { key: 'bpjs_ketenagakerjaan', label: 'BPJS Ketenagakerjaan' },
+    ],
+  },
+  {
+    title: 'Data Kepegawaian',
+    keys: [
+      { key: 'department_name', label: 'Department' },
+      { key: 'position_name', label: 'Posisi' },
+      { key: 'join_date', label: 'Tanggal Bergabung', type: 'date' },
+      { key: 'employment_type', label: 'Jenis Pekerjaan' },
+    ],
+  },
+];
+
 function DataTab({
   onboardingId,
   canManage,
@@ -83,50 +125,39 @@ function DataTab({
   const [data, setData] = useState<OnboardingData | null>(null);
   const [form, setForm] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
+  const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  useEffect(() => {
-    getOnboardingData(onboardingId)
-      .then((d) => {
-        setData(d);
-        const flat: Record<string, string> = {};
-        for (const [k, v] of Object.entries(d)) {
-          if (typeof v === 'string' || v === null) flat[k] = v ?? '';
-        }
-        setForm(flat);
-      })
-      .catch((err) => toast.error(err.message))
-      .finally(() => setLoading(false));
+  const load = useCallback(async () => {
+    try {
+      const d = await getOnboardingData(onboardingId);
+      setData(d);
+      const flat: Record<string, string> = {};
+      for (const [k, v] of Object.entries(d)) {
+        if (typeof v === 'string' || v === null) flat[k] = v ?? '';
+      }
+      setForm(flat);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Gagal memuat data.');
+    } finally {
+      setLoading(false);
+    }
   }, [onboardingId]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
 
   if (loading) return <Skeleton className='h-64 w-full' />;
   if (!data) return <p className='text-muted-foreground'>Data belum diisi.</p>;
-
-  const fields = [
-    { key: 'full_name', label: 'Nama Lengkap' },
-    { key: 'nik', label: 'NIK' },
-    { key: 'birth_place', label: 'Tempat Lahir' },
-    { key: 'birth_date', label: 'Tanggal Lahir', type: 'date' },
-    { key: 'gender', label: 'Jenis Kelamin' },
-    { key: 'religion', label: 'Agama' },
-    { key: 'address', label: 'Alamat' },
-    { key: 'phone', label: 'Telepon' },
-    { key: 'emergency_contact_name', label: 'Kontak Darurat - Nama' },
-    { key: 'emergency_contact_phone', label: 'Kontak Darurat - Telepon' },
-    { key: 'bank_account_number', label: 'No. Rekening' },
-    { key: 'bank_account_name', label: 'Nama Rekening' },
-    { key: 'npwp', label: 'NPWP' },
-    { key: 'bpjs_kesehatan', label: 'BPJS Kesehatan' },
-    { key: 'bpjs_ketenagakerjaan', label: 'BPJS Ketenagakerjaan' },
-    { key: 'join_date', label: 'Tanggal Bergabung', type: 'date' },
-    { key: 'employment_type', label: 'Jenis Pekerjaan' },
-  ];
 
   async function handleSave() {
     setSaving(true);
     try {
       await updateOnboardingData(onboardingId, form);
       toast.success('Data berhasil disimpan.');
+      setEditing(false);
+      void load();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Gagal menyimpan data.');
     } finally {
@@ -136,28 +167,55 @@ function DataTab({
 
   return (
     <div className='space-y-4'>
-      <div className='grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3'>
-        {fields.map((f) => (
-          <div key={f.key} className='space-y-1.5'>
-            <Label htmlFor={f.key}>{f.label}</Label>
-            {canManage ? (
-              <Input
-                id={f.key}
-                type={f.type ?? 'text'}
-                value={form[f.key] ?? ''}
-                onChange={(e) => setForm((p) => ({ ...p, [f.key]: e.target.value }))}
-              />
-            ) : (
-              <p className='text-sm text-muted-foreground'>{form[f.key] || '-'}</p>
-            )}
-          </div>
+      <div className='flex items-center justify-between'>
+        <h3 className='text-sm font-semibold text-muted-foreground'>Data Onboarding</h3>
+        {canManage &&
+          (editing ? (
+            <div className='flex gap-2'>
+              <Button variant='ghost' size='sm' onClick={() => { setEditing(false); void load(); }} disabled={saving}>
+                Batal
+              </Button>
+              <Button size='sm' onClick={handleSave} disabled={saving}>
+                {saving ? 'Menyimpan...' : 'Simpan Data'}
+              </Button>
+            </div>
+          ) : (
+            <Button variant='outline' size='sm' onClick={() => setEditing(true)}>
+              <Icons.forms className='mr-1.5 h-4 w-4' />
+              Edit Data
+            </Button>
+          ))}
+      </div>
+
+      <div className='grid grid-cols-1 gap-4 lg:grid-cols-2'>
+        {DATA_SECTIONS.map((section) => (
+          <Card key={section.title}>
+            <CardHeader className='pb-3'>
+              <CardTitle className='text-sm'>{section.title}</CardTitle>
+            </CardHeader>
+            <CardContent className='space-y-3'>
+              {section.keys.map((f) => {
+                const editable = editing && canManage && f.key !== 'department_name' && f.key !== 'position_name';
+                return (
+                  <div key={f.key} className='space-y-1.5'>
+                    <Label htmlFor={f.key}>{f.label}</Label>
+                    {editable ? (
+                      <Input
+                        id={f.key}
+                        type={f.type ?? 'text'}
+                        value={form[f.key] ?? ''}
+                        onChange={(e) => setForm((p) => ({ ...p, [f.key]: e.target.value }))}
+                      />
+                    ) : (
+                      <p className='text-sm'>{form[f.key] || '-'}</p>
+                    )}
+                  </div>
+                );
+              })}
+            </CardContent>
+          </Card>
         ))}
       </div>
-      {canManage && (
-        <Button onClick={handleSave} disabled={saving}>
-          {saving ? 'Menyimpan...' : 'Simpan Data'}
-        </Button>
-      )}
     </div>
   );
 }
@@ -202,10 +260,28 @@ function ChecklistTab({
 
   if (loading) return <Skeleton className='h-48 w-full' />;
 
+  const requiredItems = items.filter((i) => i.required);
+  const requiredDone = requiredItems.filter((i) => i.completed).length;
+  const requiredPct = requiredItems.length
+    ? Math.round((requiredDone / requiredItems.length) * 100)
+    : 100;
   const categories = [...new Set(items.map((i) => i.category))];
 
   return (
-    <div className='space-y-6'>
+    <div className='space-y-4'>
+      <Card>
+        <CardContent className='space-y-2 pt-6'>
+          <div className='flex items-center justify-between text-sm'>
+            <span className='font-medium'>Checklist Wajib</span>
+            <span className='text-muted-foreground'>
+              {requiredDone} / {requiredItems.length} selesai
+            </span>
+          </div>
+          <Progress value={requiredPct} />
+        </CardContent>
+      </Card>
+
+      <div className='space-y-6'>
       {categories.map((cat) => (
         <div key={cat}>
           <h4 className='mb-2 text-sm font-semibold uppercase tracking-wider text-muted-foreground'>
@@ -256,6 +332,7 @@ function ChecklistTab({
       {items.length === 0 && (
         <p className='text-sm text-muted-foreground'>Belum ada item checklist.</p>
       )}
+      </div>
     </div>
   );
 }
@@ -353,8 +430,23 @@ function DocumentsTab({
 
   if (loading) return <Skeleton className='h-48 w-full' />;
 
+  const requiredDocs = docs;
+  const approvedDocs = docs.filter((d) => d.status === 'APPROVED').length;
+
   return (
     <div className='space-y-4'>
+      <Card>
+        <CardContent className='space-y-2 pt-6'>
+          <div className='flex items-center justify-between text-sm'>
+            <span className='font-medium'>Dokumen Disetujui</span>
+            <span className='text-muted-foreground'>
+              {approvedDocs} / {requiredDocs.length} approved
+            </span>
+          </div>
+          <Progress value={requiredDocs.length ? Math.round((approvedDocs / requiredDocs.length) * 100) : 100} />
+        </CardContent>
+      </Card>
+
       {canManage && (
         <Card>
           <CardHeader>
@@ -412,12 +504,14 @@ function DocumentsTab({
                 <TableHead>Ukuran</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Diunggah</TableHead>
+                <TableHead>Reviewer</TableHead>
                 <TableHead className='text-right'>Aksi</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {docs.map((doc) => (
-                <TableRow key={doc.id}>
+                <Fragment key={doc.id}>
+                <TableRow>
                   <TableCell>
                     <span className='text-xs font-medium'>{doc.document_type_label}</span>
                   </TableCell>
@@ -431,6 +525,7 @@ function DocumentsTab({
                     </Badge>
                   </TableCell>
                   <TableCell className='text-xs'>{doc.uploaded_by_name ?? '-'}</TableCell>
+                  <TableCell className='text-xs'>{doc.reviewed_by_name ?? '-'}</TableCell>
                   <TableCell className='text-right'>
                     <div className='flex items-center justify-end gap-1'>
                       <Button
@@ -478,6 +573,14 @@ function DocumentsTab({
                     </div>
                   </TableCell>
                 </TableRow>
+                {doc.status === 'REJECTED' && doc.rejection_reason && (
+                  <TableRow>
+                    <TableCell colSpan={7} className='bg-destructive/5 text-xs text-destructive'>
+                      Ditolak: {doc.rejection_reason}
+                    </TableCell>
+                  </TableRow>
+                )}
+                </Fragment>
               ))}
             </TableBody>
           </Table>
@@ -493,68 +596,94 @@ function SummaryTab({ onboardingId }: { onboardingId: number }) {
   const [readiness, setReadiness] = useState<OnboardingReadiness | null>(null);
   const [loading, setLoading] = useState(true);
   const [item, setItem] = useState<Onboarding | null>(null);
+  const [checklist, setChecklist] = useState<OnboardingChecklistItem[]>([]);
+  const [docs, setDocs] = useState<OnboardingDocument[]>([]);
 
   useEffect(() => {
     Promise.all([
       getReadiness(onboardingId),
       getOnboarding(onboardingId),
+      listChecklist(onboardingId),
+      listDocuments(onboardingId),
     ])
-      .then(([r, o]) => {
+      .then(([r, o, c, d]) => {
         setReadiness(r);
         setItem(o);
+        setChecklist(c);
+        setDocs(d);
       })
-      .catch((err) => toast.error(err.message))
+      .catch((err) => toast.error(err instanceof Error ? err.message : 'Gagal memuat ringkasan.'))
       .finally(() => setLoading(false));
   }, [onboardingId]);
 
   if (loading) return <Skeleton className='h-48 w-full' />;
   if (!readiness) return null;
 
+  const reqItems = checklist.filter((i) => i.required);
+  const reqDone = reqItems.filter((i) => i.completed).length;
+  const approvedDocs = docs.filter((d) => d.status === 'APPROVED').length;
+  const dataComplete = !readiness.errors.some((e) => /data/i.test(e));
+
+  const rows = [
+    { label: 'Data', ok: dataComplete, detail: dataComplete ? 'Lengkap' : 'Belum lengkap' },
+    {
+      label: 'Checklist',
+      ok: reqItems.length > 0 && reqDone === reqItems.length,
+      detail: `${reqDone} / ${reqItems.length} wajib`,
+    },
+    {
+      label: 'Dokumen',
+      ok: docs.length > 0 && approvedDocs === docs.length,
+      detail: `${approvedDocs} / ${docs.length} approved`,
+    },
+  ];
+
   return (
     <div className='space-y-4'>
       <Card>
         <CardHeader>
-          <CardTitle className='text-base'>Kesiapan Onboarding</CardTitle>
+          <CardTitle className='text-base'>ONBOARDING PROGRESS</CardTitle>
         </CardHeader>
-        <CardContent className='space-y-4'>
-          <div className='flex items-center gap-3'>
-            <span className='text-sm font-medium'>Status:</span>
-            <Badge
-              variant={
-                readiness.ready
-                  ? 'secondary'
-                  : readiness.status === 'CANCELLED'
-                    ? 'outline'
-                    : 'default'
-              }
-            >
-              {readiness.ready ? 'Siap' : onboardingStatusLabel(readiness.status)}
+        <CardContent className='space-y-3'>
+          {rows.map((r) => (
+            <div key={r.label} className='flex items-center justify-between text-sm'>
+              <span className='flex items-center gap-2'>
+                {r.ok ? (
+                  <Icons.circleCheck className='h-4 w-4 text-emerald-500' />
+                ) : (
+                  <Icons.circle className='h-4 w-4 text-muted-foreground' />
+                )}
+                {r.label}
+              </span>
+              <span className='text-muted-foreground'>{r.detail}</span>
+            </div>
+          ))}
+          <div className='flex items-center justify-between border-t pt-3 text-sm font-medium'>
+            <span>Overall</span>
+            <Badge variant={readiness.ready ? 'secondary' : 'default'}>
+              {readiness.ready ? 'READY' : 'NOT READY'}
             </Badge>
           </div>
-          <div className='space-y-1.5'>
-            <div className='flex justify-between text-sm'>
-              <span className='text-muted-foreground'>Progress Checklist</span>
-              <span>{readiness.progress}%</span>
-            </div>
-            <Progress value={readiness.progress} />
-          </div>
-          {readiness.errors.length > 0 && (
-            <div className='space-y-1'>
-              <p className='text-sm font-medium text-red-600'>Kendala:</p>
-              <ul className='list-inside list-disc space-y-0.5 text-sm text-red-600'>
-                {readiness.errors.map((e, i) => (
-                  <li key={i}>{e}</li>
-                ))}
-              </ul>
-            </div>
-          )}
-          {readiness.errors.length === 0 && readiness.ready && (
-            <p className='text-sm font-medium text-emerald-600'>
-              Semua persyaratan terpenuhi. Onboarding siap dikonfirmasi.
+          {!readiness.ready && readiness.errors.length > 0 && (
+            <p className='text-xs text-muted-foreground'>
+              Masih ada {readiness.errors.length} item yang perlu diselesaikan.
             </p>
           )}
         </CardContent>
       </Card>
+
+      {readiness.errors.length > 0 && (
+        <Card>
+          <CardContent className='space-y-1 pt-6'>
+            <p className='text-sm font-medium text-red-600'>Kendala:</p>
+            <ul className='list-inside list-disc space-y-0.5 text-sm text-red-600'>
+              {readiness.errors.map((e, i) => (
+                <li key={i}>{e}</li>
+              ))}
+            </ul>
+          </CardContent>
+        </Card>
+      )}
 
       {item && item.status_history.length > 0 && (
         <Card>
@@ -632,16 +761,10 @@ export function OnboardingDetailPage() {
   }
 
   const [completing, setCompleting] = useState(false);
+  const [confirmComplete, setConfirmComplete] = useState(false);
 
   async function handleComplete() {
-    if (!window.confirm(
-      'Konfirmasi Complete Onboarding?\n\n' +
-      'Tindakan ini akan:\n' +
-      '• Membuat Employee baru\n' +
-      '• Membuat Contract\n' +
-      '• Membuat User Account\n' +
-      '\nLanjutkan?'
-    )) return;
+    setConfirmComplete(false);
     setCompleting(true);
     try {
       await completeOnboarding(Number(id));
@@ -652,6 +775,34 @@ export function OnboardingDetailPage() {
     } finally {
       setCompleting(false);
     }
+  }
+
+  function primaryAction() {
+    if (!canManage || item!.status === 'CANCELLED' || item!.status === 'COMPLETED') return null;
+    const labels: Record<string, string> = {
+      PENDING: 'Mulai Onboarding',
+      IN_PROGRESS: 'Review / Lengkapi Onboarding',
+      DOCUMENT_REVIEW: 'Review Dokumen',
+      READY: 'Complete Onboarding',
+    };
+    const label = labels[item!.status];
+    if (!label) return null;
+    if (item!.status === 'READY') {
+      return (
+        <Button onClick={() => setConfirmComplete(true)} disabled={completing}>
+          <Icons.circleCheck className='mr-1.5 h-4 w-4' />
+          {completing ? 'Memproses...' : 'Complete Onboarding'}
+        </Button>
+      );
+    }
+    const next = item!.next_statuses[0];
+    if (!next) return null;
+    return (
+      <Button onClick={() => handleTransition(next)}>
+        {item!.status === 'PENDING' && <Icons.arrowRight className='mr-1.5 h-4 w-4' />}
+        {label}
+      </Button>
+    );
   }
 
   if (loading) {
@@ -678,15 +829,27 @@ export function OnboardingDetailPage() {
   return (
     <div className='flex flex-1 flex-col gap-4 p-4 md:p-6'>
       {/* Header */}
-      <div className='flex flex-wrap items-center justify-between gap-3'>
+      <div className='flex flex-wrap items-start justify-between gap-3'>
         <div>
-          <h2 className='text-2xl font-bold tracking-tight'>{item.candidate_name}</h2>
-          <p className='text-muted-foreground text-sm'>{item.job_title}</p>
+          <div className='flex items-center gap-2'>
+            <h2 className='text-2xl font-bold tracking-tight'>{item.candidate_name}</h2>
+            <Badge variant={onboardingStatusVariant(item.status)} className='text-sm'>
+              {onboardingStatusLabel(item.status)}
+            </Badge>
+          </div>
+          <p className='text-muted-foreground text-sm'>
+            {item.job_title}
+            {item.department_name ? ` · ${item.department_name}` : ''}
+            {item.position_name ? ` · ${item.position_name}` : ''}
+          </p>
+          {item.target_join_date && (
+            <p className='text-muted-foreground mt-0.5 text-xs'>
+              Target Join: {item.target_join_date}
+            </p>
+          )}
         </div>
         <div className='flex items-center gap-2'>
-          <Badge variant={onboardingStatusVariant(item.status)} className='text-sm'>
-            {onboardingStatusLabel(item.status)}
-          </Badge>
+          {primaryAction()}
           <Button variant='ghost' onClick={() => router.back()}>
             Kembali
           </Button>
@@ -751,49 +914,6 @@ export function OnboardingDetailPage() {
           </CardContent>
         </Card>
 
-        {canManage && item.next_statuses.length > 0 && item.status !== 'READY' && (
-          <Card>
-            <CardHeader>
-              <CardTitle className='text-base'>Aksi</CardTitle>
-              <CardDescription>Transisi yang tersedia</CardDescription>
-            </CardHeader>
-            <CardContent className='flex flex-wrap gap-2'>
-              {item.next_statuses.map((s) => (
-                <Button
-                  key={s}
-                  size='sm'
-                  variant={s === 'CANCELLED' ? 'destructive' : 'default'}
-                  onClick={() => handleTransition(s)}
-                >
-                  {onboardingStatusLabel(s)}
-                </Button>
-              ))}
-            </CardContent>
-          </Card>
-        )}
-
-        {canManage && item.status === 'READY' && (
-          <Card>
-            <CardHeader>
-              <CardTitle className='text-base'>Complete Onboarding</CardTitle>
-              <CardDescription>
-                Konfirmasi untuk membuat Employee, Contract, dan Account
-              </CardDescription>
-            </CardHeader>
-            <CardContent className='flex flex-wrap gap-2'>
-              <Button
-                size='sm'
-                variant='default'
-                className='bg-emerald-600 hover:bg-emerald-700'
-                onClick={() => handleComplete()}
-              >
-                <Icons.circleCheck className='mr-1.5 h-4 w-4' />
-                Complete Onboarding
-              </Button>
-            </CardContent>
-          </Card>
-        )}
-
         {item.status === 'COMPLETED' && item.employee_id && (
           <Card>
             <CardHeader>
@@ -834,10 +954,40 @@ export function OnboardingDetailPage() {
                   <span>{item.completed_by_name}</span>
                 </div>
               )}
+              <Button
+                variant='outline'
+                size='sm'
+                className='mt-2 w-full'
+                onClick={() => router.push(`/dashboard/karyawan/${item.employee}`)}
+              >
+                <Icons.arrowRight className='mr-1.5 h-4 w-4' />
+                Lihat Employee
+              </Button>
             </CardContent>
           </Card>
         )}
       </div>
+
+      {/* Complete confirmation modal */}
+      {confirmComplete && (
+        <div className='fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4'>
+          <div className='w-full max-w-md rounded-xl border bg-popover p-6 text-popover-foreground shadow-lg'>
+            <h3 className='text-base font-semibold'>Finalisasi onboarding?</h3>
+            <p className='text-muted-foreground mt-2 text-sm'>
+              Data onboarding akan digunakan untuk membuat data karyawan dan akun employee.
+              Pastikan seluruh data sudah benar.
+            </p>
+            <div className='mt-4 flex justify-end gap-2'>
+              <Button variant='ghost' onClick={() => setConfirmComplete(false)} disabled={completing}>
+                Batal
+              </Button>
+              <Button onClick={handleComplete} disabled={completing}>
+                {completing ? 'Memproses...' : 'Complete Onboarding'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Tabs */}
       <div className='flex gap-1 border-b'>
