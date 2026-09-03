@@ -3,6 +3,8 @@
 import {
   createOnboarding,
   listOnboarding,
+  deleteOnboarding,
+  hardDeleteOnboarding,
   onboardingStatusLabel,
   onboardingStatusVariant,
   transitionOnboarding,
@@ -43,6 +45,7 @@ export function OnboardingPage() {
   const [submitting, setSubmitting] = useState(false);
 
   const canManage = user?.role ? HR_ROLES.has(user.role) : false;
+  const isAdmin = user?.role === 'admin';
 
   const load = useCallback(async () => {
     try {
@@ -110,6 +113,19 @@ export function OnboardingPage() {
       await load();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Gagal mengubah status.');
+    }
+  }
+
+  async function handleDelete(o: Onboarding, hard: boolean) {
+    const verb = hard ? 'Hapus permanen' : 'Hapus';
+    if (!window.confirm(`${verb} onboarding "${o.candidate_name}"?${hard ? ' Tidak dapat dibatalkan.' : ''}`)) return;
+    try {
+      if (hard) await hardDeleteOnboarding(o.id);
+      else await deleteOnboarding(o.id);
+      toast.success(`${verb} onboarding berhasil.`);
+      await load();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Gagal menghapus onboarding.');
     }
   }
 
@@ -203,6 +219,16 @@ export function OnboardingPage() {
                                 {onboardingStatusLabel(s)}
                               </Button>
                             ))}
+                          {isAdmin && (
+                            <>
+                              <Button size='sm' variant='destructive' onClick={() => handleDelete(o, false)}>
+                                Hapus
+                              </Button>
+                              <Button size='sm' variant='destructive' onClick={() => handleDelete(o, true)}>
+                                Hapus Permanen
+                              </Button>
+                            </>
+                          )}
                         </div>
                       </TableCell>
                     </TableRow>

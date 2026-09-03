@@ -9,8 +9,9 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import { TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { listCandidates, listJobs, type Candidate, type Job } from '@/lib/recruitment';
+import { listCandidates, listJobs, deleteCandidate, hardDeleteCandidate, type Candidate, type Job } from '@/lib/recruitment';
 import { ALL_STATUSES, statusLabel } from '@/features/recruitment/candidate-pipeline';
+import { useAuth } from '@/lib/auth/auth-provider';
 
 const STATUS_OPTIONS = [...ALL_STATUSES];
 
@@ -23,6 +24,8 @@ function statusVariant(status: string): 'default' | 'secondary' | 'outline' {
 export function RecruitmentCandidatesPage({ fixedJobId }: { fixedJobId?: string }) {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
   const fJob = fixedJobId ?? (searchParams.get('job') ?? '');
   const fStatus = searchParams.get('status') ?? '';
 
@@ -59,6 +62,19 @@ export function RecruitmentCandidatesPage({ fixedJobId }: { fixedJobId?: string 
   useEffect(() => {
     listJobs().then(setJobs).catch(() => {});
   }, []);
+
+  async function handleDelete(c: Candidate, hard: boolean) {
+    const verb = hard ? 'Hapus permanen' : 'Hapus';
+    if (!window.confirm(`${verb} kandidat "${c.full_name}"?${hard ? ' Tidak dapat dibatalkan.' : ''}`)) return;
+    try {
+      if (hard) await hardDeleteCandidate(c.id);
+      else await deleteCandidate(c.id);
+      toast.success(`${verb} kandidat berhasil.`);
+      await load();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Gagal menghapus kandidat.');
+    }
+  }
 
   if (loading && items.length === 0) {
     return (
@@ -175,13 +191,25 @@ export function RecruitmentCandidatesPage({ fixedJobId }: { fixedJobId?: string 
                         )}
                       </TableCell>
                       <TableCell className='text-right'>
-                        <Button
-                          size='sm'
-                          variant='ghost'
-                          onClick={() => router.push(`/dashboard/recruitment/candidates/${c.id}`)}
-                        >
-                          Detail
-                        </Button>
+                        <div className='flex justify-end gap-1'>
+                          <Button
+                            size='sm'
+                            variant='ghost'
+                            onClick={() => router.push(`/dashboard/recruitment/candidates/${c.id}`)}
+                          >
+                            Detail
+                          </Button>
+                          {isAdmin && (
+                            <>
+                              <Button size='sm' variant='destructive' onClick={() => handleDelete(c, false)}>
+                                Hapus
+                              </Button>
+                              <Button size='sm' variant='destructive' onClick={() => handleDelete(c, true)}>
+                                Hapus Permanen
+                              </Button>
+                            </>
+                          )}
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))}
