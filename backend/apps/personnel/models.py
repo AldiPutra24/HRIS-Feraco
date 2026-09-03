@@ -77,6 +77,32 @@ class Personnel(models.Model):
     npwp = models.CharField(max_length=32, blank=True)
     bpjs_kesehatan = models.CharField(max_length=32, blank=True)
     bpjs_ketenagakerjaan = models.CharField(max_length=32, blank=True)
+    PLACEMENT_CHOICES = [
+        ('JAKARTA', 'Jakarta'),
+        ('JOGJA', 'Jogja'),
+    ]
+    RELIGION_CHOICES = [
+        ('ISLAM', 'Islam'),
+        ('PROTESTAN', 'Protestan'),
+        ('KATOLIK', 'Katolik'),
+        ('HINDU', 'Hindu'),
+        ('BUDDHA', 'Buddha'),
+        ('KONGHUCU', 'Konghucu'),
+    ]
+    GENDER_CHOICES = [
+        ('MALE', 'Laki-laki'),
+        ('FEMALE', 'Perempuan'),
+    ]
+    MARITAL_CHOICES = [
+        ('SINGLE', 'Belum Menikah'),
+        ('MARRIED', 'Menikah'),
+        ('DIVORCED', 'Cerai'),
+        ('WIDOWED', 'Janda/Duda'),
+    ]
+    placement = models.CharField(max_length=16, choices=PLACEMENT_CHOICES, blank=True)
+    religion = models.CharField(max_length=16, choices=RELIGION_CHOICES, blank=True)
+    gender = models.CharField(max_length=8, choices=GENDER_CHOICES, blank=True)
+    marital_status = models.CharField(max_length=16, choices=MARITAL_CHOICES, blank=True)
     status = models.CharField(
         max_length=16,
         choices=Status.choices,

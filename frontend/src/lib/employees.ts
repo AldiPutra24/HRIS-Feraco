@@ -57,6 +57,14 @@ export type Employee = {
   npwp: string;
   bpjs_kesehatan: string;
   bpjs_ketenagakerjaan: string;
+  placement: string | null;
+  religion: string | null;
+  gender: string | null;
+  marital_status: string | null;
+  placement_display: string | null;
+  religion_display: string | null;
+  gender_display: string | null;
+  marital_status_display: string | null;
   status: string;
   department: number | null;
   department_name: string;

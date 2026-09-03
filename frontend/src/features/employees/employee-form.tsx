@@ -24,6 +24,10 @@ type FormState = {
   npwp: string;
   bpjs_kesehatan: string;
   bpjs_ketenagakerjaan: string;
+  placement: string;
+  religion: string;
+  gender: string;
+  marital_status: string;
   department: string;
   position: string;
   manager: string;
@@ -82,6 +86,10 @@ const EMPTY: FormState = {
   npwp: '',
   bpjs_kesehatan: '',
   bpjs_ketenagakerjaan: '',
+  placement: '',
+  religion: '',
+  gender: '',
+  marital_status: '',
   department: '',
   position: '',
   manager: '',
@@ -109,6 +117,10 @@ function toForm(e: Employee): FormState {
     npwp: e.npwp ?? '',
     bpjs_kesehatan: e.bpjs_kesehatan ?? '',
     bpjs_ketenagakerjaan: e.bpjs_ketenagakerjaan ?? '',
+    placement: e.placement ?? '',
+    religion: e.religion ?? '',
+    gender: e.gender ?? '',
+    marital_status: e.marital_status ?? '',
     department: toId(e.department),
     position: toId(e.position),
     manager: toId(e.manager),
@@ -186,6 +198,10 @@ export function EmployeeForm({ employee, onSaved, onCancel }: Props) {
         npwp: form.npwp,
         bpjs_kesehatan: form.bpjs_kesehatan,
         bpjs_ketenagakerjaan: form.bpjs_ketenagakerjaan,
+        placement: form.placement || null,
+        religion: form.religion || null,
+        gender: form.gender || null,
+        marital_status: form.marital_status || null,
         department: form.department ? Number(form.department) : null,
         position: form.position ? Number(form.position) : null,
         manager: form.manager ? Number(form.manager) : null,
@@ -222,6 +238,40 @@ export function EmployeeForm({ employee, onSaved, onCancel }: Props) {
           </Field>
           <Field label='Tanggal Lahir'>
             <Input type='date' value={form.birth_date} onChange={(e) => set('birth_date', e.target.value)} />
+          </Field>
+          <Field label='Jenis Kelamin'>
+            <select className='border-input h-8 rounded-lg border bg-transparent px-2.5 text-sm' value={form.gender} onChange={(e) => set('gender', e.target.value)}>
+              <option value=''>-</option>
+              <option value='MALE'>Laki-laki</option>
+              <option value='FEMALE'>Perempuan</option>
+            </select>
+          </Field>
+          <Field label='Agama'>
+            <select className='border-input h-8 rounded-lg border bg-transparent px-2.5 text-sm' value={form.religion} onChange={(e) => set('religion', e.target.value)}>
+              <option value=''>-</option>
+              <option value='ISLAM'>Islam</option>
+              <option value='PROTESTAN'>Protestan</option>
+              <option value='KATOLIK'>Katolik</option>
+              <option value='HINDU'>Hindu</option>
+              <option value='BUDDHA'>Buddha</option>
+              <option value='KONGHUCU'>Konghucu</option>
+            </select>
+          </Field>
+          <Field label='Status Pernikahan'>
+            <select className='border-input h-8 rounded-lg border bg-transparent px-2.5 text-sm' value={form.marital_status} onChange={(e) => set('marital_status', e.target.value)}>
+              <option value=''>-</option>
+              <option value='SINGLE'>Belum Menikah</option>
+              <option value='MARRIED'>Menikah</option>
+              <option value='DIVORCED'>Cerai</option>
+              <option value='WIDOWED'>Janda/Duda</option>
+            </select>
+          </Field>
+          <Field label='Penempatan'>
+            <select className='border-input h-8 rounded-lg border bg-transparent px-2.5 text-sm' value={form.placement} onChange={(e) => set('placement', e.target.value)}>
+              <option value=''>-</option>
+              <option value='JAKARTA'>Jakarta</option>
+              <option value='JOGJA'>Jogja</option>
+            </select>
           </Field>
           <Field label='Alamat'>
             <Input value={form.address} onChange={(e) => set('address', e.target.value)} />

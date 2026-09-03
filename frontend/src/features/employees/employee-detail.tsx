@@ -323,6 +323,10 @@ export function EmployeeDetail({ id }: { id: number }) {
               <Field label='NIK' value={employee.nik} />
               <Field label='Tempat Lahir' value={employee.birth_place} />
               <Field label='Tanggal Lahir' value={employee.birth_date} />
+              <Field label='Jenis Kelamin' value={employee.gender_display} />
+              <Field label='Agama' value={employee.religion_display} />
+              <Field label='Status Pernikahan' value={employee.marital_status_display} />
+              <Field label='Penempatan' value={employee.placement_display} />
               <Field label='Alamat' value={employee.address} />
             </CardContent>
           </Card>

@@ -72,6 +72,10 @@ class EmployeeSerializer(serializers.ModelSerializer):
     department_name = serializers.CharField(source='department.name', read_only=True)
     position_name = serializers.CharField(source='position.name', read_only=True)
     manager_name = serializers.CharField(source='manager.full_name', read_only=True)
+    placement_display = serializers.CharField(source='get_placement_display', read_only=True)
+    religion_display = serializers.CharField(source='get_religion_display', read_only=True)
+    gender_display = serializers.CharField(source='get_gender_display', read_only=True)
+    marital_status_display = serializers.CharField(source='get_marital_status_display', read_only=True)
 
     class Meta:
         model = Employee
@@ -93,6 +97,14 @@ class EmployeeSerializer(serializers.ModelSerializer):
             'npwp',
             'bpjs_kesehatan',
             'bpjs_ketenagakerjaan',
+            'placement',
+            'religion',
+            'gender',
+            'marital_status',
+            'placement_display',
+            'religion_display',
+            'gender_display',
+            'marital_status_display',
             'status',
             'department',
             'department_name',
@@ -103,7 +115,7 @@ class EmployeeSerializer(serializers.ModelSerializer):
             'join_date',
             'employment_status',
         )
-        read_only_fields = ('id', 'employee_id', 'department_name', 'position_name', 'manager_name')
+        read_only_fields = ('id', 'employee_id', 'department_name', 'position_name', 'manager_name', 'placement_display', 'religion_display', 'gender_display', 'marital_status_display')
         extra_kwargs = {
             'nik': {'required': False, 'allow_blank': True},
             'personal_email': {'required': True, 'allow_blank': False},
