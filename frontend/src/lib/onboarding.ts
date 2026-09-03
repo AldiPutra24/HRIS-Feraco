@@ -157,10 +157,9 @@ export type OnboardingData = {
   nik: string;
   birth_place: string;
   birth_date: string | null;
-  gender: string;
-  religion: string;
   address: string;
   phone: string;
+  personal_email: string;
   emergency_contact_name: string;
   emergency_contact_phone: string;
   bank_account_number: string;
@@ -172,8 +171,13 @@ export type OnboardingData = {
   department_name: string | null;
   position: number | null;
   position_name: string | null;
+  reporting_to: number | null;
+  reporting_to_name: string | null;
   join_date: string | null;
   employment_type: string;
+  probation_enabled: boolean;
+  probation_start_date: string | null;
+  probation_end_date: string | null;
 };
 
 export function getOnboardingData(id: number): Promise<OnboardingData> {
@@ -240,6 +244,7 @@ export type OnboardingDocument = {
   reviewed_by_name: string | null;
   reviewed_at: string | null;
   rejection_reason: string;
+  notes: string;
   uploaded_at: string;
   updated_at: string;
 };

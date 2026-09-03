@@ -36,6 +36,7 @@ from .services import (
     complete_onboarding,
     create_default_checklist,
     readiness_errors,
+    sync_checklist,
     transition_onboarding,
 )
 
@@ -153,6 +154,7 @@ class OnboardingViewSet(viewsets.ModelViewSet):
         )
         serializer.is_valid(raise_exception=True)
         serializer.save()
+        sync_checklist(onboarding)
         log_event(
             request,
             'update',
@@ -254,6 +256,7 @@ class OnboardingViewSet(viewsets.ModelViewSet):
             description=f'Dokumen {document_type} "{upload.name}" diunggah',
         )
         serializer = OnboardingDocumentSerializer(doc, context=self.get_serializer_context())
+        sync_checklist(onboarding)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
     @action(detail=True, methods=['patch', 'delete'], url_path='documents/(?P<document_id>[0-9]+)')
@@ -288,6 +291,7 @@ class OnboardingViewSet(viewsets.ModelViewSet):
         )
         serializer.is_valid(raise_exception=True)
         serializer.save()
+        sync_checklist(onboarding)
         log_event(
             request,
             'update',
@@ -318,6 +322,7 @@ class OnboardingViewSet(viewsets.ModelViewSet):
     def readiness(self, request, pk=None):
         """Report onboarding readiness (blockers + progress)."""
         onboarding = self.get_object()
+        sync_checklist(onboarding)
         checklist = onboarding.checklist_items.all()
         total = checklist.count()
         done = checklist.filter(completed=True).count()

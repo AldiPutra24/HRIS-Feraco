@@ -1,4 +1,5 @@
 from django.db import transaction
+from django.utils import timezone
 from django.utils.crypto import get_random_string
 from rest_framework.exceptions import ValidationError
 
@@ -78,6 +79,60 @@ def readiness_errors(onboarding):
         errors.append('Data employment belum lengkap: ' + ', '.join(missing_data))
 
     return errors
+
+
+# Checklist code -> predicate over (data, approved_doc_types).
+# Source of truth: data completeness + approved documents. Manual override
+# (explicit completed=True/False) is preserved unless this recomputes.
+def _checklist_predicates(onboarding):
+    data = getattr(onboarding, 'data', None)
+    approved = set(
+        onboarding.documents.filter(status='APPROVED').values_list('document_type', flat=True)
+    )
+    return {
+        'DATA_BIODATA': bool(
+            data and data.full_name and data.nik and data.birth_place
+            and data.birth_date and data.address and data.phone
+        ),
+        'DATA_KONTAK': bool(
+            data and data.emergency_contact_name and data.emergency_contact_phone
+        ),
+        'DATA_FINANSIAL': bool(
+            data and data.bank_account_number and data.bank_account_name
+            and data.npwp and data.bpjs_kesehatan and data.bpjs_ketenagakerjaan
+        ),
+        'DATA_PEKERJAAN': bool(
+            data and data.department_id and data.position_id
+            and data.join_date and data.employment_type
+        ),
+        'KTP': 'KTP' in approved,
+        'KK': 'KK' in approved,
+        'NPWP': 'NPWP' in approved,
+        'BUKU_REKENING': 'BUKU_REKENING' in approved,
+        'KONTRAK_KERJA': 'KONTRAK_KERJA' in approved,
+    }
+
+
+def sync_checklist(onboarding):
+    """Recompute `completed` for checklist items from data + documents.
+
+    Items explicitly marked complete stay complete; items whose underlying
+    data/document is now satisfied are auto-completed. Items whose
+    requirement is no longer met are reset. Returns number of changed items.
+    """
+    predicates = _checklist_predicates(onboarding)
+    changed = 0
+    for item in onboarding.checklist_items.all():
+        should = predicates.get(item.code, item.completed)
+        if should != item.completed:
+            item.completed = should
+            if should:
+                item.completed_at = timezone.now()
+            else:
+                item.completed_at = None
+            item.save(update_fields=['completed', 'completed_at'])
+            changed += 1
+    return changed
 
 
 def transition_onboarding(onboarding, to_status, request, note=''):

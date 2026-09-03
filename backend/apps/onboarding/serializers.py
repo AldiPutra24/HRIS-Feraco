@@ -224,7 +224,7 @@ class OnboardingDocumentSerializer(serializers.ModelSerializer):
         fields = (
             'id', 'onboarding', 'document_type', 'document_type_label',
             'original_filename', 'file_size', 'mime_type', 'status', 'status_label',
-            'notes', 'uploaded_by', 'uploaded_by_name',
+            'notes', 'rejection_reason', 'uploaded_by', 'uploaded_by_name',
             'reviewed_by', 'reviewed_by_name', 'reviewed_at', 'created_at',
         )
         read_only_fields = (

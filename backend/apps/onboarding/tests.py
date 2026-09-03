@@ -12,7 +12,7 @@ from apps.personnel.models import Department, Position
 from apps.recruitment.models import Candidate, Job
 
 from .models import Onboarding, OnboardingChecklistItem, OnboardingData, OnboardingDocument
-from .services import DEFAULT_CHECKLIST
+from .services import DEFAULT_CHECKLIST, sync_checklist
 
 User = get_user_model()
 
@@ -163,6 +163,7 @@ class OnboardingTests(TestCase):
         data.join_date = date.today() + timedelta(days=30)
         data.employment_type = 'PKWTT'
         data.save()
+        sync_checklist(ob)
 
     def _upload_docs(self, ob, doc_types):
         with patch('apps.onboarding.views.upload_bytes') as mock_upload, \
@@ -352,6 +353,53 @@ class ChecklistTests(OnboardingTests):
         self.assertTrue(item.completed)
         self.assertIsNotNone(item.completed_at)
 
+    def test_sync_checklist_derives_completion_from_data_and_docs(self):
+        ob = self._onboarding()
+        # Initially nothing complete.
+        self.assertFalse(ob.checklist_items.filter(completed=True).exists())
+
+        # Fill biodata -> DATA_BIODATA auto-completes.
+        self.client.patch(
+            f'/api/onboarding/{ob.id}/data/',
+            {'full_name': 'Budi', 'nik': '3273010101010001', 'birth_place': 'Jakarta',
+             'birth_date': '1990-01-01', 'address': 'Jl. A', 'phone': '08123456789'},
+            content_type='application/json',
+        )
+        ob.refresh_from_db()
+        self.assertTrue(ob.checklist_items.get(code='DATA_BIODATA').completed)
+        self.assertFalse(ob.checklist_items.get(code='DATA_FINANSIAL').completed)
+
+        # Upload + approve KTP -> KTP auto-completes.
+        with patch('apps.onboarding.views.upload_bytes') as mock_up, \
+             patch('apps.onboarding.views.is_configured', return_value=True):
+            mock_up.return_value = 'stored/path'
+            f = SimpleUploadedFile('ktp.pdf', b'%PDF-1.4', content_type='application/pdf')
+            resp = self.client.post(
+                f'/api/onboarding/{ob.id}/documents/',
+                {'file': f, 'document_type': 'KTP'},
+                format='multipart',
+            )
+            doc_id = resp.json()['id']
+        self.client.patch(
+            f'/api/onboarding/{ob.id}/documents/{doc_id}/',
+            {'status': 'APPROVED'},
+            content_type='application/json',
+        )
+        ob.refresh_from_db()
+        self.assertTrue(ob.checklist_items.get(code='KTP').completed)
+
+        # Reject KTP -> KTP resets.
+        self.client.patch(
+            f'/api/onboarding/{ob.id}/documents/{doc_id}/',
+            {'status': 'REJECTED', 'rejection_reason': 'Blur'},
+            content_type='application/json',
+        )
+        ob.refresh_from_db()
+        self.assertFalse(ob.checklist_items.get(code='KTP').completed)
+        self.assertEqual(
+            ob.documents.get(pk=doc_id).rejection_reason, 'Blur'
+        )
+
     def test_readiness_blocks_without_complete_checklist(self):
         ob = self._onboarding()
         self._transit(ob, 'IN_PROGRESS')
@@ -463,10 +511,16 @@ class ReadinessTests(OnboardingTests):
         total = ob.checklist_items.count()
         resp = self.client.get(f'/api/onboarding/{ob.id}/readiness/')
         self.assertEqual(resp.json()['progress'], 0)
-        # complete one item
-        item = ob.checklist_items.first()
-        item.completed = True
-        item.save(update_fields=['completed'])
+        # satisfy one checklist item via its underlying data (auto-synced)
+        data, _ = OnboardingData.objects.get_or_create(onboarding=ob)
+        data.full_name = 'Budi Santoso'
+        data.nik = '3273010101010001'
+        data.birth_place = 'Jakarta'
+        data.birth_date = date(1990, 1, 1)
+        data.address = 'Jl. Sudirman 1'
+        data.phone = '08123456789'
+        data.save()
+        sync_checklist(ob)
         resp = self.client.get(f'/api/onboarding/{ob.id}/readiness/')
         expected = round(1 / total * 100)
         self.assertEqual(resp.json()['progress'], expected)

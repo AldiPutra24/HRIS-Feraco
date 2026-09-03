@@ -38,6 +38,8 @@ export function OnboardingPage() {
   const [fStatus, setFStatus] = useState('');
   const [createOpen, setCreateOpen] = useState(false);
   const [selected, setSelected] = useState('');
+  const [targetJoin, setTargetJoin] = useState('');
+  const [notes, setNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
   const canManage = user?.role ? HR_ROLES.has(user.role) : false;
@@ -83,10 +85,16 @@ export function OnboardingPage() {
     }
     setSubmitting(true);
     try {
-      await createOnboarding({ candidate: Number(selected) });
+      await createOnboarding({
+        candidate: Number(selected),
+        target_join_date: targetJoin || undefined,
+        notes: notes || undefined,
+      });
       toast.success('Onboarding dibuat.');
       setCreateOpen(false);
       setSelected('');
+      setTargetJoin('');
+      setNotes('');
       await load();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Gagal membuat onboarding.');
@@ -228,6 +236,19 @@ export function OnboardingPage() {
                       </option>
                     ))}
                   </select>
+                </div>
+                <div>
+                  <Label className='text-xs'>Target Tanggal Bergabung</Label>
+                  <Input type='date' value={targetJoin} onChange={(e) => setTargetJoin(e.target.value)} />
+                </div>
+                <div>
+                  <Label className='text-xs'>Catatan</Label>
+                  <textarea
+                    className='border-input h-20 w-full rounded-lg border bg-transparent px-2.5 py-2 text-sm'
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                    placeholder='Catatan onboarding (opsional)'
+                  />
                 </div>
                 <div className='flex justify-end gap-2'>
                   <Button variant='ghost' onClick={() => setCreateOpen(false)}>

@@ -21,6 +21,7 @@ import {
   type OnboardingDocument,
   type OnboardingReadiness,
 } from '@/lib/onboarding';
+import { listDepartments, listPositions, listPersonnel } from '@/lib/employees';
 import { useAuth } from '@/lib/auth/auth-provider';
 import { Icons } from '@/components/icons';
 import { Badge } from '@/components/ui/badge';
@@ -73,44 +74,55 @@ function formatBytes(bytes: number): string {
 
 // ── Tab: Data ────────────────────────────────────────────────────────
 
-const DATA_SECTIONS: { title: string; keys: { key: string; label: string; type?: string; sensitive?: boolean }[] }[] = [
+type FieldDef =
+  | { key: string; label: string; type?: 'text' | 'date' | 'email'; sensitive?: boolean }
+  | { key: string; label: string; type: 'select'; options: { value: string; label: string }[] }
+  | { key: string; label: string; type: 'checkbox' };
+
+const EMPLOYMENT_TYPES = [
+  { value: 'PKWTT', label: 'PKWTT (Tetap)' },
+  { value: 'PKWT', label: 'PKWT (Kontrak)' },
+];
+
+const DATA_SECTIONS: { title: string; fields: FieldDef[] }[] = [
   {
     title: 'Biodata',
-    keys: [
+    fields: [
       { key: 'full_name', label: 'Nama Lengkap' },
       { key: 'nik', label: 'NIK', sensitive: true },
       { key: 'birth_place', label: 'Tempat Lahir' },
       { key: 'birth_date', label: 'Tanggal Lahir', type: 'date' },
-      { key: 'gender', label: 'Jenis Kelamin' },
-      { key: 'religion', label: 'Agama' },
       { key: 'address', label: 'Alamat' },
+      { key: 'phone', label: 'No HP' },
+      { key: 'personal_email', label: 'Email Pribadi', type: 'email' },
     ],
   },
   {
     title: 'Kontak Darurat',
-    keys: [
-      { key: 'phone', label: 'Telepon' },
-      { key: 'emergency_contact_name', label: 'Nama Kontak Darurat' },
-      { key: 'emergency_contact_phone', label: 'Telepon Kontak Darurat' },
+    fields: [
+      { key: 'emergency_contact_name', label: 'Nama' },
+      { key: 'emergency_contact_phone', label: 'No HP' },
     ],
   },
   {
     title: 'Data Legal & Finansial',
-    keys: [
-      { key: 'bank_account_number', label: 'No. Rekening', sensitive: true },
-      { key: 'bank_account_name', label: 'Nama Rekening' },
+    fields: [
       { key: 'npwp', label: 'NPWP', sensitive: true },
       { key: 'bpjs_kesehatan', label: 'BPJS Kesehatan' },
       { key: 'bpjs_ketenagakerjaan', label: 'BPJS Ketenagakerjaan' },
+      { key: 'bank_account_number', label: 'No. Rekening', sensitive: true },
+      { key: 'bank_account_name', label: 'Nama Pemilik Rekening' },
     ],
   },
   {
     title: 'Data Kepegawaian',
-    keys: [
-      { key: 'department_name', label: 'Department' },
-      { key: 'position_name', label: 'Posisi' },
+    fields: [
+      { key: 'department', label: 'Department', type: 'select', options: [] },
+      { key: 'position', label: 'Position', type: 'select', options: [] },
+      { key: 'reporting_to', label: 'Reporting To', type: 'select', options: [] },
       { key: 'join_date', label: 'Tanggal Bergabung', type: 'date' },
-      { key: 'employment_type', label: 'Jenis Pekerjaan' },
+      { key: 'employment_type', label: 'Jenis Pekerjaan', type: 'select', options: EMPLOYMENT_TYPES },
+      { key: 'probation_enabled', label: 'Aktifkan Probation', type: 'checkbox' },
     ],
   },
 ];
@@ -124,6 +136,9 @@ function DataTab({
 }) {
   const [data, setData] = useState<OnboardingData | null>(null);
   const [form, setForm] = useState<Record<string, string>>({});
+  const [departments, setDepartments] = useState<{ id: number; name: string }[]>([]);
+  const [positions, setPositions] = useState<{ id: number; name: string }[]>([]);
+  const [personnel, setPersonnel] = useState<{ id: number; name: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -134,7 +149,9 @@ function DataTab({
       setData(d);
       const flat: Record<string, string> = {};
       for (const [k, v] of Object.entries(d)) {
-        if (typeof v === 'string' || v === null) flat[k] = v ?? '';
+        if (typeof v === 'string' || typeof v === 'boolean' || v === null) {
+          flat[k] = v === null ? '' : String(v);
+        }
       }
       setForm(flat);
     } catch (err) {
@@ -146,7 +163,28 @@ function DataTab({
 
   useEffect(() => {
     void load();
-  }, [load]);
+    if (canManage) {
+      Promise.all([
+        listDepartments(),
+        listPersonnel(),
+      ])
+        .then(([deps, people]) => {
+          setDepartments(deps);
+          setPersonnel(people.map((p) => ({ id: p.id, name: p.full_name })));
+        })
+        .catch(() => {});
+    }
+  }, [load, canManage, onboardingId]);
+
+  useEffect(() => {
+    if (!form.department) {
+      setPositions([]);
+      return;
+    }
+    listPositions(Number(form.department))
+      .then(setPositions)
+      .catch(() => setPositions([]));
+  }, [form.department]);
 
   if (loading) return <Skeleton className='h-64 w-full' />;
   if (!data) return <p className='text-muted-foreground'>Data belum diisi.</p>;
@@ -154,7 +192,14 @@ function DataTab({
   async function handleSave() {
     setSaving(true);
     try {
-      await updateOnboardingData(onboardingId, form);
+      const payload: Record<string, string | number | boolean | null> = {};
+      for (const [k, v] of Object.entries(form)) {
+        if (k === 'probation_enabled') payload[k] = v === 'true';
+        else if (['department', 'position', 'reporting_to'].includes(k)) {
+          payload[k] = v ? Number(v) : null;
+        } else payload[k] = v || null;
+      }
+      await updateOnboardingData(onboardingId, payload);
       toast.success('Data berhasil disimpan.');
       setEditing(false);
       void load();
@@ -164,6 +209,12 @@ function DataTab({
       setSaving(false);
     }
   }
+
+  const selectOptions: Record<string, { value: string; label: string }[]> = {
+    department: departments.map((d) => ({ value: String(d.id), label: d.name })),
+    position: positions.map((p) => ({ value: String(p.id), label: p.name })),
+    reporting_to: personnel.map((p) => ({ value: String(p.id), label: p.name })),
+  };
 
   return (
     <div className='space-y-4'>
@@ -194,8 +245,41 @@ function DataTab({
               <CardTitle className='text-sm'>{section.title}</CardTitle>
             </CardHeader>
             <CardContent className='space-y-3'>
-              {section.keys.map((f) => {
-                const editable = editing && canManage && f.key !== 'department_name' && f.key !== 'position_name';
+              {section.fields.map((f) => {
+                const editable = editing && canManage;
+                if (f.type === 'checkbox') {
+                  return (
+                    <label key={f.key} className='flex items-center gap-2 text-sm'>
+                      <input
+                        type='checkbox'
+                        checked={form[f.key] === 'true'}
+                        disabled={!editable}
+                        onChange={(e) => setForm((p) => ({ ...p, [f.key]: String(e.target.checked) }))}
+                      />
+                      {f.label}
+                    </label>
+                  );
+                }
+                if (f.type === 'select') {
+                  const opts = selectOptions[f.key] ?? f.options ?? [];
+                  return (
+                    <div key={f.key} className='space-y-1.5'>
+                      <Label htmlFor={f.key}>{f.label}</Label>
+                      <select
+                        id={f.key}
+                        disabled={!editable}
+                        className='border-input h-9 w-full rounded-lg border bg-transparent px-2.5 text-sm disabled:opacity-60'
+                        value={form[f.key] ?? ''}
+                        onChange={(e) => setForm((p) => ({ ...p, [f.key]: e.target.value }))}
+                      >
+                        <option value=''>—</option>
+                        {opts.map((o) => (
+                          <option key={o.value} value={o.value}>{o.label}</option>
+                        ))}
+                      </select>
+                    </div>
+                  );
+                }
                 return (
                   <div key={f.key} className='space-y-1.5'>
                     <Label htmlFor={f.key}>{f.label}</Label>

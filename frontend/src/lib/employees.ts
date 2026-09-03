@@ -252,6 +252,12 @@ export function listPositions(department?: number): Promise<Position[]> {
   return request<Position[]>(`/positions/${q}`);
 }
 
+export type PersonnelLite = { id: number; full_name: string };
+
+export function listPersonnel(): Promise<PersonnelLite[]> {
+  return request<{ results: PersonnelLite[] }>('/employees/?page_size=1000').then((r) => r.results);
+}
+
 export function createPosition(data: Partial<Position>): Promise<Position> {
   return request<Position>('/positions/', { method: 'POST', body: JSON.stringify(data) });
 }

@@ -232,6 +232,7 @@ class OnboardingDocument(models.Model):
     status = models.CharField(
         max_length=16, choices=Status.choices, default=Status.PENDING
     )
+    rejection_reason = models.TextField(blank=True)
     notes = models.TextField(blank=True)
     uploaded_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
