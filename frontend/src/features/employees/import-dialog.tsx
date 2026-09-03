@@ -12,7 +12,8 @@ const TEMPLATE_COLUMNS = [
   'full_name', 'nik', 'birth_place', 'birth_date', 'address', 'phone',
   'personal_email', 'company_email', 'emergency_contact_name', 'emergency_contact_phone',
   'bank_account_number', 'bank_account_name', 'npwp', 'bpjs_kesehatan',
-  'bpjs_ketenagakerjaan', 'department', 'position', 'join_date', 'employment_status'
+  'bpjs_ketenagakerjaan', 'placement', 'religion', 'gender', 'marital_status',
+  'department', 'position', 'join_date', 'employment_status'
 ];
 
 function downloadTemplate() {
@@ -21,7 +22,7 @@ function downloadTemplate() {
     [
       'Budi Santoso', '1234567890123456', 'Jakarta', '1990-01-01', 'Jl. Merdeka 1', '081234567890',
       'budi@mail.com', 'budi@feraco.co.id', 'Budi', '081234567890', '1234567890', 'Budi Santoso',
-      '1234567890123456', '1234567890123', '1234567890123', 'Engineering', 'Software Engineer', '2024-01-15', 'ACTIVE'
+      '1234567890123456', '1234567890123', '1234567890123', 'JAKARTA', 'ISLAM', 'MALE', 'SINGLE', 'Engineering', 'Software Engineer', '2024-01-15', 'ACTIVE'
     ]
   ];
   const ws = XLSX.utils.aoa_to_sheet(rows);
