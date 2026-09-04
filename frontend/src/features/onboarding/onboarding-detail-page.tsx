@@ -552,15 +552,10 @@ function DocumentsTab({
 
   async function handleDownload(doc: OnboardingDocument) {
     try {
-      const blob = await import('@/lib/onboarding').then((m) =>
+      const url = await import('@/lib/onboarding').then((m) =>
         m.downloadDocument(onboardingId, doc.id)
       );
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = doc.original_filename;
-      a.click();
-      URL.revokeObjectURL(url);
+      window.open(url, '_blank', 'noopener,noreferrer');
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Gagal mengunduh.');
     }
@@ -684,6 +679,7 @@ function DocumentsTab({
                 <TableHead>Status</TableHead>
                 <TableHead>Diunggah</TableHead>
                 <TableHead>Reviewer</TableHead>
+                <TableHead>Catatan</TableHead>
                 <TableHead className='text-right'>Aksi</TableHead>
               </TableRow>
             </TableHeader>
@@ -705,6 +701,18 @@ function DocumentsTab({
                   </TableCell>
                   <TableCell className='text-xs'>{doc.uploaded_by_name ?? '-'}</TableCell>
                   <TableCell className='text-xs'>{doc.reviewed_by_name ?? '-'}</TableCell>
+                  <TableCell className='max-w-[220px] text-xs'>
+                    {doc.notes ? (
+                      <span className='block'>{doc.notes}</span>
+                    ) : (
+                      <span className='text-muted-foreground'>-</span>
+                    )}
+                    {doc.status === 'REJECTED' && doc.rejection_reason && (
+                      <span className='mt-1 block text-destructive'>
+                        Ditolak: {doc.rejection_reason}
+                      </span>
+                    )}
+                  </TableCell>
                   <TableCell className='text-right'>
                     <div className='flex items-center justify-end gap-1'>
                       <Button
@@ -754,7 +762,7 @@ function DocumentsTab({
                 </TableRow>
                 {doc.status === 'REJECTED' && doc.rejection_reason && (
                   <TableRow>
-                    <TableCell colSpan={7} className='bg-destructive/5 text-xs text-destructive'>
+                    <TableCell colSpan={8} className='bg-destructive/5 text-xs text-destructive'>
                       Ditolak: {doc.rejection_reason}
                     </TableCell>
                   </TableRow>
