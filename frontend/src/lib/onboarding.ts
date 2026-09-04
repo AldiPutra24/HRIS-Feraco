@@ -300,22 +300,11 @@ export function deleteDocument(onboardingId: number, docId: number): Promise<voi
   return request<void>(`/${onboardingId}/documents/${docId}/`, { method: 'DELETE' });
 }
 
-export function downloadDocument(onboardingId: number, docId: number): Promise<string> {
-  const csrf = getCookie('csrftoken');
-  return fetch(`${BASE}/${onboardingId}/documents/${docId}/download/`, {
-    credentials: 'include',
-    headers: csrf ? { 'X-CSRFToken': csrf } : {},
-    redirect: 'manual'
-  }).then(async (res) => {
-    // Backend returns 302 -> Location: signed Supabase URL (cross-origin).
-    // fetch can't follow cross-origin redirects with credentials, so we
-    // read the Location header and open it directly.
-    const loc = res.headers.get('Location') || res.headers.get('location');
-    if (loc) return loc;
-    if (res.ok) return res.text();
-    const data = await res.json().catch(() => ({}));
-    throw new Error(extractError(data) || `Download gagal (${res.status})`);
-  });
+export function viewDocument(onboardingId: number, docId: number): Promise<string> {
+  // Backend returns { url: signedUrl } as JSON (no cross-origin redirect).
+  return request<{ url: string }>(`/${onboardingId}/documents/${docId}/download/`).then(
+    (data) => data.url
+  );
 }
 
 // ── Tahap 2: Readiness ───────────────────────────────────────────────

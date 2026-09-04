@@ -329,9 +329,12 @@ class OnboardingViewSet(viewsets.ModelViewSet):
             request,
             'read',
             obj=doc,
-            description=f'Dokumen {doc.document_type} "{doc.original_filename}" diunduh',
+            description=f'Dokumen {doc.document_type} "{doc.original_filename}" dilihat',
         )
-        return redirect(signed_url(settings.ONBOARDING_STORAGE_BUCKET, doc.storage_path))
+        # Return signed URL as JSON so the browser can open it in a new tab
+        # without a cross-origin redirect (which fetch cannot follow with
+        # credentials). Bucket stays private; secret never leaves the server.
+        return Response({'url': signed_url(settings.ONBOARDING_STORAGE_BUCKET, doc.storage_path)})
 
     @action(detail=True, methods=['get'])
     def readiness(self, request, pk=None):

@@ -550,14 +550,14 @@ function DocumentsTab({
     }
   }
 
-  async function handleDownload(doc: OnboardingDocument) {
+  async function handleView(doc: OnboardingDocument) {
     try {
       const url = await import('@/lib/onboarding').then((m) =>
-        m.downloadDocument(onboardingId, doc.id)
+        m.viewDocument(onboardingId, doc.id)
       );
       window.open(url, '_blank', 'noopener,noreferrer');
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Gagal mengunduh.');
+      toast.error(err instanceof Error ? err.message : 'Gagal membuka dokumen.');
     }
   }
 
@@ -718,10 +718,10 @@ function DocumentsTab({
                       <Button
                         size='icon'
                         variant='ghost'
-                        onClick={() => handleDownload(doc)}
-                        title='Download'
+                        onClick={() => handleView(doc)}
+                        title='Lihat'
                       >
-                        <Icons.download className='h-4 w-4' />
+                        <Icons.eye className='h-4 w-4' />
                       </Button>
                       {canManage && doc.status === 'PENDING' && (
                         <>
