@@ -27,11 +27,13 @@ import {
 import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from 'react-toastify';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
 
 const HR_ROLES = new Set(['admin', 'hr_staff', 'hr_lead']);
 
 export function OnboardingPage() {
   const { user } = useAuth();
+  const router = useRouter();
   const [items, setItems] = useState<Onboarding[]>([]);
   const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [loading, setLoading] = useState(true);
@@ -85,11 +87,15 @@ export function OnboardingPage() {
       toast.error('Pilih kandidat terlebih dahulu.');
       return;
     }
+    if (!targetJoin) {
+      toast.error('Target tanggal bergabung wajib diisi.');
+      return;
+    }
     setSubmitting(true);
     try {
-      await createOnboarding({
+      const created = await createOnboarding({
         candidate: Number(selected),
-        target_join_date: targetJoin || undefined,
+        target_join_date: targetJoin,
         notes: notes || undefined,
       });
       toast.success('Onboarding dibuat.');
@@ -97,7 +103,7 @@ export function OnboardingPage() {
       setSelected('');
       setTargetJoin('');
       setNotes('');
-      await load();
+      router.push(`/dashboard/recruitment/onboarding/${created.id}`);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Gagal membuat onboarding.');
     } finally {
@@ -256,8 +262,9 @@ export function OnboardingPage() {
                   </select>
                 </div>
                 <div>
-                  <Label className='text-xs'>Target Tanggal Bergabung</Label>
-                  <Input type='date' value={targetJoin} onChange={(e) => setTargetJoin(e.target.value)} />
+                  <Label className='text-xs'>Target Tanggal Bergabung *</Label>
+                  <Input type='date' required value={targetJoin} onChange={(e) => setTargetJoin(e.target.value)} />
+                  <p className='mt-1 text-xs text-muted-foreground'>Wajib diisi — dapat diubah di halaman detail.</p>
                 </div>
                 <div>
                   <Label className='text-xs'>Catatan</Label>
@@ -272,7 +279,7 @@ export function OnboardingPage() {
                   <Button variant='ghost' onClick={() => setCreateOpen(false)}>
                     Batal
                   </Button>
-                  <Button onClick={handleCreate} disabled={submitting}>
+                  <Button onClick={handleCreate} disabled={submitting || !selected || !targetJoin}>
                     {submitting ? 'Menyimpan…' : 'Simpan'}
                   </Button>
                 </div>

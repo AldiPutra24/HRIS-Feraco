@@ -243,7 +243,7 @@ export type OnboardingDocument = {
   document_type_label: string;
   status: string;
   status_label: string;
-  original_name: string;
+  original_filename: string;
   mime_type: string;
   file_size: number;
   uploaded_by: number | null;
@@ -253,8 +253,7 @@ export type OnboardingDocument = {
   reviewed_at: string | null;
   rejection_reason: string;
   notes: string;
-  uploaded_at: string;
-  updated_at: string;
+  created_at: string;
 };
 
 export function listDocuments(id: number): Promise<OnboardingDocument[]> {
@@ -264,11 +263,13 @@ export function listDocuments(id: number): Promise<OnboardingDocument[]> {
 export function uploadDocument(
   onboardingId: number,
   file: File,
-  documentType: string
+  documentType: string,
+  notes = ''
 ): Promise<OnboardingDocument> {
   const formData = new FormData();
   formData.append('file', file);
   formData.append('document_type', documentType);
+  if (notes) formData.append('notes', notes);
   const csrf = getCookie('csrftoken');
   return fetch(`${BASE}/${onboardingId}/documents/`, {
     method: 'POST',

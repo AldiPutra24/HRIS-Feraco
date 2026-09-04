@@ -257,6 +257,7 @@ class OnboardingViewSet(viewsets.ModelViewSet):
         doc = OnboardingDocument.objects.create(
             onboarding=onboarding,
             document_type=document_type,
+            notes=(request.data.get('notes') or '').strip()[:500],
             original_filename=upload.name,
             storage_path=path,
             file_size=upload.size,

@@ -9,7 +9,6 @@ import {
   getOnboardingData,
   updateOnboardingData,
   listChecklist,
-  updateChecklistItem,
   listDocuments,
   uploadDocument,
   updateDocument,
@@ -33,7 +32,7 @@ import { Label } from '@/components/ui/label';
 import { Progress } from '@/components/ui/progress';
 import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from 'react-toastify';
-import { Fragment, useCallback, useEffect, useState } from 'react';
+import { Fragment, createContext, useCallback, useContext, useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 // Select — native <select> styled with Tailwind
 import {
@@ -48,6 +47,12 @@ import {
 const HR_ROLES = new Set(['admin', 'hr_staff', 'hr_lead']);
 const TABS = ['Data', 'Checklist', 'Documents', 'Summary'] as const;
 type Tab = (typeof TABS)[number];
+
+// Lightweight tab-switch context so child tabs can jump to another tab.
+const TabSwitchContext = createContext<(t: Tab) => void>(() => {});
+function useTabSwitch() {
+  return useContext(TabSwitchContext);
+}
 
 const DOC_TYPE_OPTIONS = [
   { value: 'KTP', label: 'KTP' },
@@ -79,6 +84,14 @@ type FieldDef =
   | { key: string; label: string; type?: 'text' | 'date' | 'email'; sensitive?: boolean }
   | { key: string; label: string; type: 'select'; options: { value: string; label: string }[] }
   | { key: string; label: string; type: 'checkbox' };
+
+const MANDATORY_DATA_KEYS = new Set([
+  'full_name', 'nik', 'birth_place', 'birth_date', 'address', 'phone',
+  'emergency_contact_name', 'emergency_contact_phone',
+  'bank_account_number', 'bank_account_name', 'npwp',
+  'bpjs_kesehatan', 'bpjs_ketenagakerjaan',
+  'department', 'position', 'join_date', 'employment_type',
+]);
 
 const EMPLOYMENT_TYPES = [
   { value: 'PKWTT', label: 'PKWTT (Tetap)' },
@@ -123,7 +136,9 @@ const DATA_SECTIONS: { title: string; fields: FieldDef[] }[] = [
       { key: 'reporting_to', label: 'Reporting To', type: 'select', options: [] },
       { key: 'join_date', label: 'Tanggal Bergabung', type: 'date' },
       { key: 'employment_type', label: 'Jenis Pekerjaan', type: 'select', options: EMPLOYMENT_TYPES },
-      { key: 'probation_enabled', label: 'Aktifkan Probation', type: 'checkbox' },
+      { key: 'probation_enabled', label: 'Aktifkan Probation (PKWTT)', type: 'checkbox' },
+      { key: 'probation_start_date', label: 'Probation Mulai', type: 'date' },
+      { key: 'probation_end_date', label: 'Probation Selesai', type: 'date' },
     ],
   },
 ];
@@ -248,6 +263,8 @@ function DataTab({
             <CardContent className='space-y-3'>
               {section.fields.map((f) => {
                 const editable = editing && canManage;
+                const mandatory = MANDATORY_DATA_KEYS.has(f.key);
+                const empty = !form[f.key];
                 if (f.type === 'checkbox') {
                   return (
                     <label key={f.key} className='flex items-center gap-2 text-sm'>
@@ -265,7 +282,10 @@ function DataTab({
                   const opts = selectOptions[f.key] ?? f.options ?? [];
                   return (
                     <div key={f.key} className='space-y-1.5'>
-                      <Label htmlFor={f.key}>{f.label}</Label>
+                      <Label htmlFor={f.key}>
+                        {f.label}
+                        {mandatory && <span className='text-destructive'> *</span>}
+                      </Label>
                       <select
                         id={f.key}
                         disabled={!editable}
@@ -278,12 +298,18 @@ function DataTab({
                           <option key={o.value} value={o.value}>{o.label}</option>
                         ))}
                       </select>
+                      {mandatory && empty && !editing && (
+                        <p className='text-xs text-amber-600'>Wajib diisi untuk readiness.</p>
+                      )}
                     </div>
                   );
                 }
                 return (
                   <div key={f.key} className='space-y-1.5'>
-                    <Label htmlFor={f.key}>{f.label}</Label>
+                    <Label htmlFor={f.key}>
+                      {f.label}
+                      {mandatory && <span className='text-destructive'> *</span>}
+                    </Label>
                     {editable ? (
                       <Input
                         id={f.key}
@@ -292,7 +318,12 @@ function DataTab({
                         onChange={(e) => setForm((p) => ({ ...p, [f.key]: e.target.value }))}
                       />
                     ) : (
-                      <p className='text-sm'>{form[f.key] || '-'}</p>
+                      <p className='text-sm'>
+                        {form[f.key] || <span className={mandatory ? 'text-amber-600' : 'text-muted-foreground'}>{form[f.key] ? '' : '-'}</span>}
+                      </p>
+                    )}
+                    {mandatory && empty && !editing && (
+                      <p className='text-xs text-amber-600'>Wajib diisi untuk readiness.</p>
                     )}
                   </div>
                 );
@@ -307,15 +338,30 @@ function DataTab({
 
 // ── Tab: Checklist ───────────────────────────────────────────────────
 
+const CHECKLIST_HINTS: Record<string, string> = {
+  DATA_BIODATA: 'Lengkapi section Biodata pada tab Data.',
+  DATA_KONTAK: 'Lengkapi section Kontak Darurat pada tab Data.',
+  DATA_FINANSIAL: 'Lengkapi section Data Legal & Finansial pada tab Data.',
+  DATA_PEKERJAAN: 'Lengkapi section Data Kepegawaian pada tab Data.',
+  KTP: 'Unggah dokumen KTP lalu setujui di tab Documents.',
+  KK: 'Unggah dokumen KK lalu setujui di tab Documents.',
+  NPWP: 'Unggah dokumen NPWP lalu setujui di tab Documents.',
+  BUKU_REKENING: 'Unggah Buku Rekening lalu setujui di tab Documents.',
+  KONTRAK_KERJA: 'Unggah Kontrak Kerja yang sudah ditandatangani lalu setujui di tab Documents.',
+};
+
+// Checklist completion dikelola backend (sync_checklist): DATA_* dari kelengkapan
+// data onboarding, dokumen dari status APPROVED. Tab ini read-only.
 function ChecklistTab({
   onboardingId,
-  canManage,
+  onboardingStatus,
 }: {
   onboardingId: number;
-  canManage: boolean;
+  onboardingStatus: string;
 }) {
   const [items, setItems] = useState<OnboardingChecklistItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const setTab = useTabSwitch();
 
   const load = useCallback(async () => {
     try {
@@ -331,18 +377,6 @@ function ChecklistTab({
     void load();
   }, [load]);
 
-  async function toggleItem(item: OnboardingChecklistItem) {
-    try {
-      await updateChecklistItem(onboardingId, item.id, {
-        completed: !item.completed,
-      });
-      toast.success(`${item.name} ${item.completed ? 'dibatalkan' : 'selesai'}.`);
-      void load();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Gagal memperbarui item.');
-    }
-  }
-
   if (loading) return <Skeleton className='h-48 w-full' />;
 
   const requiredItems = items.filter((i) => i.required);
@@ -351,6 +385,7 @@ function ChecklistTab({
     ? Math.round((requiredDone / requiredItems.length) * 100)
     : 100;
   const categories = [...new Set(items.map((i) => i.category))];
+  const editable = onboardingStatus !== 'COMPLETED' && onboardingStatus !== 'CANCELLED';
 
   return (
     <div className='space-y-4'>
@@ -363,6 +398,9 @@ function ChecklistTab({
             </span>
           </div>
           <Progress value={requiredPct} />
+          <p className='text-xs text-muted-foreground'>
+            Status checklist dihitung otomatis dari data onboarding dan dokumen yang disetujui.
+          </p>
         </CardContent>
       </Card>
 
@@ -381,20 +419,22 @@ function ChecklistTab({
                   key={item.id}
                   className='flex items-start gap-3 rounded-lg border p-3'
                 >
-                  <button
-                    onClick={() => canManage && toggleItem(item)}
-                    disabled={!canManage}
-                    className='mt-0.5 shrink-0'
-                    aria-label={item.completed ? 'Tandai belum selesai' : 'Tandai selesai'}
-                  >
-                    {item.completed ? (
-                      <Icons.circleCheck className='h-5 w-5 text-emerald-500' />
-                    ) : (
-                      <Icons.circle className='h-5 w-5 text-muted-foreground' />
-                    )}
-                  </button>
+                  {item.completed ? (
+                    <Icons.circleCheck className='mt-0.5 h-5 w-5 shrink-0 text-emerald-500' />
+                  ) : (
+                    <Icons.circle className='mt-0.5 h-5 w-5 shrink-0 text-muted-foreground' />
+                  )}
                   <div className='min-w-0 flex-1'>
                     <p className='text-sm font-medium'>{item.name}</p>
+                    {!item.completed && editable && CHECKLIST_HINTS[item.code] && (
+                      <button
+                        type='button'
+                        onClick={() => setTab(CHECKLIST_HINTS[item.code].includes('Data.') ? 'Data' : 'Documents')}
+                        className='mt-0.5 text-left text-xs text-primary underline-offset-2 hover:underline'
+                      >
+                        {CHECKLIST_HINTS[item.code]}
+                      </button>
+                    )}
                     {item.notes && (
                       <p className='text-xs text-muted-foreground'>{item.notes}</p>
                     )}
@@ -435,6 +475,7 @@ function DocumentsTab({
   const [loading, setLoading] = useState(true);
   const [uploadType, setUploadType] = useState('');
   const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [uploadNotes, setUploadNotes] = useState('');
   const [uploading, setUploading] = useState(false);
 
   const load = useCallback(async () => {
@@ -458,10 +499,11 @@ function DocumentsTab({
     }
     setUploading(true);
     try {
-      await uploadDocument(onboardingId, uploadFile, uploadType);
-      toast.success('Dokumen berhasil diunggah.');
+      await uploadDocument(onboardingId, uploadFile, uploadType, uploadNotes);
+      toast.success('Dokumen berhasil diunggah. Menunggu persetujuan.');
       setUploadFile(null);
       setUploadType('');
+      setUploadNotes('');
       void load();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Gagal mengunggah.');
@@ -505,7 +547,7 @@ function DocumentsTab({
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = doc.original_name;
+      a.download = doc.original_filename;
       a.click();
       URL.revokeObjectURL(url);
     } catch (err) {
@@ -515,20 +557,51 @@ function DocumentsTab({
 
   if (loading) return <Skeleton className='h-48 w-full' />;
 
-  const requiredDocs = docs;
-  const approvedDocs = docs.filter((d) => d.status === 'APPROVED').length;
+  const REQUIRED_DOC_TYPES = ['KTP', 'KK', 'NPWP', 'BUKU_REKENING', 'KONTRAK_KERJA'];
+  const latestByType = new Map<string, OnboardingDocument>();
+  for (const d of docs) {
+    const cur = latestByType.get(d.document_type);
+    if (!cur || new Date(d.created_at) > new Date(cur.created_at)) latestByType.set(d.document_type, d);
+  }
+  const approvedTypes = new Set(
+    [...latestByType.values()].filter((d) => d.status === 'APPROVED').map((d) => d.document_type)
+  );
+  const approvedCount = REQUIRED_DOC_TYPES.filter((t) => approvedTypes.has(t)).length;
+
+  // Upload form pre-selects the required type when opened from checklist jump.
+  function docStatus(type: string) {
+    const d = latestByType.get(type);
+    return d ? d.status : null;
+  }
 
   return (
     <div className='space-y-4'>
       <Card>
-        <CardContent className='space-y-2 pt-6'>
+        <CardContent className='space-y-3 pt-6'>
           <div className='flex items-center justify-between text-sm'>
-            <span className='font-medium'>Dokumen Disetujui</span>
-            <span className='text-muted-foreground'>
-              {approvedDocs} / {requiredDocs.length} approved
-            </span>
+            <span className='font-medium'>Dokumen Wajib Disetujui</span>
+            <span className='text-muted-foreground'>{approvedCount} / 5 approved</span>
           </div>
-          <Progress value={requiredDocs.length ? Math.round((approvedDocs / requiredDocs.length) * 100) : 100} />
+          <Progress value={Math.round((approvedCount / 5) * 100)} />
+          <div className='grid grid-cols-1 gap-2 pt-1 sm:grid-cols-2 lg:grid-cols-5'>
+            {REQUIRED_DOC_TYPES.map((type) => {
+              const st = docStatus(type);
+              return (
+                <div key={type} className='flex items-center justify-between gap-2 rounded-lg border p-2.5'>
+                  <span className='text-xs font-medium'>{DOC_TYPE_OPTIONS.find((o) => o.value === type)?.label ?? type}</span>
+                  {st === 'APPROVED' ? (
+                    <Icons.circleCheck className='h-4 w-4 shrink-0 text-emerald-500' />
+                  ) : st === 'REJECTED' ? (
+                    <Icons.close className='h-4 w-4 shrink-0 text-red-500' />
+                  ) : st === 'PENDING' ? (
+                    <span className='shrink-0 text-[10px] font-medium uppercase text-amber-600'>Pending</span>
+                  ) : (
+                    <span className='shrink-0 text-[10px] uppercase text-muted-foreground'>Kosong</span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
         </CardContent>
       </Card>
 
@@ -556,10 +629,11 @@ function DocumentsTab({
                 </select>
               </div>
               <div className='space-y-1.5'>
-                <Label htmlFor='doc-file'>File</Label>
+                <Label htmlFor='doc-file'>File (PDF/JPG/PNG/DOC, maks 10MB)</Label>
                 <Input
                   id='doc-file'
                   type='file'
+                  accept='.pdf,.jpg,.jpeg,.png,.doc,.docx'
                   onChange={(e) => setUploadFile(e.target.files?.[0] ?? null)}
                 />
               </div>
@@ -572,6 +646,15 @@ function DocumentsTab({
                   {uploading ? 'Mengunggah...' : 'Unggah'}
                 </Button>
               </div>
+            </div>
+            <div className='space-y-1.5'>
+              <Label htmlFor='doc-notes'>Catatan (opsional)</Label>
+              <Input
+                id='doc-notes'
+                value={uploadNotes}
+                onChange={(e) => setUploadNotes(e.target.value)}
+                placeholder='Catatan tambahan untuk dokumen ini'
+              />
             </div>
           </CardContent>
         </Card>
@@ -601,7 +684,7 @@ function DocumentsTab({
                     <span className='text-xs font-medium'>{doc.document_type_label}</span>
                   </TableCell>
                   <TableCell className='max-w-[200px] truncate'>
-                    {doc.original_name}
+                    {doc.original_filename}
                   </TableCell>
                   <TableCell>{formatBytes(doc.file_size)}</TableCell>
                   <TableCell>
@@ -706,8 +789,13 @@ function SummaryTab({ onboardingId }: { onboardingId: number }) {
 
   const reqItems = checklist.filter((i) => i.required);
   const reqDone = reqItems.filter((i) => i.completed).length;
-  const approvedDocs = docs.filter((d) => d.status === 'APPROVED').length;
-  const dataComplete = !readiness.errors.some((e) => /data/i.test(e));
+  const REQUIRED_DOC_TYPES = ['KTP', 'KK', 'NPWP', 'BUKU_REKENING', 'KONTRAK_KERJA'];
+  const approvedTypes = new Set(
+    docs.filter((d) => d.status === 'APPROVED').map((d) => d.document_type)
+  );
+  const approvedDocs = REQUIRED_DOC_TYPES.filter((t) => approvedTypes.has(t)).length;
+  const dataComplete = !readiness.errors.some((e) => e.startsWith('Data employment'));
+  const employmentDataOk = !readiness.errors.some((e) => e.includes('employment'));
 
   const rows = [
     { label: 'Data', ok: dataComplete, detail: dataComplete ? 'Lengkap' : 'Belum lengkap' },
@@ -718,8 +806,13 @@ function SummaryTab({ onboardingId }: { onboardingId: number }) {
     },
     {
       label: 'Dokumen',
-      ok: docs.length > 0 && approvedDocs === docs.length,
-      detail: `${approvedDocs} / ${docs.length} approved`,
+      ok: approvedDocs === 5,
+      detail: `${approvedDocs} / 5 approved`,
+    },
+    {
+      label: 'Employment Data',
+      ok: employmentDataOk,
+      detail: employmentDataOk ? 'Lengkap' : 'Belum lengkap',
     },
   ];
 
@@ -745,14 +838,21 @@ function SummaryTab({ onboardingId }: { onboardingId: number }) {
           ))}
           <div className='flex items-center justify-between border-t pt-3 text-sm font-medium'>
             <span>Overall</span>
-            <Badge variant={readiness.ready ? 'secondary' : 'default'}>
-              {readiness.ready ? 'READY' : 'NOT READY'}
-            </Badge>
+            <span className='flex items-center gap-2'>
+              <Badge variant={readiness.ready ? 'secondary' : 'default'}>
+                {readiness.ready ? 'READY' : 'BELUM READY'}
+              </Badge>
+            </span>
           </div>
           {!readiness.ready && readiness.errors.length > 0 && (
-            <p className='text-xs text-muted-foreground'>
-              Masih ada {readiness.errors.length} item yang perlu diselesaikan.
-            </p>
+            <div className='space-y-1'>
+              <p className='text-xs font-medium text-red-600'>Masih kurang:</p>
+              <ul className='list-inside list-disc space-y-0.5 text-xs text-red-600'>
+                {readiness.errors.map((e, i) => (
+                  <li key={i}>{e}</li>
+                ))}
+              </ul>
+            </div>
           )}
         </CardContent>
       </Card>
@@ -862,13 +962,12 @@ export function OnboardingDetailPage() {
     }
   }
 
-  async function handleDelete(hard: boolean) {
+  async function handleDelete() {
     if (!item) return;
-    const verb = 'Hapus permanen';
-    if (!window.confirm(`${verb} onboarding "${item.candidate_name}"? Tidak dapat dibatalkan.`)) return;
+    if (!window.confirm(`Hapus permanen onboarding "${item.candidate_name}"? Tidak dapat dibatalkan.`)) return;
     try {
       await hardDeleteOnboarding(item.id);
-      toast.success(`${verb} onboarding berhasil.`);
+      toast.success('Onboarding dihapus permanen.');
       router.push('/dashboard/onboarding');
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Gagal menghapus onboarding.');
@@ -877,14 +976,6 @@ export function OnboardingDetailPage() {
 
   function primaryAction() {
     if (!canManage || item!.status === 'CANCELLED' || item!.status === 'COMPLETED') return null;
-    const labels: Record<string, string> = {
-      PENDING: 'Mulai Onboarding',
-      IN_PROGRESS: 'Review / Lengkapi Onboarding',
-      DOCUMENT_REVIEW: 'Review Dokumen',
-      READY: 'Complete Onboarding',
-    };
-    const label = labels[item!.status];
-    if (!label) return null;
     if (item!.status === 'READY') {
       return (
         <Button onClick={() => setConfirmComplete(true)} disabled={completing}>
@@ -893,12 +984,24 @@ export function OnboardingDetailPage() {
         </Button>
       );
     }
+    // Contextual CTA: guide HR to the tab where work is needed.
+    const cta: Record<string, { label: string; tab?: Tab }> = {
+      PENDING: { label: 'Mulai Onboarding' },
+      IN_PROGRESS: { label: 'Lengkapi Data', tab: 'Data' },
+      DOCUMENT_REVIEW: { label: 'Review Dokumen', tab: 'Documents' },
+    };
     const next = item!.next_statuses[0];
     if (!next) return null;
+    const action = cta[item!.status];
     return (
-      <Button onClick={() => handleTransition(next)}>
+      <Button
+        onClick={() => {
+          if (action?.tab) setTab(action.tab);
+          void handleTransition(next);
+        }}
+      >
         {item!.status === 'PENDING' && <Icons.arrowRight className='mr-1.5 h-4 w-4' />}
-        {label}
+        {action?.label ?? onboardingStatusLabel(next)}
       </Button>
     );
   }
@@ -949,7 +1052,7 @@ export function OnboardingDetailPage() {
         <div className='flex items-center gap-2'>
           {primaryAction()}
           {canManage && user?.role === 'admin' && (
-            <Button variant='destructive' size='sm' onClick={() => handleDelete(true)}>
+            <Button variant='destructive' size='sm' onClick={() => handleDelete()}>
               Hapus Permanen
             </Button>
           )}
@@ -1115,14 +1218,16 @@ export function OnboardingDetailPage() {
 
       {/* Tab Content */}
       <div className='min-h-[200px]'>
-        {tab === 'Data' && <DataTab onboardingId={Number(id)} canManage={canManage} />}
-        {tab === 'Checklist' && (
-          <ChecklistTab onboardingId={Number(id)} canManage={canManage} />
-        )}
-        {tab === 'Documents' && (
-          <DocumentsTab onboardingId={Number(id)} canManage={canManage} />
-        )}
-        {tab === 'Summary' && <SummaryTab onboardingId={Number(id)} />}
+        <TabSwitchContext.Provider value={setTab}>
+          {tab === 'Data' && <DataTab onboardingId={Number(id)} canManage={canManage} />}
+          {tab === 'Checklist' && (
+            <ChecklistTab onboardingId={Number(id)} onboardingStatus={item.status} />
+          )}
+          {tab === 'Documents' && (
+            <DocumentsTab onboardingId={Number(id)} canManage={canManage} />
+          )}
+          {tab === 'Summary' && <SummaryTab onboardingId={Number(id)} />}
+        </TabSwitchContext.Provider>
       </div>
     </div>
   );
