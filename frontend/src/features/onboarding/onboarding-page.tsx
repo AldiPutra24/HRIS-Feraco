@@ -28,6 +28,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from 'react-toastify';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { Icons } from '@/components/icons';
 
 const HR_ROLES = new Set(['admin', 'hr_staff', 'hr_lead']);
 
@@ -121,6 +122,10 @@ export function OnboardingPage() {
     }
   }
 
+  function goDetail(id: number) {
+    router.push(`/dashboard/recruitment/onboarding/${id}`);
+  }
+
   async function handleDelete(o: Onboarding) {
     if (!window.confirm(`Hapus permanen onboarding "${o.candidate_name}"? Tidak dapat dibatalkan.`)) return;
     try {
@@ -207,7 +212,15 @@ export function OnboardingPage() {
                 <TableBody>
                   {filtered.map((o) => (
                     <TableRow key={o.id}>
-                      <TableCell className='font-medium'>{o.candidate_name}</TableCell>
+                      <TableCell className='font-medium'>
+                        <button
+                          type='button'
+                          onClick={() => goDetail(o.id)}
+                          className='text-left hover:underline hover:text-primary'
+                        >
+                          {o.candidate_name}
+                        </button>
+                      </TableCell>
                       <TableCell>{o.job_title}</TableCell>
                       <TableCell>{o.target_join_date || '-'}</TableCell>
                       <TableCell>{o.created_at}</TableCell>
@@ -216,6 +229,10 @@ export function OnboardingPage() {
                       </TableCell>
                       <TableCell className='sticky right-0 bg-background text-right shadow-[inset_1px_0_0_var(--color-border)]'>
                         <div className='flex justify-end gap-1'>
+                          <Button size='sm' variant='outline' onClick={() => goDetail(o.id)}>
+                            <Icons.eye className='mr-1 size-4' />
+                            Lihat Detail
+                          </Button>
                           {canManage &&
                             o.next_statuses.map((s) => (
                               <Button key={s} size='sm' onClick={() => handleTransition(o, s)}>
