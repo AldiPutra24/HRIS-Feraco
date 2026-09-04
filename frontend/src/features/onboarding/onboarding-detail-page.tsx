@@ -209,9 +209,13 @@ function DataTab({
     setSaving(true);
     try {
       const payload: Record<string, string | number | boolean | null> = {};
+      const isPkwtt = form.employment_type === 'PKWTT';
+      const probationOn = isPkwtt && form.probation_enabled === 'true';
       for (const [k, v] of Object.entries(form)) {
-        if (k === 'probation_enabled') payload[k] = v === 'true';
-        else if (['department', 'position', 'reporting_to'].includes(k)) {
+        if (k === 'probation_enabled') payload[k] = probationOn;
+        else if (k === 'probation_start_date' || k === 'probation_end_date') {
+          payload[k] = probationOn ? (v || null) : null;
+        } else if (['department', 'position', 'reporting_to'].includes(k)) {
           payload[k] = v ? Number(v) : null;
         } else payload[k] = v || null;
       }
@@ -262,6 +266,13 @@ function DataTab({
             </CardHeader>
             <CardContent className='space-y-3'>
               {section.fields.map((f) => {
+                // Conditional visibility per spec
+                if (f.key === 'probation_enabled' && form.employment_type !== 'PKWTT') return null;
+                if (
+                  (f.key === 'probation_start_date' || f.key === 'probation_end_date') &&
+                  form.probation_enabled !== 'true'
+                )
+                  return null;
                 const editable = editing && canManage;
                 const mandatory = MANDATORY_DATA_KEYS.has(f.key);
                 const empty = !form[f.key];
