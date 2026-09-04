@@ -985,23 +985,23 @@ export function OnboardingDetailPage() {
       );
     }
     // Contextual CTA: guide HR to the tab where work is needed.
-    const cta: Record<string, { label: string; tab?: Tab }> = {
-      PENDING: { label: 'Mulai Onboarding' },
-      IN_PROGRESS: { label: 'Lengkapi Data', tab: 'Data' },
-      DOCUMENT_REVIEW: { label: 'Review Dokumen', tab: 'Documents' },
+    // Use explicit target status — never next_statuses[index] (backend returns sorted, so [0] can be CANCELLED).
+    const cta: Record<string, { label: string; next: string; tab?: Tab }> = {
+      PENDING: { label: 'Mulai Onboarding', next: 'IN_PROGRESS' },
+      IN_PROGRESS: { label: 'Lengkapi Data', next: 'DOCUMENT_REVIEW', tab: 'Data' },
+      DOCUMENT_REVIEW: { label: 'Review Dokumen', next: 'READY', tab: 'Documents' },
     };
-    const next = item!.next_statuses[0];
-    if (!next) return null;
     const action = cta[item!.status];
+    if (!action) return null;
     return (
       <Button
         onClick={() => {
-          if (action?.tab) setTab(action.tab);
-          void handleTransition(next);
+          if (action.tab) setTab(action.tab);
+          void handleTransition(action.next);
         }}
       >
         {item!.status === 'PENDING' && <Icons.arrowRight className='mr-1.5 h-4 w-4' />}
-        {action?.label ?? onboardingStatusLabel(next)}
+        {action.label}
       </Button>
     );
   }
