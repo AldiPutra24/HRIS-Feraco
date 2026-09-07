@@ -297,10 +297,10 @@ export function ReimbursementPage() {
                         <div className='flex justify-end gap-1'>
                           {r.status === 'PENDING' && (
                             <>
-                              <Button size='sm' onClick={() => approve(r)}>
+                              <Button variant='success' size='sm' onClick={() => approve(r)}>
                                 Setujui
                               </Button>
-                              <Button size='sm' variant='destructive' onClick={() => setRejecting(r)}>
+                              <Button variant='destructive' size='sm' onClick={() => setRejecting(r)}>
                                 Tolak
                               </Button>
                             </>
@@ -317,7 +317,7 @@ export function ReimbursementPage() {
                             <span className='text-muted-foreground text-xs'>Ref: {r.payment_reference}</span>
                           )}
                           {isAdmin && (
-                            <Button size='sm' variant='ghost' onClick={() => handleDelete(r)}>
+                            <Button variant='destructive' size='sm' onClick={() => handleDelete(r)}>
                               Hapus
                             </Button>
                           )}

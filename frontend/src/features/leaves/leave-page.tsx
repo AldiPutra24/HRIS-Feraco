@@ -419,16 +419,16 @@ export function LeavePage() {
                   <TableCell className='text-right'>
                     <div className='flex items-center justify-end gap-2'>
                       {r.attachment_url && (
-                        <a href={r.attachment_url} target='_blank' rel='noreferrer' className='text-primary text-sm font-medium hover:underline'>
+                        <Button variant='outline' size='sm' render={<a href={r.attachment_url} target='_blank' rel='noreferrer' />}>
                           Lampiran
-                        </a>
+                        </Button>
                       )}
                       {r.status === 'PENDING' && isApprover && (
                         <>
-                          <Button variant='outline' size='sm' disabled={acting[r.id]} onClick={() => approve(r.id)}>
+                          <Button variant='success' size='sm' disabled={acting[r.id]} onClick={() => approve(r.id)}>
                             {acting[r.id] ? 'Memproses...' : 'Setujui'}
                           </Button>
-                          <Button variant='ghost' size='sm' disabled={acting[r.id]} onClick={() => setRejecting(r)}>
+                          <Button variant='destructive' size='sm' disabled={acting[r.id]} onClick={() => setRejecting(r)}>
                             Tolak
                           </Button>
                         </>
@@ -439,7 +439,7 @@ export function LeavePage() {
                         </Button>
                       )}
                       {canHardDelete && (
-                        <Button variant='ghost' size='sm' onClick={() => setDeleting(r)}>
+                        <Button variant='destructive' size='sm' onClick={() => setDeleting(r)}>
                           Hapus
                         </Button>
                       )}
