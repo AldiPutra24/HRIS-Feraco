@@ -1,9 +1,11 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
 import { createEmployee, listDepartments, listPositions, updateEmployee, type Department, type Employee, type Position } from '@/lib/employees';
 
 type Props = { employee?: Employee | null; onSaved: () => void; onCancel: () => void };
@@ -343,10 +345,15 @@ export function EmployeeForm({ employee, onSaved, onCancel }: Props) {
             <Input type='date' value={form.join_date} onChange={(e) => set('join_date', e.target.value)} />
           </Field>
           <Field label='Status Kepegawaian'>
-            <select className='border-input h-8 rounded-lg border bg-transparent px-2.5 text-sm' value={form.employment_status} onChange={(e) => set('employment_status', e.target.value)}>
-              <option value='ACTIVE'>Active</option>
-              <option value='INACTIVE'>Inactive</option>
-            </select>
+            <span className='flex items-center gap-2'>
+              <Switch
+                checked={form.employment_status === 'ACTIVE'}
+                onCheckedChange={(checked) => set('employment_status', checked ? 'ACTIVE' : 'INACTIVE')}
+              />
+              <Badge variant={form.employment_status === 'ACTIVE' ? 'default' : 'secondary'}>
+                {form.employment_status}
+              </Badge>
+            </span>
           </Field>
         </div>
       </div>
