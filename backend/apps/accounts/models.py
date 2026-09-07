@@ -39,6 +39,10 @@ class User(AbstractUser):
         on_delete=models.SET_NULL,
         related_name='users',
     )
+    # True when is_active=False was caused by linked Employee status sync.
+    # Lets us re-activate only employee-caused inactivity, never an
+    # independently deactivated account.
+    inactive_by_employee = models.BooleanField(default=False)
 
     def __str__(self):
         return self.get_username()

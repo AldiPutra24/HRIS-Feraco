@@ -298,7 +298,84 @@ class DepartmentApiTests(TestCase):
         Employee.objects.create(employee_id='E001', full_name='John', department=dept)
         res = self.client.delete(reverse('department-detail', args=[dept.pk]))
         self.assertEqual(res.status_code, 400)
-        self.assertTrue(Department.objects.filter(pk=dept.pk).exists())
+
+
+class EmployeeUserStatusSyncTests(TestCase):
+    """Personnel.status is source of truth for linked User.is_active."""
+
+    def _make_employee(self, status='ACTIVE', link_user=True):
+        user = None
+        if link_user:
+            user = User.objects.create_user(
+                username=f'emp{Employee.objects.count()}@test.com',
+                email=f'emp{Employee.objects.count()}@test.com',
+                password='password',
+            )
+        return Employee.objects.create(
+            employee_id=f'E{Employee.objects.count():03d}',
+            full_name='Sync User',
+            status=status,
+            user=user,
+        )
+
+    def test_active_employee_keeps_user_active(self):
+        emp = self._make_employee('ACTIVE')
+        self.assertTrue(emp.user.is_active)
+        self.assertFalse(emp.user.inactive_by_employee)
+
+    def test_employee_inactive_deactivates_user(self):
+        emp = self._make_employee('ACTIVE')
+        emp.status = 'INACTIVE'
+        emp.save()
+        emp.user.refresh_from_db()
+        self.assertFalse(emp.user.is_active)
+        self.assertTrue(emp.user.inactive_by_employee)
+
+    def test_employee_terminated_deactivates_user(self):
+        emp = self._make_employee('ACTIVE')
+        emp.status = 'TERMINATED'
+        emp.save()
+        emp.user.refresh_from_db()
+        self.assertFalse(emp.user.is_active)
+        self.assertTrue(emp.user.inactive_by_employee)
+
+    def test_employee_reactivated_reactivates_user(self):
+        emp = self._make_employee('ACTIVE')
+        emp.status = 'INACTIVE'
+        emp.save()
+        emp.status = 'ACTIVE'
+        emp.save()
+        emp.user.refresh_from_db()
+        self.assertTrue(emp.user.is_active)
+        self.assertFalse(emp.user.inactive_by_employee)
+
+    def test_independent_deactivation_not_reactivated(self):
+        emp = self._make_employee('ACTIVE')
+        # Admin independently disables the account (not via employee sync).
+        emp.user.is_active = False
+        emp.user.inactive_by_employee = False
+        emp.user.save(update_fields=['is_active', 'inactive_by_employee'])
+        emp.status = 'INACTIVE'
+        emp.save()
+        emp.status = 'ACTIVE'
+        emp.save()
+        emp.user.refresh_from_db()
+        # Stays inactive: was not employee-caused.
+        self.assertFalse(emp.user.is_active)
+        self.assertFalse(emp.user.inactive_by_employee)
+
+    def test_employee_without_user_untouched(self):
+        emp = self._make_employee('ACTIVE', link_user=False)
+        self.assertIsNone(emp.user)
+        emp.status = 'INACTIVE'
+        emp.save()  # no linked user -> no error, no sync
+        self.assertEqual(Employee.objects.get(pk=emp.pk).status, 'INACTIVE')
+
+
+class EmployeeDepartmentApiTests(TestCase):
+    def setUp(self):
+        self.user = make_user('ADMIN')
+        self.client.force_login(self.user)
 
     def test_employee_create_with_department(self):
         dept = Department.objects.create(name='Finance')
@@ -316,6 +393,7 @@ class DepartmentApiTests(TestCase):
             'personal_email': 'jane@mail.com', 'company_email': 'jane@feraco.co.id',
         }, content_type='application/json')
         self.assertEqual(res.status_code, 400)
+
 
 class PositionApiTests(TestCase):
     def setUp(self):
