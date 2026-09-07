@@ -140,7 +140,7 @@ export function EmployeeList() {
             setPage(1);
             setDepartment(e.target.value);
           }}
-          className='border-input h-8 rounded-lg border bg-transparent px-2.5 text-sm'
+          className='border-input h-8 rounded-xl border bg-card px-2.5 text-sm ring-1 ring-foreground/10'
         >
           <option value=''>Semua Departemen</option>
           {departments.map((d) => (
@@ -155,7 +155,7 @@ export function EmployeeList() {
             setPage(1);
             setPosition(e.target.value);
           }}
-          className='border-input h-8 rounded-lg border bg-transparent px-2.5 text-sm'
+          className='border-input h-8 rounded-xl border bg-card px-2.5 text-sm ring-1 ring-foreground/10'
         >
           <option value=''>Semua Posisi</option>
           {positions.map((p) => (
@@ -170,7 +170,7 @@ export function EmployeeList() {
             setPage(1);
             setStatus(e.target.value);
           }}
-          className='border-input h-8 rounded-lg border bg-transparent px-2.5 text-sm'
+          className='border-input h-8 rounded-xl border bg-card px-2.5 text-sm ring-1 ring-foreground/10'
         >
           <option value=''>Semua Status</option>
           <option value='ACTIVE'>Active</option>
