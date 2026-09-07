@@ -301,9 +301,9 @@ class DepartmentApiTests(TestCase):
 
 
 class EmployeeUserStatusSyncTests(TestCase):
-    """Personnel.status is source of truth for linked User.is_active."""
+    """Employee.employment_status (UI Karyawan source of truth) drives User.is_active."""
 
-    def _make_employee(self, status='ACTIVE', link_user=True):
+    def _make_employee(self, employment_status='ACTIVE', link_user=True):
         user = None
         if link_user:
             user = User.objects.create_user(
@@ -314,7 +314,7 @@ class EmployeeUserStatusSyncTests(TestCase):
         return Employee.objects.create(
             employee_id=f'E{Employee.objects.count():03d}',
             full_name='Sync User',
-            status=status,
+            employment_status=employment_status,
             user=user,
         )
 
@@ -325,15 +325,7 @@ class EmployeeUserStatusSyncTests(TestCase):
 
     def test_employee_inactive_deactivates_user(self):
         emp = self._make_employee('ACTIVE')
-        emp.status = 'INACTIVE'
-        emp.save()
-        emp.user.refresh_from_db()
-        self.assertFalse(emp.user.is_active)
-        self.assertTrue(emp.user.inactive_by_employee)
-
-    def test_employee_terminated_deactivates_user(self):
-        emp = self._make_employee('ACTIVE')
-        emp.status = 'TERMINATED'
+        emp.employment_status = 'INACTIVE'
         emp.save()
         emp.user.refresh_from_db()
         self.assertFalse(emp.user.is_active)
@@ -341,9 +333,9 @@ class EmployeeUserStatusSyncTests(TestCase):
 
     def test_employee_reactivated_reactivates_user(self):
         emp = self._make_employee('ACTIVE')
-        emp.status = 'INACTIVE'
+        emp.employment_status = 'INACTIVE'
         emp.save()
-        emp.status = 'ACTIVE'
+        emp.employment_status = 'ACTIVE'
         emp.save()
         emp.user.refresh_from_db()
         self.assertTrue(emp.user.is_active)
@@ -355,9 +347,9 @@ class EmployeeUserStatusSyncTests(TestCase):
         emp.user.is_active = False
         emp.user.inactive_by_employee = False
         emp.user.save(update_fields=['is_active', 'inactive_by_employee'])
-        emp.status = 'INACTIVE'
+        emp.employment_status = 'INACTIVE'
         emp.save()
-        emp.status = 'ACTIVE'
+        emp.employment_status = 'ACTIVE'
         emp.save()
         emp.user.refresh_from_db()
         # Stays inactive: was not employee-caused.
@@ -367,9 +359,19 @@ class EmployeeUserStatusSyncTests(TestCase):
     def test_employee_without_user_untouched(self):
         emp = self._make_employee('ACTIVE', link_user=False)
         self.assertIsNone(emp.user)
-        emp.status = 'INACTIVE'
+        emp.employment_status = 'INACTIVE'
         emp.save()  # no linked user -> no error, no sync
-        self.assertEqual(Employee.objects.get(pk=emp.pk).status, 'INACTIVE')
+        self.assertEqual(Employee.objects.get(pk=emp.pk).employment_status, 'INACTIVE')
+
+    def test_personnel_status_change_does_not_sync_user(self):
+        """Regression: UI Karyawan uses employment_status, not Personnel.status.
+        Changing only Personnel.status must NOT deactivate the linked user."""
+        emp = self._make_employee('ACTIVE')
+        emp.status = 'INACTIVE'  # Personnel base field, not the UI field
+        emp.save()
+        emp.user.refresh_from_db()
+        self.assertTrue(emp.user.is_active)
+        self.assertFalse(emp.user.inactive_by_employee)
 
 
 class EmployeeDepartmentApiTests(TestCase):

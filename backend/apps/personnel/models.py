@@ -118,35 +118,6 @@ class Personnel(models.Model):
     def __str__(self):
         return self.full_name
 
-    def save(self, *args, **kwargs):
-        if self.pk:
-            old = Personnel.objects.filter(pk=self.pk).only('status').first()
-            if old and old.status != self.status:
-                self._sync_user_status(old.status, self.status)
-        super().save(*args, **kwargs)
-
-    def _sync_user_status(self, old_status: str, new_status: str) -> None:
-        """Single source of truth: Employee status drives linked User.is_active.
-
-        - ACTIVE -> INACTIVE/TERMINATED: deactivate user, mark employee-caused.
-        - back to ACTIVE: re-activate only if previously deactivated by sync.
-        Independent deactivations (inactive_by_employee=False) are untouched.
-        No role/permission changes.
-        """
-        user = self.user
-        if not user:
-            return
-        if new_status == Personnel.Status.ACTIVE:
-            if user.inactive_by_employee:
-                user.is_active = True
-                user.inactive_by_employee = False
-                user.save(update_fields=['is_active', 'inactive_by_employee'])
-        else:  # INACTIVE / TERMINATED
-            if user.is_active:
-                user.is_active = False
-                user.inactive_by_employee = True
-                user.save(update_fields=['is_active', 'inactive_by_employee'])
-
 
 class Employee(Personnel):
     EMPLOYMENT_CHOICES = [
@@ -178,6 +149,35 @@ class Employee(Personnel):
     )
     join_date = models.DateField(null=True, blank=True)
     employment_status = models.CharField(max_length=16, choices=EMPLOYMENT_CHOICES, default='ACTIVE')
+
+    def save(self, *args, **kwargs):
+        if self.pk:
+            old = Employee.objects.filter(pk=self.pk).only('employment_status').first()
+            if old and old.employment_status != self.employment_status:
+                self._sync_user_status(old.employment_status, self.employment_status)
+        super().save(*args, **kwargs)
+
+    def _sync_user_status(self, old_status: str, new_status: str) -> None:
+        """Single source of truth: Employee.employment_status drives linked User.is_active.
+
+        - ACTIVE -> INACTIVE: deactivate user, mark employee-caused.
+        - back to ACTIVE: re-activate only if previously deactivated by sync.
+        Independent deactivations (inactive_by_employee=False) are untouched.
+        No role/permission changes.
+        """
+        user = self.user
+        if not user:
+            return
+        if new_status == 'ACTIVE':
+            if user.inactive_by_employee:
+                user.is_active = True
+                user.inactive_by_employee = False
+                user.save(update_fields=['is_active', 'inactive_by_employee'])
+        else:  # INACTIVE
+            if user.is_active:
+                user.is_active = False
+                user.inactive_by_employee = True
+                user.save(update_fields=['is_active', 'inactive_by_employee'])
 
 
 class EmployeeContract(models.Model):
