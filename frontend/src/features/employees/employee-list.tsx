@@ -140,7 +140,7 @@ export function EmployeeList() {
             setPage(1);
             setDepartment(e.target.value);
           }}
-          className='border-input h-8 rounded-xl border bg-card px-2.5 text-sm ring-1 ring-foreground/10'
+          className='border-input h-8 rounded-lg border bg-transparent px-2.5 text-sm'
         >
           <option value=''>Semua Departemen</option>
           {departments.map((d) => (
@@ -155,7 +155,7 @@ export function EmployeeList() {
             setPage(1);
             setPosition(e.target.value);
           }}
-          className='border-input h-8 rounded-xl border bg-card px-2.5 text-sm ring-1 ring-foreground/10'
+          className='border-input h-8 rounded-lg border bg-transparent px-2.5 text-sm'
         >
           <option value=''>Semua Posisi</option>
           {positions.map((p) => (
@@ -164,18 +164,48 @@ export function EmployeeList() {
             </option>
           ))}
         </select>
-        <select
-          value={status}
-          onChange={(e) => {
-            setPage(1);
-            setStatus(e.target.value);
-          }}
-          className='border-input h-8 rounded-xl border bg-card px-2.5 text-sm ring-1 ring-foreground/10'
-        >
-          <option value=''>Semua Status</option>
-          <option value='ACTIVE'>Active</option>
-          <option value='INACTIVE'>Inactive</option>
-        </select>
+        <div className='flex items-center gap-3 rounded-lg border border-input px-3 h-8 text-sm'>
+          <span className='text-muted-foreground'>Status:</span>
+          <label className='flex items-center gap-1.5 cursor-pointer'>
+            <input
+              type='radio'
+              name='emp-status'
+              checked={status === ''}
+              onChange={() => {
+                setPage(1);
+                setStatus('');
+              }}
+              className='accent-primary'
+            />
+            Semua
+          </label>
+          <label className='flex items-center gap-1.5 cursor-pointer'>
+            <input
+              type='radio'
+              name='emp-status'
+              checked={status === 'ACTIVE'}
+              onChange={() => {
+                setPage(1);
+                setStatus('ACTIVE');
+              }}
+              className='accent-primary'
+            />
+            ACTIVE
+          </label>
+          <label className='flex items-center gap-1.5 cursor-pointer'>
+            <input
+              type='radio'
+              name='emp-status'
+              checked={status === 'INACTIVE'}
+              onChange={() => {
+                setPage(1);
+                setStatus('INACTIVE');
+              }}
+              className='accent-primary'
+            />
+            INACTIVE
+          </label>
+        </div>
       </div>
 
       <Card>
