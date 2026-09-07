@@ -185,6 +185,12 @@ class ReimbursementWorkflowTests(TestCase):
     def test_inactive_employee_cannot_submit(self):
         self.emp.employment_status = 'INACTIVE'
         self.emp.save()
+        # Neutralize employee->user sync so this test isolates reimbursement rules
+        # (employee inactive must still yield a 400 from the reimbursement validator,
+        # not a 403 from the now-deactivated account).
+        self.emp_user.is_active = True
+        self.emp_user.inactive_by_employee = False
+        self.emp_user.save(update_fields=['is_active', 'inactive_by_employee'])
         self._login(self.emp_user)
         resp = self.client.post('/api/reimbursements/', {
             'category': self.cat_no_attach.id,
