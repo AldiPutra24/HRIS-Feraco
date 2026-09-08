@@ -227,20 +227,21 @@ class EmployeeContract(models.Model):
     def duration_months(self):
         """Total contract length in whole months, computed from start→end.
 
-        End resolves to today for an open/running contract (PKWTT or an ACTIVE
-        contract whose end_date is in the future). Never stored; derived only.
+        A contract with a defined end_date uses its full planned length, even if
+        it is still active (end_date in the future). Only an open-ended contract
+        (PKWTT / end_date is None) resolves its end to today. Never stored; derived only.
         """
         start = self.start_date
         if start is None:
             return 0
         end = self.end_date
-        if end is None or end > timezone.localdate():
+        if end is None:
             end = timezone.localdate()
         if end < start:
             return 0
         months = (end.year - start.year) * 12 + (end.month - start.month)
-        if end.day < start.day:
-            months -= 1
+        if end.day > start.day:
+            months += 1
         return months
 
     @property

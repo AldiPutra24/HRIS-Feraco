@@ -1,4 +1,4 @@
-﻿from datetime import date, timedelta
+from datetime import date, timedelta
 
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -162,9 +162,37 @@ class ContractDurationTests(TestCase):
         self.assertEqual(c.duration_months, 12)
         self.assertEqual(c.duration_display, '1 tahun')
 
-    def test_duration_running_active(self):
-        c = self._contract(date.today() - timedelta(days=240), date.today() + timedelta(days=100))
-        self.assertEqual(c.duration_months, 7)
+    def test_duration_active_future_end_uses_full(self):
+        # Active contract with a future end_date must show its full planned length,
+        # not clamp to today.
+        start = date.today() - timedelta(days=240)
+        end = date.today() + timedelta(days=100)
+        c = self._contract(start, end)
+        clamped = (date.today().year - start.year) * 12 + (date.today().month - start.month)
+        if date.today().day > start.day:
+            clamped += 1
+        self.assertGreater(c.duration_months, clamped)
+
+    def test_duration_cross_year_six_months(self):
+        # 01-09-2026 -> 28-02-2027 must be exactly 6 bulan (the reported bug case).
+        c = self._contract(date(2026, 9, 1), date(2027, 2, 28))
+        self.assertEqual(c.duration_months, 6)
+        self.assertEqual(c.duration_display, '6 bulan')
+
+    def test_duration_exact_six_months(self):
+        c = self._contract(date(2024, 3, 10), date(2024, 9, 10))
+        self.assertEqual(c.duration_months, 6)
+        self.assertEqual(c.duration_display, '6 bulan')
+
+    def test_duration_one_year(self):
+        c = self._contract(date(2024, 1, 1), date(2025, 1, 1))
+        self.assertEqual(c.duration_months, 12)
+        self.assertEqual(c.duration_display, '1 tahun')
+
+    def test_duration_one_year_some_months(self):
+        c = self._contract(date(2024, 1, 15), date(2025, 5, 15))
+        self.assertEqual(c.duration_months, 16)
+        self.assertEqual(c.duration_display, '1 tahun 4 bulan')
 
 class ContractAccumulationTests(TestCase):
     def setUp(self):
@@ -203,6 +231,25 @@ class ContractAccumulationTests(TestCase):
         acc = contract_accumulation(self.emp)
         self.assertIsNotNone(acc['current_id'])
         self.assertGreater(acc['months'], 6)
+
+    def test_accumulation_cross_year(self):
+        # 01-09-2026 -> 28-02-2027 (6m) + 01-03-2027 -> 31-12-2027 (10m) = 16m.
+        self._contract(date(2026, 9, 1), date(2027, 2, 28))   # 6 months
+        self._contract(date(2027, 3, 1), date(2027, 12, 31))  # 10 months
+        acc = contract_accumulation(self.emp)
+        self.assertEqual(acc['months'], 16)
+        self.assertEqual(acc['display'], '1 tahun 4 bulan')
+        self.assertFalse(any(c['overlap'] for c in acc['contracts']))
+
+    def test_accumulation_multiple_contracts(self):
+        # 6m + 8m + 14m = 28m (2 tahun 4 bulan), no overlap.
+        self._contract(date(2024, 1, 1), date(2024, 7, 1))   # 6 months
+        self._contract(date(2024, 7, 2), date(2025, 3, 1))   # 8 months
+        self._contract(date(2025, 3, 2), date(2026, 5, 1))   # 14 months
+        acc = contract_accumulation(self.emp)
+        self.assertEqual(acc['months'], 28)
+        self.assertEqual(acc['display'], '2 tahun 4 bulan')
+        self.assertFalse(any(c['overlap'] for c in acc['contracts']))
 
 
 class EmployeeApiTests(TestCase):

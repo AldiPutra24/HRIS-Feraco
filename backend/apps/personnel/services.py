@@ -95,7 +95,7 @@ def contract_accumulation(employee):
     result = []
     for c in contracts:
         end = c.end_date
-        if end is None or end > today:
+        if end is None:
             end = today
         # Running contract = the latest one whose span reaches today.
         if c.end_date is None or c.end_date >= today:
@@ -128,10 +128,13 @@ def contract_accumulation(employee):
                 'overlap': True,
             })
         else:
-            # Extends beyond counted span: count only the new tail.
-            added = (end.year - counted_end.year) * 12 + (end.month - counted_end.month)
-            if end.day < counted_end.day:
-                added -= 1
+            # Extends beyond counted span: count only the new portion, measured
+            # from the later of the previous span end or this contract's start
+            # (so gaps between sequential contracts are not double-counted).
+            tail_start = counted_end if counted_end >= c.start_date else c.start_date
+            added = (end.year - tail_start.year) * 12 + (end.month - tail_start.month)
+            if end.day > tail_start.day:
+                added += 1
             counted_end = end
             total += max(added, 0)
             result.append({
