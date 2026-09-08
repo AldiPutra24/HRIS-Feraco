@@ -49,7 +49,7 @@ export function EmployeeProfile() {
           <Row label='Email Pribadi' value={employee.personal_email} />
           <Row label='Department' value={employee.department_name} />
           <Row label='Position' value={employee.position_name} />
-          <Row label='Manager' value={employee.manager_name} />
+          <Row label='Reporting To' value={employee.manager_name} />
           <Row label='Join Date' value={employee.join_date ?? '-'} />
           <Row label='Employment Status' value={employee.employment_status} />
         </CardContent>

@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
-import { createEmployee, listDepartments, listPositions, updateEmployee, type Department, type Employee, type Position } from '@/lib/employees';
+import { createEmployee, listDepartments, listEmployees, listPositions, updateEmployee, type Department, type Employee, type Position } from '@/lib/employees';
 
 type Props = { employee?: Employee | null; onSaved: () => void; onCancel: () => void };
 
@@ -134,6 +134,8 @@ function toForm(e: Employee): FormState {
 export function EmployeeForm({ employee, onSaved, onCancel }: Props) {
   const [departments, setDepartments] = useState<Department[]>([]);
   const [positions, setPositions] = useState<Position[]>([]);
+  const [managers, setManagers] = useState<Employee[]>([]);
+  const [mgrLoading, setMgrLoading] = useState(true);
   const [deptLoading, setDeptLoading] = useState(true);
   const [deptError, setDeptError] = useState('');
   const [posLoading, setPosLoading] = useState(false);
@@ -165,6 +167,13 @@ export function EmployeeForm({ employee, onSaved, onCancel }: Props) {
       .catch(() => setPosError('Gagal memuat daftar position.'))
       .finally(() => setPosLoading(false));
   }, [form.department]);
+
+  useEffect(() => {
+    listEmployees({ page_size: 1000 })
+      .then((page) => setManagers(page.results))
+      .catch(() => setManagers([]))
+      .finally(() => setMgrLoading(false));
+  }, []);
 
   function selectDepartment(value: string) {
     setForm((f) => ({ ...f, department: value, position: '' }));
@@ -343,6 +352,23 @@ export function EmployeeForm({ employee, onSaved, onCancel }: Props) {
           </Field>
           <Field label='Tanggal Masuk'>
             <Input type='date' value={form.join_date} onChange={(e) => set('join_date', e.target.value)} />
+          </Field>
+          <Field label='Reporting To'>
+            {mgrLoading ? (
+              <p className='text-muted-foreground text-xs'>Memuat daftar karyawan...</p>
+            ) : (
+              <select className='border-input h-8 rounded-lg border bg-transparent px-2.5 text-sm' value={form.manager} onChange={(e) => set('manager', e.target.value)}>
+                <option value=''>-</option>
+                {managers
+                  .filter((m) => m.id !== employee?.id)
+                  .map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.full_name}
+                      {m.position_name ? ` — ${m.position_name}` : ''}
+                    </option>
+                  ))}
+              </select>
+            )}
           </Field>
           <Field label='Status Kepegawaian'>
             <span className='flex items-center gap-2'>

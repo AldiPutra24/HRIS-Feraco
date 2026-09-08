@@ -376,7 +376,7 @@ export function EmployeeDetail({ id }: { id: number }) {
           <CardContent className='grid grid-cols-1 gap-4 p-4 md:grid-cols-2'>
             <Field label='Departemen' value={employee.department_name} />
             <Field label='Posisi' value={employee.position_name} />
-            <Field label='Manager' value={employee.manager_name} />
+            <Field label='Reporting To' value={employee.manager_name} />
             <Field label='Tanggal Masuk' value={employee.join_date} />
             <Field label='Status Kepegawaian' value={
               <span className='flex items-center gap-2'>
