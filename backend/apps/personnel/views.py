@@ -6,8 +6,11 @@ from django.utils import timezone
 from rest_framework import generics, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.parsers import MultiPartParser, FormParser
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
+from apps.announcements.models import Announcement
 from apps.audit.services import log_event
 from apps.softdelete import SoftHardDeleteMixin
 
@@ -499,3 +502,77 @@ class PositionViewSet(SoftHardDeleteMixin, viewsets.ModelViewSet):
         name = instance.name
         instance.delete()
         log_event(self.request, 'delete', obj=None, description=f'Position {name} hard-deleted')
+
+
+class DashboardHrView(APIView):
+    """Aggregated HR dashboard data: leave-today, contracts ending, birthdays, announcements."""
+
+    permission_classes = [IsHRStaff]
+
+    def get(self, request):
+        from apps.leaves.models import LeaveRequest
+
+        today = timezone.localdate()
+        # Izin & cuti hari ini: approved requests covering today.
+        leave_today = LeaveRequest.objects.filter(
+            status='APPROVED', start_date__lte=today, end_date__gte=today
+        ).select_related('employee', 'leave_type').order_by('employee__full_name')
+        leave_today_data = [
+            {
+                'id': lr.id,
+                'employee_name': lr.employee.full_name,
+                'leave_type_name': lr.leave_type.name,
+                'kind': lr.leave_type.kind,
+                'start_date': lr.start_date,
+                'end_date': lr.end_date,
+                'total_days': lr.total_days,
+            }
+            for lr in leave_today
+        ]
+        # End of contract: active contracts with a future end_date, soonest first.
+        contracts = (
+            EmployeeContract.objects.filter(status='ACTIVE', end_date__gte=today)
+            .select_related('employee')
+            .order_by('end_date')[:10]
+        )
+        contracts_data = [
+            {
+                'id': c.id,
+                'employee_name': c.employee.full_name,
+                'employee_id': c.employee.employee_id,
+                'contract_type': c.contract_type,
+                'end_date': c.end_date,
+                'days_left': (c.end_date - today).days,
+            }
+            for c in contracts
+        ]
+        # Birthday in next 7 days (MM-DD window, ignores year).
+        md = today.strftime('%m-%d')
+        md_end = (today + datetime.timedelta(days=7)).strftime('%m-%d')
+        birthdays = []
+        for e in Employee.objects.filter(birth_date__isnull=False).select_related('department', 'position'):
+            b = e.birth_date.strftime('%m-%d')
+            in_range = md <= b <= md_end if md <= md_end else (b >= md or b <= md_end)
+            if in_range:
+                birthdays.append(
+                    {
+                        'id': e.id,
+                        'full_name': e.full_name,
+                        'birth_date': e.birth_date,
+                        'department_name': e.department.name if e.department else None,
+                        'position_name': e.position.name if e.position else None,
+                    }
+                )
+        announcements = Announcement.objects.all()[:10]
+        announcements_data = [
+            {'id': a.id, 'title': a.title, 'body': a.body, 'created_at': a.created_at, 'created_by_name': a.created_by.username if a.created_by else None}
+            for a in announcements
+        ]
+        return Response(
+            {
+                'leave_today': leave_today_data,
+                'contracts_ending': contracts_data,
+                'birthdays': birthdays,
+                'announcements': announcements_data,
+            }
+        )

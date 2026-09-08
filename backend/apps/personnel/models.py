@@ -103,6 +103,7 @@ class Personnel(models.Model):
     religion = models.CharField(max_length=16, choices=RELIGION_CHOICES, blank=True)
     gender = models.CharField(max_length=8, choices=GENDER_CHOICES, blank=True)
     marital_status = models.CharField(max_length=16, choices=MARITAL_CHOICES, blank=True)
+    photo = models.CharField(max_length=512, blank=True, default='')
     status = models.CharField(
         max_length=16,
         choices=Status.choices,

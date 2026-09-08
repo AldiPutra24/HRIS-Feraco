@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Badge } from '@/components/ui/badge';
 import { buttonVariants } from '@/components/ui/button';
@@ -9,6 +9,14 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Icons } from '@/components/icons';
 import { listDepartments, listEmployees, listPositions, type Department, type Employee } from '@/lib/employees';
+import { getHrDashboard, type HrDashboard } from '@/lib/dashboard';
+import {
+  createAnnouncement,
+  deleteAnnouncement,
+  listAnnouncements,
+  updateAnnouncement,
+  type Announcement
+} from '@/lib/announcements';
 
 type Summary = {
   total: number;
@@ -39,11 +47,41 @@ const QUICK_ACTIONS = [
   { label: 'Positions', href: '/dashboard/settings/positions', icon: 'userPlus' as const }
 ];
 
+function StatCard({ icon, label, value, href, loading }: {
+  icon: keyof typeof Icons;
+  label: string;
+  value: number;
+  href: string;
+  loading: boolean;
+}) {
+  const Icon = Icons[icon];
+  return (
+    <Link href={href} className='border-border hover:bg-muted block rounded-xl border p-4 transition-colors'>
+      <div className='flex items-center gap-2 text-muted-foreground'>
+        <Icon className='size-4' />
+        <span className='text-xs font-medium'>{label}</span>
+      </div>
+      {loading ? (
+        <Skeleton className='mt-2 h-8 w-12' />
+      ) : (
+        <p className='mt-1 text-3xl font-semibold tabular-nums'>{value}</p>
+      )}
+    </Link>
+  );
+}
+
 export function OverviewDashboard() {
   const [summary, setSummary] = useState<Summary | null>(null);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
+  const [dashboard, setDashboard] = useState<HrDashboard | null>(null);
+  const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [loading, setLoading] = useState(true);
+  const [dashLoading, setDashLoading] = useState(true);
+  const [editing, setEditing] = useState<Announcement | null>(null);
+  const [title, setTitle] = useState('');
+  const [body, setBody] = useState('');
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -68,7 +106,51 @@ export function OverviewDashboard() {
         setLoading(false);
       }
     })();
+    (async () => {
+      try {
+        const [d, a] = await Promise.all([getHrDashboard(), listAnnouncements()]);
+        setDashboard(d);
+        setAnnouncements(a);
+      } catch {
+        // Non-HR roles may lack dashboard access; ignore.
+      } finally {
+        setDashLoading(false);
+      }
+    })();
   }, []);
+
+  const saveAnnouncement = useCallback(async () => {
+    if (!title.trim() || !body.trim()) return;
+    setSaving(true);
+    try {
+      if (editing) {
+        await updateAnnouncement(editing.id, { title, body });
+      } else {
+        await createAnnouncement({ title, body });
+      }
+      const a = await listAnnouncements();
+      setAnnouncements(a);
+      if (dashboard) setDashboard({ ...dashboard, announcements: a.slice(0, 10) });
+      setEditing(null);
+      setTitle('');
+      setBody('');
+    } finally {
+      setSaving(false);
+    }
+  }, [editing, title, body, dashboard]);
+
+  const startEdit = (a: Announcement) => {
+    setEditing(a);
+    setTitle(a.title);
+    setBody(a.body);
+  };
+
+  const remove = async (id: number) => {
+    await deleteAnnouncement(id);
+    const a = await listAnnouncements();
+    setAnnouncements(a);
+    if (dashboard) setDashboard({ ...dashboard, announcements: a.slice(0, 10) });
+  };
 
   return (
     <div className='flex flex-1 flex-col gap-4 p-4 md:p-6'>
@@ -94,6 +176,37 @@ export function OverviewDashboard() {
           <SummaryCard label='Total Position' value={summary.positions} />
         </div>
       )}
+
+      <div className='grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4'>
+        <StatCard
+          icon='leave'
+          label='Izin & Cuti Hari Ini'
+          value={dashboard?.leave_today.length ?? 0}
+          href='/dashboard/leaves'
+          loading={dashLoading}
+        />
+        <StatCard
+          icon='calendar'
+          label='End of Contract'
+          value={dashboard?.contracts_ending.length ?? 0}
+          href='/dashboard/karyawan'
+          loading={dashLoading}
+        />
+        <StatCard
+          icon='user'
+          label='Birthday 7 Hari'
+          value={dashboard?.birthdays.length ?? 0}
+          href='/dashboard/karyawan'
+          loading={dashLoading}
+        />
+        <StatCard
+          icon='notification'
+          label='Pengumuman'
+          value={announcements.length}
+          href='#pengumuman'
+          loading={dashLoading}
+        />
+      </div>
 
       <div className='grid grid-cols-1 gap-4 lg:grid-cols-3'>
         <Card className='lg:col-span-2'>
@@ -178,6 +291,104 @@ export function OverviewDashboard() {
           </CardContent>
         </Card>
       </div>
+
+      <Card id='pengumuman'>
+        <CardHeader>
+          <div className='flex items-center justify-between'>
+            <CardTitle className='flex items-center gap-2'>
+              <Icons.notification className='size-4' />
+              Pengumuman
+            </CardTitle>
+            {!editing && (
+              <button
+                type='button'
+                onClick={() => {
+                  setEditing(null);
+                  setTitle('');
+                  setBody('');
+                }}
+                className={buttonVariants({ variant: 'outline', size: 'sm' })}
+              >
+                <Icons.add className='size-4' />
+                Baru
+              </button>
+            )}
+          </div>
+        </CardHeader>
+        <CardContent>
+          {editing !== null || title || body ? (
+            <div className='space-y-2'>
+              <input
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder='Judul pengumuman'
+                className='border-border w-full rounded-lg border px-3 py-2 text-sm'
+              />
+              <textarea
+                value={body}
+                onChange={(e) => setBody(e.target.value)}
+                placeholder='Isi pengumuman'
+                rows={3}
+                className='border-border w-full rounded-lg border px-3 py-2 text-sm'
+              />
+              <div className='flex gap-2'>
+                <button
+                  type='button'
+                  onClick={saveAnnouncement}
+                  disabled={saving}
+                  className={buttonVariants({ size: 'sm' })}
+                >
+                  {saving ? 'Menyimpan...' : editing ? 'Simpan' : 'Tambah'}
+                </button>
+                <button
+                  type='button'
+                  onClick={() => {
+                    setEditing(null);
+                    setTitle('');
+                    setBody('');
+                  }}
+                  className={buttonVariants({ variant: 'ghost', size: 'sm' })}
+                >
+                  Batal
+                </button>
+              </div>
+            </div>
+          ) : announcements.length === 0 ? (
+            <p className='text-muted-foreground text-sm'>Belum ada pengumuman.</p>
+          ) : (
+            <div className='space-y-3'>
+              {announcements.map((a) => (
+                <div key={a.id} className='border-b pb-3 last:border-0 last:pb-0'>
+                  <div className='flex items-start justify-between gap-2'>
+                    <div>
+                      <p className='text-sm font-medium'>{a.title}</p>
+                      <p className='text-muted-foreground text-sm'>{a.body}</p>
+                    </div>
+                    <div className='flex shrink-0 gap-1'>
+                      <button
+                        type='button'
+                        onClick={() => startEdit(a)}
+                        className={buttonVariants({ variant: 'ghost', size: 'icon' })}
+                        aria-label='Edit'
+                      >
+                        <Icons.edit className='size-4' />
+                      </button>
+                      <button
+                        type='button'
+                        onClick={() => remove(a.id)}
+                        className={buttonVariants({ variant: 'ghost', size: 'icon' })}
+                        aria-label='Hapus'
+                      >
+                        <Icons.trash className='size-4' />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>

@@ -114,6 +114,8 @@ class EmployeeSerializer(serializers.ModelSerializer):
             'manager_name',
             'join_date',
             'employment_status',
+            'photo',
+            'photo_url',
         )
         read_only_fields = ('id', 'employee_id', 'department_name', 'position_name', 'manager_name', 'placement_display', 'religion_display', 'gender_display', 'marital_status_display')
         extra_kwargs = {
@@ -157,6 +159,18 @@ class EmployeeReadSerializer(EmployeeSerializer):
     bpjs_kesehatan = serializers.SerializerMethodField()
     bpjs_ketenagakerjaan = serializers.SerializerMethodField()
     contract_accumulation = serializers.SerializerMethodField()
+
+    def get_photo_url(self, obj):
+        if not obj.photo:
+            return None
+        from .storage import is_configured, signed_url
+
+        if not is_configured():
+            return None
+        try:
+            return signed_url('employee-photos', obj.photo, expires_in=3600)
+        except Exception:
+            return None
 
     def get_contract_accumulation(self, obj):
         from .services import contract_accumulation

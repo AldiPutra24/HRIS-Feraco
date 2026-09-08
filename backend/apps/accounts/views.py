@@ -1,5 +1,7 @@
 from django.contrib.auth import login as auth_login, logout as auth_logout
+from django.utils import timezone
 from rest_framework import status, viewsets
+from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -80,6 +82,35 @@ class CurrentEmployeeContractsView(APIView):
             return Response({'detail': 'Akun tidak terhubung ke data karyawan.'}, status=status.HTTP_404_NOT_FOUND)
         contracts = EmployeeContract.objects.filter(employee=employee)
         return Response(EmployeeContractSerializer(contracts, many=True, context={'request': request}).data)
+
+
+class CurrentEmployeePhotoView(APIView):
+    """Upload/replace the logged-in employee's profile photo (self-service)."""
+
+    permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser]
+
+    def post(self, request):
+        from apps.personnel.models import Employee
+        from apps.personnel.storage import delete_object, is_configured, upload_bytes
+
+        personnel = getattr(request.user, 'personnel', None)
+        employee = getattr(personnel, 'employee', None)
+        if employee is None:
+            return Response({'detail': 'Akun tidak terhubung ke data karyawan.'}, status=status.HTTP_404_NOT_FOUND)
+        f = request.FILES.get('photo')
+        if f is None:
+            return Response({'detail': 'File foto wajib diunggah.'}, status=status.HTTP_400_BAD_REQUEST)
+        if not is_configured():
+            return Response({'detail': 'Storage tidak dikonfigurasi.'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        if employee.photo:
+            delete_object('employee-photos', employee.photo)
+        ext = (f.name.split('.')[-1] if '.' in f.name else 'jpg')[:8]
+        path = f'emp_{employee.id}_{int(timezone.now().timestamp())}.{ext}'
+        upload_bytes('employee-photos', path, f.read(), content_type=f.content_type or 'image/jpeg')
+        employee.photo = path
+        employee.save(update_fields=['photo', 'updated_at'])
+        return Response({'photo': path})
 
 class RoleViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = Role.objects.all()

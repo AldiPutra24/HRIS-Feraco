@@ -15,4 +15,5 @@ urlpatterns = [
     path('me/account/', views.SelfAccountView.as_view(), name='me-account'),
     path('me/employee/', views.CurrentEmployeeView.as_view(), name='me-employee'),
     path('me/employee/contracts/', views.CurrentEmployeeContractsView.as_view(), name='me-employee-contracts'),
+    path('me/employee/photo/', views.CurrentEmployeePhotoView.as_view(), name='me-employee-photo'),
 ]

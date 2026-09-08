@@ -74,6 +74,8 @@ export type Employee = {
   manager_name: string;
   join_date: string | null;
   employment_status: string;
+  photo: string;
+  photo_url: string | null;
   contract_accumulation: ContractAccumulation;
 };
 

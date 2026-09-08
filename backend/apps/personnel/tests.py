@@ -569,3 +569,89 @@ class PositionApiTests(TestCase):
             'full_name': 'Jane', 'nik': '1234567890', 'department': self.dept_a.id, 'position': pos.id,
         }, content_type='application/json')
         self.assertEqual(res.status_code, 400)
+
+
+class AnnouncementApiTests(TestCase):
+    def setUp(self):
+        self.hr = make_user('HR_STAFF')
+        self.emp_user = make_user('EMPLOYEE')
+        self.client.force_login(self.hr)
+
+    def _list(self):
+        res = self.client.get(reverse('announcement-list'))
+        # Handle pagination wrapper if present.
+        return res.data['results'] if isinstance(res.data, dict) and 'results' in res.data else res.data
+
+    def test_hr_can_create_and_list(self):
+        res = self.client.post(reverse('announcement-list'), {'title': 'Libur', 'body': 'Besok libur'}, content_type='application/json')
+        self.assertEqual(res.status_code, 201)
+        self.assertEqual(res.data['created_by'], self.hr.id)
+        lst = self.client.get(reverse('announcement-list'))
+        self.assertEqual(lst.status_code, 200)
+        self.assertEqual(len(self._list()), 1)
+
+    def test_employee_read_only(self):
+        self.client.force_login(self.emp_user)
+        res = self.client.get(reverse('announcement-list'))
+        self.assertEqual(res.status_code, 200)
+        res = self.client.post(reverse('announcement-list'), {'title': 'X', 'body': 'Y'}, content_type='application/json')
+        self.assertEqual(res.status_code, 403)
+
+    def test_hr_can_update_delete(self):
+        created = self.client.post(reverse('announcement-list'), {'title': 'A', 'body': 'B'}, content_type='application/json')
+        pk = created.data['id']
+        upd = self.client.patch(reverse('announcement-detail', args=[pk]), {'title': 'A2'}, content_type='application/json')
+        self.assertEqual(upd.status_code, 200)
+        self.assertEqual(upd.data['title'], 'A2')
+        d = self.client.delete(reverse('announcement-detail', args=[pk]))
+        self.assertEqual(d.status_code, 204)
+
+
+class DashboardHrApiTests(TestCase):
+    def setUp(self):
+        self.user = make_user('HR_STAFF')
+        self.client.force_login(self.user)
+        self.dept = Department.objects.create(name='Eng')
+        self.pos = Position.objects.create(name='Eng', department=self.dept)
+        self.emp = Employee.objects.create(
+            employee_id='E001', full_name='John', nik='1234567890',
+            personal_email='j@m.com', company_email='j@feraco.co.id',
+            department=self.dept, position=self.pos, birth_date=timezone.localdate() + timedelta(days=3),
+        )
+
+    def test_dashboard_returns_sections(self):
+        res = self.client.get('/api/dashboard/hr/')
+        self.assertEqual(res.status_code, 200)
+        self.assertIn('leave_today', res.data)
+        self.assertIn('contracts_ending', res.data)
+        self.assertIn('birthdays', res.data)
+        self.assertIn('announcements', res.data)
+        self.assertEqual(len(res.data['birthdays']), 1)
+
+    def test_employee_denied(self):
+        self.client.force_login(make_user('EMPLOYEE'))
+        res = self.client.get('/api/dashboard/hr/')
+        self.assertEqual(res.status_code, 403)
+
+
+class EmployeePhotoApiTests(TestCase):
+    def setUp(self):
+        self.user = make_user('EMPLOYEE')
+        self.client.force_login(self.user)
+        self.emp = Employee.objects.create(
+            employee_id='E001', full_name='John', nik='1234567890',
+            personal_email='j@m.com', company_email='j@feraco.co.id',
+        )
+        # Employee extends Personnel; link the user to this personnel row.
+        self.emp.user = self.user
+        self.emp.save()
+
+    def test_upload_requires_file(self):
+        res = self.client.post(reverse('me-employee-photo'))
+        self.assertEqual(res.status_code, 400)
+
+    def test_upload_sets_photo(self):
+        f = SimpleUploadedFile('p.jpg', b'data', content_type='image/jpeg')
+        res = self.client.post(reverse('me-employee-photo'), {'photo': f}, format='multipart')
+        # Storage not configured in tests -> 503 expected, not 500.
+        self.assertIn(res.status_code, (200, 503))

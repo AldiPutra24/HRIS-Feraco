@@ -1,7 +1,7 @@
 ﻿from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 
-from .views import DepartmentViewSet, DocumentDownloadView, EmployeeViewSet, PositionViewSet
+from .views import DashboardHrView, DepartmentViewSet, DocumentDownloadView, EmployeeViewSet, PositionViewSet
 
 router = DefaultRouter()
 router.register('employees', EmployeeViewSet, basename='employee')
@@ -10,5 +10,6 @@ router.register('positions', PositionViewSet, basename='position')
 
 urlpatterns = [
     path('', include(router.urls)),
+    path('dashboard/hr/', DashboardHrView.as_view(), name='dashboard-hr'),
     path('documents/<int:pk>/download/', DocumentDownloadView.as_view(), name='document-download'),
 ]
