@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import { Badge } from '@/components/ui/badge';
 import { buttonVariants } from '@/components/ui/button';
@@ -9,7 +9,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Icons } from '@/components/icons';
 import { listDepartments, listEmployees, listPositions, type Department, type Employee } from '@/lib/employees';
-import { getHrDashboard, type HrDashboard } from '@/lib/dashboard';
+import { getHrDashboard, type DashboardBirthday, type DashboardContractEnding, type DashboardLeaveToday, type HrDashboard } from '@/lib/dashboard';
 import {
   createAnnouncement,
   deleteAnnouncement,
@@ -47,26 +47,121 @@ const QUICK_ACTIONS = [
   { label: 'Positions', href: '/dashboard/settings/positions', icon: 'userPlus' as const }
 ];
 
-function StatCard({ icon, label, value, href, loading }: {
+function fmtDate(iso: string): string {
+  if (!iso) return '-';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+
+function fmtDateTime(iso: string): string {
+  if (!iso) return '-';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+
+function ListCard({
+  icon,
+  label,
+  count,
+  href,
+  loading,
+  empty,
+  children
+}: {
   icon: keyof typeof Icons;
   label: string;
-  value: number;
+  count: number;
   href: string;
   loading: boolean;
+  empty: string;
+  children: ReactNode;
 }) {
   const Icon = Icons[icon];
   return (
-    <Link href={href} className='border-border hover:bg-muted block rounded-xl border p-4 transition-colors'>
-      <div className='flex items-center gap-2 text-muted-foreground'>
-        <Icon className='size-4' />
-        <span className='text-xs font-medium'>{label}</span>
-      </div>
-      {loading ? (
-        <Skeleton className='mt-2 h-8 w-12' />
-      ) : (
-        <p className='mt-1 text-3xl font-semibold tabular-nums'>{value}</p>
-      )}
-    </Link>
+    <Card className='flex flex-col'>
+      <CardHeader className='pb-3'>
+        <Link href={href} className='flex items-center justify-between gap-2 hover:opacity-80'>
+          <div className='flex items-center gap-2 text-muted-foreground'>
+            <Icon className='size-4' />
+            <span className='text-xs font-medium'>{label}</span>
+          </div>
+          {loading ? (
+            <Skeleton className='h-6 w-8' />
+          ) : (
+            <span className='bg-muted text-muted-foreground rounded-full px-2 py-0.5 text-xs font-semibold tabular-nums'>
+              {count}
+            </span>
+          )}
+        </Link>
+      </CardHeader>
+      <CardContent className='flex-1 pt-0'>
+        {loading ? (
+          <div className='space-y-2'>
+            {Array.from({ length: 3 }).map((_, i) => (
+              <Skeleton key={i} className='h-12 w-full' />
+            ))}
+          </div>
+        ) : count === 0 ? (
+          <p className='text-muted-foreground py-6 text-center text-sm'>{empty}</p>
+        ) : (
+          <ul className='divide-y'>{children}</ul>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function LeaveRow({ item }: { item: DashboardLeaveToday }) {
+  const period =
+    item.start_date === item.end_date
+      ? fmtDate(item.start_date)
+      : `${fmtDate(item.start_date)} – ${fmtDate(item.end_date)}`;
+  return (
+    <li>
+      <Link href='/dashboard/leave' className='hover:bg-muted flex items-center justify-between gap-2 px-1 py-2'>
+        <div className='min-w-0'>
+          <p className='truncate text-sm font-medium'>{item.employee_name}</p>
+          <p className='text-muted-foreground truncate text-xs'>
+            {item.leave_type_name} · {period}
+          </p>
+        </div>
+        <Badge variant={item.status === 'APPROVED' ? 'default' : 'secondary'} className='shrink-0'>
+          {item.status}
+        </Badge>
+      </Link>
+    </li>
+  );
+}
+
+function ContractRow({ item }: { item: DashboardContractEnding }) {
+  return (
+    <li>
+      <Link href='/dashboard/karyawan' className='hover:bg-muted flex items-center justify-between gap-2 px-1 py-2'>
+        <div className='min-w-0'>
+          <p className='truncate text-sm font-medium'>{item.employee_name}</p>
+          <p className='text-muted-foreground truncate text-xs'>
+            {item.position_name || '-'} · {fmtDate(item.end_date)}
+          </p>
+        </div>
+        <span className='text-muted-foreground shrink-0 text-xs tabular-nums'>{item.days_left} hari</span>
+      </Link>
+    </li>
+  );
+}
+
+function BirthdayRow({ item }: { item: DashboardBirthday }) {
+  return (
+    <li>
+      <Link href='/dashboard/karyawan' className='hover:bg-muted flex items-center justify-between gap-2 px-1 py-2'>
+        <div className='min-w-0'>
+          <p className='truncate text-sm font-medium'>{item.full_name}</p>
+          <p className='text-muted-foreground truncate text-xs'>{item.department_name || '-'}</p>
+        </div>
+        <span className='text-muted-foreground shrink-0 text-xs tabular-nums'>{fmtDate(item.birth_date)}</span>
+      </Link>
+    </li>
   );
 }
 
@@ -178,34 +273,77 @@ export function OverviewDashboard() {
       )}
 
       <div className='grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4'>
-        <StatCard
+        <ListCard
           icon='leave'
           label='Izin & Cuti Hari Ini'
-          value={dashboard?.leave_today.length ?? 0}
+          count={dashboard?.leave_today.length ?? 0}
           href='/dashboard/leave'
           loading={dashLoading}
-        />
-        <StatCard
+          empty='Tidak ada data hari ini'
+        >
+          {dashboard?.leave_today.map((item) => <LeaveRow key={item.id} item={item} />)}
+        </ListCard>
+        <ListCard
           icon='calendar'
           label='End of Contract'
-          value={dashboard?.contracts_ending.length ?? 0}
+          count={dashboard?.contracts_ending.length ?? 0}
           href='/dashboard/karyawan'
           loading={dashLoading}
-        />
-        <StatCard
+          empty='Tidak ada kontrak yang akan berakhir'
+        >
+          {dashboard?.contracts_ending.map((item) => <ContractRow key={item.id} item={item} />)}
+        </ListCard>
+        <ListCard
           icon='user'
           label='Birthday 7 Hari'
-          value={dashboard?.birthdays.length ?? 0}
+          count={dashboard?.birthdays.length ?? 0}
           href='/dashboard/karyawan'
           loading={dashLoading}
-        />
-        <StatCard
+          empty='Tidak ada ulang tahun dalam 7 hari'
+        >
+          {dashboard?.birthdays.map((item) => <BirthdayRow key={item.id} item={item} />)}
+        </ListCard>
+        <ListCard
           icon='notification'
           label='Pengumuman'
-          value={announcements.length}
+          count={announcements.length}
           href='#pengumuman'
           loading={dashLoading}
-        />
+          empty='Belum ada pengumuman'
+        >
+          {announcements.map((a) => (
+            <li key={a.id}>
+              <div className='hover:bg-muted flex items-start justify-between gap-2 px-1 py-2'>
+                <div className='min-w-0'>
+                  <p className='truncate text-sm font-medium'>{a.title}</p>
+                  <p className='text-muted-foreground line-clamp-1 text-xs'>{a.body}</p>
+                  <p className='text-muted-foreground mt-0.5 text-[11px]'>
+                    {fmtDateTime(a.created_at)}
+                    {a.created_by_name ? ` · ${a.created_by_name}` : ''}
+                  </p>
+                </div>
+                <div className='flex shrink-0 gap-1'>
+                  <button
+                    type='button'
+                    onClick={() => startEdit(a)}
+                    className={buttonVariants({ variant: 'ghost', size: 'icon' })}
+                    aria-label='Edit'
+                  >
+                    <Icons.edit className='size-4' />
+                  </button>
+                  <button
+                    type='button'
+                    onClick={() => remove(a.id)}
+                    className={buttonVariants({ variant: 'ghost', size: 'icon' })}
+                    aria-label='Hapus'
+                  >
+                    <Icons.trash className='size-4' />
+                  </button>
+                </div>
+              </div>
+            </li>
+          ))}
+        </ListCard>
       </div>
 
       <div className='grid grid-cols-1 gap-4 lg:grid-cols-3'>

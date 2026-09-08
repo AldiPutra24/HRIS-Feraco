@@ -27,6 +27,7 @@ export type DashboardLeaveToday = {
   employee_name: string;
   leave_type_name: string;
   kind: string;
+  status: string;
   start_date: string;
   end_date: string;
   total_days: number;
@@ -36,6 +37,7 @@ export type DashboardContractEnding = {
   id: number;
   employee_name: string;
   employee_id: string;
+  position_name: string | null;
   contract_type: string;
   end_date: string;
   days_left: number;
