@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
-import { createEmployee, listDepartments, listEmployees, listPositions, updateEmployee, type Department, type Employee, type Position } from '@/lib/employees';
+import { createEmployee, listDepartments, listPositions, listReportingCandidates, updateEmployee, type Department, type Employee, type Position } from '@/lib/employees';
 
 type Props = { employee?: Employee | null; onSaved: () => void; onCancel: () => void };
 
@@ -134,8 +134,8 @@ function toForm(e: Employee): FormState {
 export function EmployeeForm({ employee, onSaved, onCancel }: Props) {
   const [departments, setDepartments] = useState<Department[]>([]);
   const [positions, setPositions] = useState<Position[]>([]);
-  const [managers, setManagers] = useState<Employee[]>([]);
-  const [mgrLoading, setMgrLoading] = useState(true);
+  const [managers, setManagers] = useState<import('@/lib/employees').ReportingCandidate[]>([]);
+  const [mgrLoading, setMgrLoading] = useState(false);
   const [deptLoading, setDeptLoading] = useState(true);
   const [deptError, setDeptError] = useState('');
   const [posLoading, setPosLoading] = useState(false);
@@ -169,11 +169,17 @@ export function EmployeeForm({ employee, onSaved, onCancel }: Props) {
   }, [form.department]);
 
   useEffect(() => {
-    listEmployees({ page_size: 1000 })
-      .then((page) => setManagers(page.results))
+    if (!form.position) {
+      setManagers([]);
+      setMgrLoading(false);
+      return;
+    }
+    setMgrLoading(true);
+    listReportingCandidates(Number(form.position), employee?.id)
+      .then(setManagers)
       .catch(() => setManagers([]))
       .finally(() => setMgrLoading(false));
-  }, []);
+  }, [form.position, employee?.id]);
 
   function selectDepartment(value: string) {
     setForm((f) => ({ ...f, department: value, position: '' }));

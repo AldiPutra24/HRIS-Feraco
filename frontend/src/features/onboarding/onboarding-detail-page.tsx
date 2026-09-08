@@ -21,7 +21,7 @@ import {
   type OnboardingDocument,
   type OnboardingReadiness,
 } from '@/lib/onboarding';
-import { listDepartments, listPositions, listPersonnel } from '@/lib/employees';
+import { listDepartments, listPositions, listReportingCandidates } from '@/lib/employees';
 import { useAuth } from '@/lib/auth/auth-provider';
 import { Icons } from '@/components/icons';
 import { Badge } from '@/components/ui/badge';
@@ -154,7 +154,7 @@ function DataTab({
   const [form, setForm] = useState<Record<string, string>>({});
   const [departments, setDepartments] = useState<{ id: number; name: string }[]>([]);
   const [positions, setPositions] = useState<{ id: number; name: string }[]>([]);
-  const [personnel, setPersonnel] = useState<{ id: number; name: string }[]>([]);
+  const [reportingCandidates, setReportingCandidates] = useState<{ id: number; name: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -180,14 +180,8 @@ function DataTab({
   useEffect(() => {
     void load();
     if (canManage) {
-      Promise.all([
-        listDepartments(),
-        listPersonnel(),
-      ])
-        .then(([deps, people]) => {
-          setDepartments(deps);
-          setPersonnel(people.map((p) => ({ id: p.id, name: p.full_name })));
-        })
+      listDepartments()
+        .then(setDepartments)
         .catch(() => {});
     }
   }, [load, canManage, onboardingId]);
@@ -201,6 +195,16 @@ function DataTab({
       .then(setPositions)
       .catch(() => setPositions([]));
   }, [form.department]);
+
+  useEffect(() => {
+    if (!form.position) {
+      setReportingCandidates([]);
+      return;
+    }
+    listReportingCandidates(Number(form.position))
+      .then((cs) => setReportingCandidates(cs.map((c) => ({ id: c.id, name: c.full_name }))))
+      .catch(() => setReportingCandidates([]));
+  }, [form.position]);
 
   if (loading) return <Skeleton className='h-64 w-full' />;
   if (!data) return <p className='text-muted-foreground'>Data belum diisi.</p>;
@@ -229,11 +233,11 @@ function DataTab({
       setSaving(false);
     }
   }
-
+reportingCandidates
   const selectOptions: Record<string, { value: string; label: string }[]> = {
     department: departments.map((d) => ({ value: String(d.id), label: d.name })),
     position: positions.map((p) => ({ value: String(p.id), label: p.name })),
-    reporting_to: personnel.map((p) => ({ value: String(p.id), label: p.name })),
+    reporting_to: reportingCandidates.map((p) => ({ value: String(p.id), label: p.name })),
   };
 
   return (

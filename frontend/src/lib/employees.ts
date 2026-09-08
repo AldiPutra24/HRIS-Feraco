@@ -268,6 +268,15 @@ export function listPersonnel(): Promise<PersonnelLite[]> {
   return request<{ results: PersonnelLite[] }>('/employees/?page_size=1000').then((r) => r.results);
 }
 
+export type ReportingCandidate = { id: number; full_name: string; position_name: string };
+
+export function listReportingCandidates(position: number | null | undefined, exclude?: number | null): Promise<ReportingCandidate[]> {
+  if (!position) return Promise.resolve([]);
+  const q = new URLSearchParams({ position: String(position) });
+  if (exclude) q.set('exclude', String(exclude));
+  return request<ReportingCandidate[]>(`/employees/reporting_candidates/?${q.toString()}`);
+}
+
 export function createPosition(data: Partial<Position>): Promise<Position> {
   return request<Position>('/positions/', { method: 'POST', body: JSON.stringify(data) });
 }

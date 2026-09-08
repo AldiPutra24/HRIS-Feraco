@@ -286,6 +286,43 @@ class EmployeeApiTests(TestCase):
         self.assertTrue(Employee.objects.filter(company_email='xlsx@feraco.co.id').exists())
 
 
+class ReportingLineApiTests(TestCase):
+    def setUp(self):
+        self.user = make_user('ADMIN')
+        self.client.force_login(self.user)
+        self.dept = Department.objects.create(name='Sales')
+        self.supervisor = Position.objects.create(name='Sales Supervisor', department=self.dept)
+        self.ae = Position.objects.create(name='Sales Account Executive', department=self.dept, parent_position=self.supervisor)
+        self.support = Position.objects.create(name='Sales Support Specialist', department=self.dept, parent_position=self.supervisor)
+
+    def _emp(self, eid, name, position, status='ACTIVE'):
+        return Employee.objects.create(
+            employee_id=eid, full_name=name, nik=f'{eid}1234567890', personal_email=f'{eid}@m.com',
+            company_email=f'{eid}@feraco.co.id', position=position, employment_status=status,
+        )
+
+    def test_candidates_follow_parent_position(self):
+        mgr = self._emp('M001', 'Super', self.supervisor)
+        self._emp('A001', 'AE', self.ae)
+        self._emp('S001', 'Support', self.support)
+        res = self.client.get(reverse('employee-reporting-candidates'), {'position': self.ae.id})
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual([c['id'] for c in res.data], [mgr.id])
+
+    def test_inactive_excluded(self):
+        self._emp('M001', 'Super', self.supervisor, status='INACTIVE')
+        res = self.client.get(reverse('employee-reporting-candidates'), {'position': self.ae.id})
+        self.assertEqual(res.data, [])
+
+    def test_no_parent_returns_empty(self):
+        res = self.client.get(reverse('employee-reporting-candidates'), {'position': self.supervisor.id})
+        self.assertEqual(res.data, [])
+
+    def test_exclude_self(self):
+        mgr = self._emp('M001', 'Super', self.supervisor)
+        res = self.client.get(reverse('employee-reporting-candidates'), {'position': self.ae.id, 'exclude': mgr.id})
+        self.assertEqual(res.data, [])
+
 class ContractApiTests(TestCase):
     def setUp(self):
         self.user = make_user('ADMIN')

@@ -95,6 +95,30 @@ class EmployeeViewSet(SoftHardDeleteMixin, viewsets.ModelViewSet):
             )
         return qs
 
+    @action(detail=False, methods=['get'])
+    def reporting_candidates(self, request):
+        """Valid Reporting To candidates for a given position.
+
+        Source of truth: Position.parent_position. An employee with position X
+        may report to employees whose position == parent_position of X. Only
+        ACTIVE employees are returned. No position or no parent -> empty list.
+        """
+        position_id = request.query_params.get('position')
+        exclude_id = request.query_params.get('exclude')
+        if not position_id:
+            return Response([])
+        parent = Position.objects.filter(pk=position_id).values_list('parent_position_id', flat=True).first()
+        if not parent:
+            return Response([])
+        qs = Employee.objects.filter(position_id=parent, employment_status='ACTIVE').select_related('position')
+        if exclude_id:
+            qs = qs.exclude(pk=exclude_id)
+        data = [
+            {'id': e.id, 'full_name': e.full_name, 'position_name': e.position.name if e.position else ''}
+            for e in qs
+        ]
+        return Response(data)
+
     def perform_create(self, serializer):
         employee = serializer.save(employee_id=next_employee_id())
         log_event(self.request, 'create', obj=employee, description=f'Employee {employee.employee_id} created')
