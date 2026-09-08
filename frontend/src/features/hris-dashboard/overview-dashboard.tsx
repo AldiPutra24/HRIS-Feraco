@@ -174,6 +174,7 @@ export function OverviewDashboard() {
   const [loading, setLoading] = useState(true);
   const [dashLoading, setDashLoading] = useState(true);
   const [editing, setEditing] = useState<Announcement | null>(null);
+  const [adding, setAdding] = useState(false);
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
   const [saving, setSaving] = useState(false);
@@ -227,12 +228,13 @@ export function OverviewDashboard() {
       setAnnouncements(a);
       if (dashboard) setDashboard({ ...dashboard, announcements: a.slice(0, 10) });
       setEditing(null);
+      setAdding(false);
       setTitle('');
       setBody('');
     } finally {
       setSaving(false);
     }
-  }, [editing, title, body, dashboard]);
+  }, [editing, adding, title, body, dashboard]);
 
   const startEdit = (a: Announcement) => {
     setEditing(a);
@@ -437,13 +439,14 @@ export function OverviewDashboard() {
               <Icons.notification className='size-4' />
               Pengumuman
             </CardTitle>
-            {!editing && (
+            {!editing && !adding && (
               <button
                 type='button'
                 onClick={() => {
                   setEditing(null);
                   setTitle('');
                   setBody('');
+                  setAdding(true);
                 }}
                 className={buttonVariants({ variant: 'outline', size: 'sm' })}
               >
@@ -454,7 +457,7 @@ export function OverviewDashboard() {
           </div>
         </CardHeader>
         <CardContent>
-          {editing !== null || title || body ? (
+          {editing !== null || adding || title || body ? (
             <div className='space-y-2'>
               <input
                 value={title}
@@ -482,6 +485,7 @@ export function OverviewDashboard() {
                   type='button'
                   onClick={() => {
                     setEditing(null);
+                    setAdding(false);
                     setTitle('');
                     setBody('');
                   }}
