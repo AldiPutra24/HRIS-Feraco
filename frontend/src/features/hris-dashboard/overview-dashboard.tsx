@@ -182,7 +182,7 @@ export function OverviewDashboard() {
           icon='leave'
           label='Izin & Cuti Hari Ini'
           value={dashboard?.leave_today.length ?? 0}
-          href='/dashboard/leaves'
+          href='/dashboard/leave'
           loading={dashLoading}
         />
         <StatCard

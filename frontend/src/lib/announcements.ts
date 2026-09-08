@@ -35,7 +35,7 @@ export type Announcement = {
 };
 
 export function listAnnouncements(): Promise<Announcement[]> {
-  return request<Announcement[]>('/');
+  return request<{ results: Announcement[] }>('/').then((d) => d.results ?? []);
 }
 
 export function createAnnouncement(input: { title: string; body: string }): Promise<Announcement> {
