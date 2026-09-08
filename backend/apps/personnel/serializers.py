@@ -115,7 +115,6 @@ class EmployeeSerializer(serializers.ModelSerializer):
             'join_date',
             'employment_status',
             'photo',
-            'photo_url',
         )
         read_only_fields = ('id', 'employee_id', 'department_name', 'position_name', 'manager_name', 'placement_display', 'religion_display', 'gender_display', 'marital_status_display')
         extra_kwargs = {
@@ -159,6 +158,7 @@ class EmployeeReadSerializer(EmployeeSerializer):
     bpjs_kesehatan = serializers.SerializerMethodField()
     bpjs_ketenagakerjaan = serializers.SerializerMethodField()
     contract_accumulation = serializers.SerializerMethodField()
+    photo_url = serializers.SerializerMethodField()
 
     def get_photo_url(self, obj):
         if not obj.photo:
@@ -198,7 +198,7 @@ class EmployeeReadSerializer(EmployeeSerializer):
         return _mask(obj.bpjs_ketenagakerjaan, self._privileged())
 
     class Meta(EmployeeSerializer.Meta):
-        fields = EmployeeSerializer.Meta.fields + ('contract_accumulation',)
+        fields = EmployeeSerializer.Meta.fields + ('photo_url', 'contract_accumulation')
 
 
 class EmployeeContractSerializer(serializers.ModelSerializer):
