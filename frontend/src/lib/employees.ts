@@ -74,6 +74,7 @@ export type Employee = {
   manager_name: string;
   join_date: string | null;
   employment_status: string;
+  contract_accumulation: ContractAccumulation;
 };
 
 export type Contract = {
@@ -88,6 +89,8 @@ export type Contract = {
   probation_end_date: string | null;
   status: string;
   is_current: boolean;
+  duration_months: number;
+  duration_display: string;
   termination_date: string | null;
   termination_reason: string;
   notes: string;
@@ -95,6 +98,13 @@ export type Contract = {
   activate?: boolean;
   created_at: string;
   updated_at: string;
+};
+
+export type ContractAccumulation = {
+  months: number;
+  display: string;
+  current_id: number | null;
+  contracts: Array<{ id: number; duration_months: number; duration_display: string; overlap: boolean }>;
 };
 
 export type History = {

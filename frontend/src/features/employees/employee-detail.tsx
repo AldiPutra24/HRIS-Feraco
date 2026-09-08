@@ -352,6 +352,22 @@ export function EmployeeDetail({ id }: { id: number }) {
               <Field label='NPWP' value={employee.npwp} />
             </CardContent>
           </Card>
+          {employee.contract_accumulation && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Akumulasi Masa Kontrak</CardTitle>
+              </CardHeader>
+              <CardContent className='space-y-2'>
+                <Field label='Total Akumulasi' value={employee.contract_accumulation.display} />
+                <div className='text-muted-foreground text-xs'>
+                  {employee.contract_accumulation.contracts.length} kontrak
+                  {employee.contract_accumulation.contracts.some((c) => c.overlap)
+                    ? ' · periode overlap tidak dihitung ganda'
+                    : ''}
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </div>
       )}
 
@@ -392,6 +408,7 @@ export function EmployeeDetail({ id }: { id: number }) {
                       <Field label='Tipe' value={current.contract_type} />
                       <Field label='No. Kontrak' value={current.contract_number} />
                       <Field label='Periode' value={`${current.start_date} — ${current.end_date || 'Berlangsung'}`} />
+                      <Field label='Durasi' value={current.duration_display} />
                       <Field label='Status' value={<Badge variant='default'>{current.status}</Badge>} />
                       {current.probation_enabled && (
                         <Field
@@ -513,6 +530,7 @@ export function EmployeeDetail({ id }: { id: number }) {
                     <TableHead>Tipe</TableHead>
                     <TableHead>No. Kontrak</TableHead>
                     <TableHead>Periode</TableHead>
+                    <TableHead>Durasi</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Probation</TableHead>
                     <TableHead>Dokumen</TableHead>
@@ -525,6 +543,7 @@ export function EmployeeDetail({ id }: { id: number }) {
                       <TableCell>{c.contract_type}</TableCell>
                       <TableCell>{c.contract_number || '-'}</TableCell>
                       <TableCell>{c.start_date} — {c.end_date || '-'}</TableCell>
+                      <TableCell>{c.duration_display}</TableCell>
                       <TableCell>
                         <Badge variant={c.status === 'ACTIVE' ? 'default' : 'secondary'}>{c.status}</Badge>
                         {c.is_current && <span className='ml-2 text-xs text-muted-foreground'>Current</span>}

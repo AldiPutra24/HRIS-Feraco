@@ -31,7 +31,7 @@ export const employeeNavGroups: NavGroup[] = [
             items: []
           },
           {
-            title: 'Ajukan Cuti',
+            title: 'Ajukan Izin & Cuti',
             url: '/dashboard/employee/leave/new',
             isActive: false,
             items: []

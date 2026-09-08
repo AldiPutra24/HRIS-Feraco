@@ -14,8 +14,9 @@ const STATUS_VARIANT: Record<string, 'default' | 'secondary' | 'destructive' | '
 };
 
 export function EmployeeContractPage() {
-  const { contracts, loading, error } = useMyEmployee();
+  const { employee, contracts, loading, error } = useMyEmployee();
   const current = contracts.find((c) => c.is_current) ?? null;
+  const accumulation = employee?.contract_accumulation;
 
   if (error) {
     return (
@@ -67,6 +68,28 @@ export function EmployeeContractPage() {
                 <span className='font-medium'>{current.end_date}</span>
               </div>
             )}
+            <div className='flex justify-between'>
+              <span className='text-muted-foreground text-sm'>Durasi</span>
+              <span className='font-medium'>{current.duration_display}</span>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {accumulation && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Akumulasi Masa Kontrak</CardTitle>
+          </CardHeader>
+          <CardContent className='space-y-2'>
+            <div className='flex justify-between'>
+              <span className='text-muted-foreground text-sm'>Total Akumulasi</span>
+              <span className='font-medium'>{accumulation.display}</span>
+            </div>
+            <div className='text-muted-foreground text-xs'>
+              {accumulation.contracts.length} kontrak
+              {accumulation.contracts.some((c) => c.overlap) ? ' · periode overlap tidak dihitung ganda' : ''}
+            </div>
           </CardContent>
         </Card>
       )}

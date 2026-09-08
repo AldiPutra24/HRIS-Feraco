@@ -74,3 +74,81 @@ def set_current_contract(contract):
         ).exclude(pk=contract.pk).update(status='RENEWED', updated_at=timezone.now())
         contract.status = 'ACTIVE'
         contract.save(update_fields=['status', 'updated_at'])
+
+
+def contract_accumulation(employee):
+    """Sum contract durations from the first contract up to (and including) the
+    current one, merging overlapping periods so they are not double-counted.
+
+    Returns a dict: {months, display, current_id, contracts:[{id, duration_months, duration_display, overlap}]}.
+    `overlap` flags contracts whose period is fully inside an already-counted span.
+    """
+    contracts = list(
+        employee.contracts.filter(deleted_at__isnull=True)
+        .exclude(start_date__isnull=True)
+        .order_by('start_date', 'id')
+    )
+    today = timezone.localdate()
+    counted_end = None  # end of the running merged span
+    total = 0
+    current_id = None
+    result = []
+    for c in contracts:
+        end = c.end_date
+        if end is None or end > today:
+            end = today
+        # Running contract = the latest one whose span reaches today.
+        if c.end_date is None or c.end_date >= today:
+            current_id = c.id
+        # Skip zero/negative spans.
+        if end < c.start_date:
+            result.append({
+                'id': c.id,
+                'duration_months': 0,
+                'duration_display': '0 bulan',
+                'overlap': False,
+            })
+            continue
+        if counted_end is None:
+            # First span: count full length.
+            counted_end = end
+            total += c.duration_months
+            result.append({
+                'id': c.id,
+                'duration_months': c.duration_months,
+                'duration_display': c.duration_display,
+                'overlap': False,
+            })
+        elif end <= counted_end:
+            # Fully inside the already-counted span → no double count.
+            result.append({
+                'id': c.id,
+                'duration_months': c.duration_months,
+                'duration_display': c.duration_display,
+                'overlap': True,
+            })
+        else:
+            # Extends beyond counted span: count only the new tail.
+            added = (end.year - counted_end.year) * 12 + (end.month - counted_end.month)
+            if end.day < counted_end.day:
+                added -= 1
+            counted_end = end
+            total += max(added, 0)
+            result.append({
+                'id': c.id,
+                'duration_months': c.duration_months,
+                'duration_display': c.duration_display,
+                'overlap': False,
+            })
+    years, rem = divmod(total, 12)
+    parts = []
+    if years:
+        parts.append(f'{years} tahun' if years > 1 else '1 tahun')
+    if rem:
+        parts.append(f'{rem} bulan')
+    return {
+        'months': total,
+        'display': ' '.join(parts) if parts else '0 bulan',
+        'current_id': current_id,
+        'contracts': result,
+    }

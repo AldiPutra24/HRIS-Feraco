@@ -156,6 +156,12 @@ class EmployeeReadSerializer(EmployeeSerializer):
     npwp = serializers.SerializerMethodField()
     bpjs_kesehatan = serializers.SerializerMethodField()
     bpjs_ketenagakerjaan = serializers.SerializerMethodField()
+    contract_accumulation = serializers.SerializerMethodField()
+
+    def get_contract_accumulation(self, obj):
+        from .services import contract_accumulation
+
+        return contract_accumulation(obj)
 
     def _privileged(self):
         request = self.context.get('request')
@@ -177,10 +183,15 @@ class EmployeeReadSerializer(EmployeeSerializer):
     def get_bpjs_ketenagakerjaan(self, obj):
         return _mask(obj.bpjs_ketenagakerjaan, self._privileged())
 
+    class Meta(EmployeeSerializer.Meta):
+        fields = EmployeeSerializer.Meta.fields + ('contract_accumulation',)
+
 
 class EmployeeContractSerializer(serializers.ModelSerializer):
     document = serializers.SerializerMethodField()
     is_current = serializers.BooleanField(read_only=True)
+    duration_months = serializers.IntegerField(read_only=True)
+    duration_display = serializers.CharField(read_only=True)
     # Write-only flag: "Activate Contract" instead of "Simpan Draft".
     activate = serializers.BooleanField(write_only=True, required=False, default=False)
 
@@ -198,6 +209,8 @@ class EmployeeContractSerializer(serializers.ModelSerializer):
             'probation_end_date',
             'status',
             'is_current',
+            'duration_months',
+            'duration_display',
             'termination_date',
             'termination_reason',
             'notes',
@@ -206,7 +219,7 @@ class EmployeeContractSerializer(serializers.ModelSerializer):
             'created_at',
             'updated_at',
         )
-        read_only_fields = ('id', 'employee', 'status', 'created_at', 'updated_at', 'document', 'is_current')
+        read_only_fields = ('id', 'employee', 'status', 'created_at', 'updated_at', 'document', 'is_current', 'duration_months', 'duration_display')
 
     def get_document(self, obj):
         doc = obj.documents.order_by('-created_at').first()

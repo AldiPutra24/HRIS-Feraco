@@ -46,6 +46,7 @@ export function EmployeeOverview() {
   const approved = requests.filter((r) => r.status === 'APPROVED').length;
   const totalRemaining = balances.reduce((sum, b) => sum + b.remaining_days, 0);
   const current = contracts.find((c) => c.is_current) ?? null;
+  const accumulation = employee.contract_accumulation;
   const recent = requests.slice(0, 5);
 
   return (
@@ -90,8 +91,20 @@ export function EmployeeOverview() {
             <p className='text-3xl font-semibold'>{current?.contract_type ?? '-'}</p>
             {current?.end_date && (
               <p className='text-muted-foreground text-xs'>sampai {current.end_date}</p>
+            )}            {current?.duration_display && (
+              <p className='text-muted-foreground text-xs'>durasi {current.duration_display}</p>
             )}
           </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle>Akumulasi Kontrak</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className='text-3xl font-semibold'>{accumulation?.display ?? '-'}</p>
+            {accumulation && (
+              <p className='text-muted-foreground text-xs'>{accumulation.contracts.length} kontrak</p>
+            )}          </CardContent>
         </Card>
       </div>
 

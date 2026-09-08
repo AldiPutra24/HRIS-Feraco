@@ -7,7 +7,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from .models import Department, Employee, EmployeeContract, EmploymentHistory, Position
-from .services import set_current_contract, sync_contract_status
+from .services import contract_accumulation, set_current_contract, sync_contract_status
 
 User = get_user_model()
 
@@ -131,6 +131,78 @@ class ContractStatusTests(TestCase):
         c.refresh_from_db()
         self.assertEqual(c.status, 'TERMINATED')
         self.assertFalse(c.is_current)
+
+
+class ContractDurationTests(TestCase):
+    def setUp(self):
+        self.emp = Employee.objects.create(employee_id='E001', full_name='John')
+
+    def _contract(self, start, end=None, **over):
+        data = {'employee': self.emp, 'contract_type': 'PKWT', 'start_date': start, 'end_date': end}
+        data.update(over)
+        return EmployeeContract.objects.create(**data)
+
+    def test_duration_months_exact(self):
+        c = self._contract(date(2024, 1, 1), date(2024, 7, 1))
+        self.assertEqual(c.duration_months, 6)
+        self.assertEqual(c.duration_display, '6 bulan')
+
+    def test_duration_one_year_two_months(self):
+        c = self._contract(date(2024, 1, 15), date(2025, 3, 15))
+        self.assertEqual(c.duration_months, 14)
+        self.assertEqual(c.duration_display, '1 tahun 2 bulan')
+
+    def test_duration_two_years_ten_months(self):
+        c = self._contract(date(2023, 1, 1), date(2025, 11, 1))
+        self.assertEqual(c.duration_months, 34)
+        self.assertEqual(c.duration_display, '2 tahun 10 bulan')
+
+    def test_duration_open_uses_today(self):
+        c = self._contract(date.today() - timedelta(days=365), None)
+        self.assertEqual(c.duration_months, 12)
+        self.assertEqual(c.duration_display, '1 tahun')
+
+    def test_duration_running_active(self):
+        c = self._contract(date.today() - timedelta(days=240), date.today() + timedelta(days=100))
+        self.assertEqual(c.duration_months, 7)
+
+class ContractAccumulationTests(TestCase):
+    def setUp(self):
+        self.emp = Employee.objects.create(employee_id='E001', full_name='John')
+
+    def _contract(self, start, end=None, **over):
+        data = {'employee': self.emp, 'contract_type': 'PKWT', 'start_date': start, 'end_date': end}
+        data.update(over)
+        return EmployeeContract.objects.create(**data)
+
+    def test_accumulation_no_overlap(self):
+        self._contract(date(2024, 1, 1), date(2024, 7, 1))   # 6 months
+        self._contract(date(2024, 7, 2), date(2025, 3, 1))   # 8 months
+        self._contract(date(2025, 3, 2), date(2026, 5, 1))   # 14 months
+        acc = contract_accumulation(self.emp)
+        self.assertEqual(acc['months'], 28)  # 2 tahun 4 bulan
+        self.assertEqual(acc['display'], '2 tahun 4 bulan')
+        self.assertFalse(any(c['overlap'] for c in acc['contracts']))
+
+    def test_accumulation_overlap_ignored(self):
+        self._contract(date(2024, 1, 1), date(2024, 7, 1))   # 6 months
+        self._contract(date(2024, 2, 1), date(2024, 6, 15))  # inside first span
+        acc = contract_accumulation(self.emp)
+        self.assertEqual(acc['months'], 6)
+        self.assertTrue(acc['contracts'][1]['overlap'])
+
+    def test_accumulation_partial_overlap_tails(self):
+        self._contract(date(2024, 1, 1), date(2024, 7, 1))   # 6 months
+        self._contract(date(2024, 6, 1), date(2024, 9, 1))   # overlaps, tail 2 months
+        acc = contract_accumulation(self.emp)
+        self.assertEqual(acc['months'], 8)
+
+    def test_accumulation_open_current(self):
+        self._contract(date(2024, 1, 1), date(2024, 7, 1))   # 6 months
+        self._contract(date(2024, 7, 2), None)              # running from 2024-07-02 to today
+        acc = contract_accumulation(self.emp)
+        self.assertIsNotNone(acc['current_id'])
+        self.assertGreater(acc['months'], 6)
 
 
 class EmployeeApiTests(TestCase):

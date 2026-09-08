@@ -222,6 +222,38 @@ class EmployeeContract(models.Model):
             return False
         return self.end_date is None or self.end_date >= timezone.localdate()
 
+    @property
+    def duration_months(self):
+        """Total contract length in whole months, computed from start→end.
+
+        End resolves to today for an open/running contract (PKWTT or an ACTIVE
+        contract whose end_date is in the future). Never stored; derived only.
+        """
+        start = self.start_date
+        if start is None:
+            return 0
+        end = self.end_date
+        if end is None or end > timezone.localdate():
+            end = timezone.localdate()
+        if end < start:
+            return 0
+        months = (end.year - start.year) * 12 + (end.month - start.month)
+        if end.day < start.day:
+            months -= 1
+        return months
+
+    @property
+    def duration_display(self):
+        """Human-readable duration: '6 bulan', '1 tahun 2 bulan', '2 tahun 10 bulan'."""
+        months = self.duration_months
+        years, rem = divmod(months, 12)
+        parts = []
+        if years:
+            parts.append(f'{years} tahun' if years > 1 else '1 tahun')
+        if rem:
+            parts.append(f'{rem} bulan')
+        return ' '.join(parts) if parts else '0 bulan'
+
 
 class EmploymentHistory(models.Model):
     HISTORY_CHOICES = [
