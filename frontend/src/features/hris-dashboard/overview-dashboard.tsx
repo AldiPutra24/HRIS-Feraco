@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { buttonVariants } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Switch } from '@/components/ui/switch';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Icons } from '@/components/icons';
 import { listDepartments, listEmployees, listPositions, type Department, type Employee } from '@/lib/employees';
@@ -177,6 +178,9 @@ export function OverviewDashboard() {
   const [adding, setAdding] = useState(false);
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
+  const [status, setStatus] = useState<'ACTIVE' | 'INACTIVE'>('ACTIVE');
+  const [useEndDate, setUseEndDate] = useState(false);
+  const [endDate, setEndDate] = useState('');
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -219,10 +223,17 @@ export function OverviewDashboard() {
     if (!title.trim() || !body.trim()) return;
     setSaving(true);
     try {
+      const payload = {
+        title,
+        body,
+        status,
+        use_end_date: useEndDate,
+        end_date: useEndDate && endDate ? endDate : null,
+      };
       if (editing) {
-        await updateAnnouncement(editing.id, { title, body });
+        await updateAnnouncement(editing.id, payload);
       } else {
-        await createAnnouncement({ title, body });
+        await createAnnouncement(payload);
       }
       const a = await listAnnouncements();
       setAnnouncements(a);
@@ -231,15 +242,21 @@ export function OverviewDashboard() {
       setAdding(false);
       setTitle('');
       setBody('');
+      setStatus('ACTIVE');
+      setUseEndDate(false);
+      setEndDate('');
     } finally {
       setSaving(false);
     }
-  }, [editing, adding, title, body, dashboard]);
+  }, [editing, title, body, status, useEndDate, endDate, dashboard]);
 
   const startEdit = (a: Announcement) => {
     setEditing(a);
     setTitle(a.title);
     setBody(a.body);
+    setStatus(a.status);
+    setUseEndDate(a.use_end_date);
+    setEndDate(a.end_date ?? '');
   };
 
   const remove = async (id: number) => {
@@ -247,6 +264,14 @@ export function OverviewDashboard() {
     const a = await listAnnouncements();
     setAnnouncements(a);
     if (dashboard) setDashboard({ ...dashboard, announcements: a.slice(0, 10) });
+  };
+
+  const toggleStatus = async (a: Announcement) => {
+    const next = a.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE';
+    await updateAnnouncement(a.id, { status: next });
+    const list = await listAnnouncements();
+    setAnnouncements(list);
+    if (dashboard) setDashboard({ ...dashboard, announcements: list.slice(0, 10) });
   };
 
   return (
@@ -446,6 +471,9 @@ export function OverviewDashboard() {
                   setEditing(null);
                   setTitle('');
                   setBody('');
+                  setStatus('ACTIVE');
+                  setUseEndDate(false);
+                  setEndDate('');
                   setAdding(true);
                 }}
                 className={buttonVariants({ variant: 'outline', size: 'sm' })}
@@ -458,7 +486,7 @@ export function OverviewDashboard() {
         </CardHeader>
         <CardContent>
           {editing !== null || adding || title || body ? (
-            <div className='space-y-2'>
+            <div className='space-y-3'>
               <input
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
@@ -472,6 +500,31 @@ export function OverviewDashboard() {
                 rows={3}
                 className='border-border w-full rounded-lg border px-3 py-2 text-sm'
               />
+              <div className='flex flex-wrap items-center gap-3'>
+                <label className='flex items-center gap-2 text-sm'>
+                  Status
+                  <select
+                    value={status}
+                    onChange={(e) => setStatus(e.target.value as 'ACTIVE' | 'INACTIVE')}
+                    className='border-border rounded-lg border px-2 py-1 text-sm'
+                  >
+                    <option value='ACTIVE'>ACTIVE</option>
+                    <option value='INACTIVE'>INACTIVE</option>
+                  </select>
+                </label>
+                <div className='flex items-center gap-2 text-sm'>
+                  <Switch checked={useEndDate} onCheckedChange={setUseEndDate} />
+                  <span>Gunakan End Date</span>
+                </div>
+                {useEndDate && (
+                  <input
+                    type='date'
+                    value={endDate}
+                    onChange={(e) => setEndDate(e.target.value)}
+                    className='border-border rounded-lg border px-3 py-1 text-sm'
+                  />
+                )}
+              </div>
               <div className='flex gap-2'>
                 <button
                   type='button'
@@ -488,6 +541,9 @@ export function OverviewDashboard() {
                     setAdding(false);
                     setTitle('');
                     setBody('');
+                    setStatus('ACTIVE');
+                    setUseEndDate(false);
+                    setEndDate('');
                   }}
                   className={buttonVariants({ variant: 'ghost', size: 'sm' })}
                 >
@@ -502,11 +558,26 @@ export function OverviewDashboard() {
               {announcements.map((a) => (
                 <div key={a.id} className='border-b pb-3 last:border-0 last:pb-0'>
                   <div className='flex items-start justify-between gap-2'>
-                    <div>
-                      <p className='text-sm font-medium'>{a.title}</p>
+                    <div className='min-w-0'>
+                      <div className='flex items-center gap-2'>
+                        <p className='text-sm font-medium'>{a.title}</p>
+                        <StatusBadge status={a.status} />
+                      </div>
                       <p className='text-muted-foreground text-sm'>{a.body}</p>
+                      {a.use_end_date && a.end_date && (
+                        <p className='text-muted-foreground text-xs'>Berakhir: {fmtDate(a.end_date)}</p>
+                      )}
                     </div>
                     <div className='flex shrink-0 gap-1'>
+                      <button
+                        type='button'
+                        onClick={() => toggleStatus(a)}
+                        className={buttonVariants({ variant: 'ghost', size: 'icon' })}
+                        aria-label={a.status === 'ACTIVE' ? 'Nonaktifkan' : 'Aktifkan'}
+                        title={a.status === 'ACTIVE' ? 'Nonaktifkan' : 'Aktifkan'}
+                      >
+                        {a.status === 'ACTIVE' ? <Icons.eyeOff className='size-4' /> : <Icons.eye className='size-4' />}
+                      </button>
                       <button
                         type='button'
                         onClick={() => startEdit(a)}

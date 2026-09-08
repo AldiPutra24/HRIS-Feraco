@@ -57,6 +57,9 @@ export type DashboardAnnouncement = {
   body: string;
   created_at: string;
   created_by_name: string | null;
+  status: 'ACTIVE' | 'INACTIVE';
+  use_end_date: boolean;
+  end_date: string | null;
 };
 
 export type HrDashboard = {

@@ -32,17 +32,35 @@ export type Announcement = {
   created_by_name: string | null;
   created_at: string;
   updated_at: string;
+  status: 'ACTIVE' | 'INACTIVE';
+  use_end_date: boolean;
+  end_date: string | null;
 };
 
 export function listAnnouncements(): Promise<Announcement[]> {
   return request<{ results: Announcement[] }>('/').then((d) => d.results ?? []);
 }
 
-export function createAnnouncement(input: { title: string; body: string }): Promise<Announcement> {
+export function createAnnouncement(input: {
+  title: string;
+  body: string;
+  status?: 'ACTIVE' | 'INACTIVE';
+  use_end_date?: boolean;
+  end_date?: string | null;
+}): Promise<Announcement> {
   return request<Announcement>('/', { method: 'POST', body: JSON.stringify(input) });
 }
 
-export function updateAnnouncement(id: number, input: { title?: string; body?: string }): Promise<Announcement> {
+export function updateAnnouncement(
+  id: number,
+  input: {
+    title?: string;
+    body?: string;
+    status?: 'ACTIVE' | 'INACTIVE';
+    use_end_date?: boolean;
+    end_date?: string | null;
+  }
+): Promise<Announcement> {
   return request<Announcement>(`/${id}/`, { method: 'PATCH', body: JSON.stringify(input) });
 }
 

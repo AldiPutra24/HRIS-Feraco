@@ -565,9 +565,18 @@ class DashboardHrView(APIView):
                         'position_name': e.position.name if e.position else None,
                     }
                 )
-        announcements = Announcement.objects.all()[:10]
+        announcements = [a for a in Announcement.objects.all()[:10] if a.is_visible]
         announcements_data = [
-            {'id': a.id, 'title': a.title, 'body': a.body, 'created_at': a.created_at, 'created_by_name': a.created_by.username if a.created_by else None}
+            {
+                'id': a.id,
+                'title': a.title,
+                'body': a.body,
+                'created_at': a.created_at,
+                'created_by_name': a.created_by.username if a.created_by else None,
+                'status': a.status,
+                'use_end_date': a.use_end_date,
+                'end_date': a.end_date.isoformat() if a.end_date else None,
+            }
             for a in announcements
         ]
         return Response(

@@ -4,10 +4,18 @@ import { useCallback, useEffect, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet';
 import { Icons } from '@/components/icons';
 import { listAnnouncements, type Announcement } from '@/lib/announcements';
 import { listBalances, listLeaveRequests, type LeaveBalance, type LeaveRequest } from '@/lib/leaves';
 import { useMyEmployee } from './use-my-employee';
+
+function fmtDate(iso: string): string {
+  if (!iso) return '-';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' });
+}
 
 const STATUS_VARIANT: Record<string, 'default' | 'secondary' | 'destructive' | 'outline'> = {
   PENDING: 'secondary',
@@ -31,6 +39,7 @@ export function EmployeeOverview() {
   const [requests, setRequests] = useState<LeaveRequest[]>([]);
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [loading, setLoading] = useState(true);
+  const [detail, setDetail] = useState<Announcement | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -146,14 +155,33 @@ export function EmployeeOverview() {
           </CardHeader>
           <CardContent className='space-y-3'>
             {announcements.map((a) => (
-              <div key={a.id} className='border-b pb-3 last:border-0 last:pb-0'>
+              <button
+                key={a.id}
+                type='button'
+                onClick={() => setDetail(a)}
+                className='hover:bg-muted block w-full border-b pb-3 text-left last:border-0 last:pb-0'
+              >
                 <p className='text-sm font-medium'>{a.title}</p>
-                <p className='text-muted-foreground text-sm'>{a.body}</p>
-              </div>
+                <p className='text-muted-foreground text-xs'>{fmtDate(a.created_at)}</p>
+                <p className='text-muted-foreground line-clamp-2 text-sm'>{a.body}</p>
+              </button>
             ))}
           </CardContent>
         </Card>
       )}
+
+      <Sheet open={detail !== null} onOpenChange={(o) => !o && setDetail(null)}>
+        <SheetContent side='right' className='w-full sm:max-w-md'>
+          <SheetHeader>
+            <SheetTitle>{detail?.title}</SheetTitle>
+            <SheetDescription>
+              Dipublikasikan {detail ? fmtDate(detail.created_at) : ''}
+              {detail?.created_by_name ? ` · ${detail.created_by_name}` : ''}
+            </SheetDescription>
+          </SheetHeader>
+          <div className='whitespace-pre-wrap px-4 py-4 text-sm'>{detail?.body}</div>
+        </SheetContent>
+      </Sheet>
 
       <Card>
         <CardHeader>
