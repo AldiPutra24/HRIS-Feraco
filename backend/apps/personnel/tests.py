@@ -338,37 +338,55 @@ class ReportingLineApiTests(TestCase):
         self.user = make_user('ADMIN')
         self.client.force_login(self.user)
         self.dept = Department.objects.create(name='Sales')
-        self.supervisor = Position.objects.create(name='Sales Supervisor', department=self.dept)
-        self.ae = Position.objects.create(name='Sales Account Executive', department=self.dept, parent_position=self.supervisor)
-        self.support = Position.objects.create(name='Sales Support Specialist', department=self.dept, parent_position=self.supervisor)
+        self.other = Department.objects.create(name='Engineering')
+        self.mgmt_pos = Position.objects.create(name='Sales Supervisor', department=self.dept, role=Position.ROLE_MANAGEMENT)
+        self.ae = Position.objects.create(name='Sales Account Executive', department=self.dept, role=Position.ROLE_EMPLOYEE)
+        self.support = Position.objects.create(name='Sales Support Specialist', department=self.dept, role=Position.ROLE_EMPLOYEE)
+        self.eng_mgmt = Position.objects.create(name='Eng Lead', department=self.other, role=Position.ROLE_MANAGEMENT)
 
-    def _emp(self, eid, name, position, status='ACTIVE'):
+    def _emp(self, eid, name, position, status='ACTIVE', dept=None):
         return Employee.objects.create(
             employee_id=eid, full_name=name, nik=f'{eid}1234567890', personal_email=f'{eid}@m.com',
-            company_email=f'{eid}@feraco.co.id', position=position, employment_status=status,
+            company_email=f'{eid}@feraco.co.id', position=position,
+            department=dept or position.department, employment_status=status,
         )
 
-    def test_candidates_follow_parent_position(self):
-        mgr = self._emp('M001', 'Super', self.supervisor)
+    def test_candidates_only_management_same_department(self):
+        mgr = self._emp('M001', 'Super', self.mgmt_pos)
         self._emp('A001', 'AE', self.ae)
         self._emp('S001', 'Support', self.support)
+        self._emp('E001', 'EngLead', self.eng_mgmt)  # different department
         res = self.client.get(reverse('employee-reporting-candidates'), {'position': self.ae.id})
         self.assertEqual(res.status_code, 200)
         self.assertEqual([c['id'] for c in res.data], [mgr.id])
 
+    def test_employee_role_not_candidate(self):
+        self._emp('X001', 'Peer', self.ae)  # same dept, role EMPLOYEE
+        res = self.client.get(reverse('employee-reporting-candidates'), {'position': self.support.id})
+        self.assertEqual(res.data, [])
+
     def test_inactive_excluded(self):
-        self._emp('M001', 'Super', self.supervisor, status='INACTIVE')
+        self._emp('M001', 'Super', self.mgmt_pos, status='INACTIVE')
         res = self.client.get(reverse('employee-reporting-candidates'), {'position': self.ae.id})
         self.assertEqual(res.data, [])
 
-    def test_no_parent_returns_empty(self):
-        res = self.client.get(reverse('employee-reporting-candidates'), {'position': self.supervisor.id})
+    def test_no_department_returns_empty(self):
+        nopos = Position.objects.create(name='Floating', department=None, role=Position.ROLE_EMPLOYEE)
+        res = self.client.get(reverse('employee-reporting-candidates'), {'position': nopos.id})
         self.assertEqual(res.data, [])
 
     def test_exclude_self(self):
-        mgr = self._emp('M001', 'Super', self.supervisor)
+        mgr = self._emp('M001', 'Super', self.mgmt_pos)
         res = self.client.get(reverse('employee-reporting-candidates'), {'position': self.ae.id, 'exclude': mgr.id})
         self.assertEqual(res.data, [])
+
+    def test_manager_validation_rejects_non_management(self):
+        peer = self._emp('X001', 'Peer', self.ae)
+        res = self.client.patch(
+            reverse('employee-detail', args=[self._emp('A001', 'AE', self.ae).pk]),
+            {'manager': peer.id}, content_type='application/json',
+        )
+        self.assertEqual(res.status_code, 400)
 
 class ContractApiTests(TestCase):
     def setUp(self):
@@ -560,16 +578,28 @@ class PositionApiTests(TestCase):
         self.dept_a = Department.objects.create(name='Engineering')
         self.dept_b = Department.objects.create(name='Finance')
 
-    def _post(self, name, dept, code=''):
+    def _post(self, name, dept, code='', role=Position.ROLE_EMPLOYEE):
         return self.client.post(reverse('position-list'), {
-            'name': name, 'department': dept.id, 'code': code,
+            'name': name, 'department': dept.id, 'code': code, 'role': role,
         }, content_type='application/json')
 
     def test_create_position(self):
         res = self._post('Engineer', self.dept_a, 'ENG')
         self.assertEqual(res.status_code, 201)
         self.assertEqual(res.data['name'], 'Engineer')
+        self.assertEqual(res.data['role'], Position.ROLE_EMPLOYEE)
         self.assertTrue(res.data['is_active'])
+
+    def test_create_position_requires_role(self):
+        res = self.client.post(reverse('position-list'), {
+            'name': 'Engineer', 'department': self.dept_a.id,
+        }, content_type='application/json')
+        self.assertEqual(res.status_code, 400)
+
+    def test_create_management_position(self):
+        res = self._post('Lead', self.dept_a, role=Position.ROLE_MANAGEMENT)
+        self.assertEqual(res.status_code, 201)
+        self.assertEqual(res.data['role'], Position.ROLE_MANAGEMENT)
 
     def test_duplicate_position_in_department_rejected(self):
         self._post('Engineer', self.dept_a)

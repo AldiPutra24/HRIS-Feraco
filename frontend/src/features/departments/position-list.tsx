@@ -27,7 +27,7 @@ import {
   type Position
 } from '@/lib/employees';
 
-type FormState = { name: string; code: string; department: string };
+type FormState = { name: string; code: string; department: string; role: 'EMPLOYEE' | 'MANAGEMENT' };
 
 function apiError(err: unknown): string {
   if (err instanceof Error) {
@@ -53,7 +53,7 @@ export function PositionList() {
   const [status, setStatus] = useState('');
   const [editing, setEditing] = useState<Position | null>(null);
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState<FormState>({ name: '', code: '', department: '' });
+  const [form, setForm] = useState<FormState>({ name: '', code: '', department: '', role: 'EMPLOYEE' });
   const [formError, setFormError] = useState('');
   const [saving, setSaving] = useState(false);
 
@@ -84,21 +84,21 @@ export function PositionList() {
 
   function openAdd() {
     setEditing(null);
-    setForm({ name: '', code: '', department: deptFilter || '' });
+    setForm({ name: '', code: '', department: deptFilter || '', role: 'EMPLOYEE' });
     setFormError('');
     setShowForm(true);
   }
 
   function openEdit(p: Position) {
     setEditing(p);
-    setForm({ name: p.name, code: p.code, department: p.department ? String(p.department) : '' });
+    setForm({ name: p.name, code: p.code, department: p.department ? String(p.department) : '', role: p.role });
     setFormError('');
     setShowForm(true);
   }
 
   function closeForm() {
     setEditing(null);
-    setForm({ name: '', code: '', department: '' });
+    setForm({ name: '', code: '', department: '', role: 'EMPLOYEE' });
     setFormError('');
     setShowForm(false);
   }
@@ -115,7 +115,8 @@ export function PositionList() {
       const payload = {
         name: form.name.trim(),
         code: form.code.trim(),
-        department: form.department ? Number(form.department) : null
+        department: form.department ? Number(form.department) : null,
+        role: form.role
       };
       if (editing) await updatePosition(editing.id, payload);
       else await createPosition(payload);
@@ -193,6 +194,17 @@ export function PositionList() {
                   <Label>Kode (opsional)</Label>
                   <Input value={form.code} onChange={(e) => setForm((f) => ({ ...f, code: e.target.value }))} />
                 </div>
+                <div className='space-y-1.5'>
+                  <Label>Role</Label>
+                  <select
+                    className='border-input h-8 rounded-lg border bg-transparent px-2.5 text-sm'
+                    value={form.role}
+                    onChange={(e) => setForm((f) => ({ ...f, role: e.target.value as 'EMPLOYEE' | 'MANAGEMENT' }))}
+                  >
+                    <option value='EMPLOYEE'>Employee</option>
+                    <option value='MANAGEMENT'>Management</option>
+                  </select>
+                </div>
               </div>
               <div className='flex justify-end gap-2'>
                 <Button type='button' variant='outline' onClick={closeForm}>
@@ -256,6 +268,7 @@ export function PositionList() {
                 <TableRow>
                   <TableHead>Position</TableHead>
                   <TableHead>Department</TableHead>
+                  <TableHead>Role</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Karyawan</TableHead>
                   <TableHead className='text-right'>Aksi</TableHead>
@@ -266,6 +279,11 @@ export function PositionList() {
                   <TableRow key={p.id}>
                     <TableCell className='font-medium'>{p.name}</TableCell>
                     <TableCell>{p.department_name || '-'}</TableCell>
+                    <TableCell>
+                      <Badge variant={p.role === 'MANAGEMENT' ? 'default' : 'secondary'}>
+                        {p.role === 'MANAGEMENT' ? 'Management' : 'Employee'}
+                      </Badge>
+                    </TableCell>
                     <TableCell>
                       <div className='flex items-center gap-2'>
                         <Switch checked={p.is_active} onCheckedChange={(v) => toggleActive(p, v)} />
@@ -299,7 +317,7 @@ export function PositionList() {
                 ))}
                 {filtered.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={5} className='text-muted-foreground py-8 text-center'>
+                    <TableCell colSpan={6} className='text-muted-foreground py-8 text-center'>
                       Tidak ada data.
                     </TableCell>
                   </TableRow>

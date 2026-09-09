@@ -38,12 +38,13 @@ class PositionSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Position
-        fields = ('id', 'name', 'code', 'department', 'department_name', 'parent_position', 'parent_position_name', 'is_active', 'created_at', 'updated_at', 'employee_count')
+        fields = ('id', 'name', 'code', 'department', 'department_name', 'parent_position', 'parent_position_name', 'role', 'is_active', 'created_at', 'updated_at', 'employee_count')
         read_only_fields = ('id', 'created_at', 'updated_at', 'department_name', 'parent_position_name', 'employee_count')
         extra_kwargs = {
             'name': {'required': True, 'allow_blank': False},
             'code': {'required': False, 'allow_blank': True},
             'parent_position': {'required': False, 'allow_null': True},
+            'role': {'required': True},
         }
 
     def get_employee_count(self, obj):
@@ -54,6 +55,11 @@ class PositionSerializer(serializers.ModelSerializer):
         if not name:
             raise serializers.ValidationError('Nama position wajib diisi.')
         return name
+
+    def validate_role(self, value):
+        if value not in (Position.ROLE_EMPLOYEE, Position.ROLE_MANAGEMENT):
+            raise serializers.ValidationError('Role harus EMPLOYEE atau MANAGEMENT.')
+        return value
 
 
 def _mask(value, visible):
@@ -136,6 +142,22 @@ class EmployeeSerializer(serializers.ModelSerializer):
     def validate_position(self, value):
         if value is not None and not value.is_active:
             raise serializers.ValidationError('Position tidak aktif, pilih position lain.')
+        return value
+
+    def validate_manager(self, value):
+        if value is None:
+            return value
+        if self.instance is not None and value.pk == self.instance.pk:
+            raise serializers.ValidationError('Karyawan tidak dapat menjadi manager untuk dirinya sendiri.')
+        if value.employment_status != 'ACTIVE':
+            raise serializers.ValidationError('Manager harus karyawan ACTIVE.')
+        if value.position_id is None or value.position.role != Position.ROLE_MANAGEMENT:
+            raise serializers.ValidationError('Manager harus berposition role MANAGEMENT.')
+        employee_dept = value.department_id
+        if self.instance is not None and self.instance.department_id is not None:
+            employee_dept = self.instance.department_id
+        if employee_dept is not None and value.department_id != employee_dept:
+            raise serializers.ValidationError('Manager harus berada di department yang sama.')
         return value
 
     def validate(self, attrs):

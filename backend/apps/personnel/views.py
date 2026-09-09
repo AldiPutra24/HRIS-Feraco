@@ -100,20 +100,24 @@ class EmployeeViewSet(SoftHardDeleteMixin, viewsets.ModelViewSet):
 
     @action(detail=False, methods=['get'])
     def reporting_candidates(self, request):
-        """Valid Reporting To candidates for a given position.
+        """Valid Reporting To candidates for an employee with the given position.
 
-        Source of truth: Position.parent_position. An employee with position X
-        may report to employees whose position == parent_position of X. Only
-        ACTIVE employees are returned. No position or no parent -> empty list.
+        Rule: an employee may report only to an ACTIVE employee whose
+        Position.role == MANAGEMENT and who is in the same department as the
+        employee's position. Self is excluded. No position -> empty list.
         """
         position_id = request.query_params.get('position')
         exclude_id = request.query_params.get('exclude')
         if not position_id:
             return Response([])
-        parent = Position.objects.filter(pk=position_id).values_list('parent_position_id', flat=True).first()
-        if not parent:
+        position = Position.objects.filter(pk=position_id).select_related('department').first()
+        if not position or not position.department_id:
             return Response([])
-        qs = Employee.objects.filter(position_id=parent, employment_status='ACTIVE').select_related('position')
+        qs = Employee.objects.filter(
+            department_id=position.department_id,
+            position__role=Position.ROLE_MANAGEMENT,
+            employment_status='ACTIVE',
+        ).select_related('position')
         if exclude_id:
             qs = qs.exclude(pk=exclude_id)
         data = [

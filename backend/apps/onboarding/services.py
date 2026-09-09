@@ -263,8 +263,10 @@ def complete_onboarding(onboarding, request):
         status='ACTIVE',
     )
 
-    # ── Create User account (EMPLOYEE role) ─────────────────────────
-    emp_role = Role.objects.filter(key=Role.EMPLOYEE).first()
+    # ── Create User account (role derived from Position.role) ───────
+    # MANAGEMENT position -> MANAGEMENT role; otherwise EMPLOYEE role.
+    role_key = Role.MANAGEMENT if getattr(employee.position, 'role', None) == 'MANAGEMENT' else Role.EMPLOYEE
+    emp_role = Role.objects.filter(key=role_key).first()
     username = (data.personal_email or data.full_name.replace(' ', '').lower())[:150]
     user = User.objects.create_user(
         username=username,

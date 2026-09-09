@@ -149,6 +149,7 @@ export type Position = {
   code: string;
   department: number | null;
   department_name: string;
+  role: 'EMPLOYEE' | 'MANAGEMENT';
   is_active: boolean;
   created_at: string;
   updated_at: string;

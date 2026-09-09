@@ -19,6 +19,13 @@ class Department(models.Model):
 
 
 class Position(models.Model):
+    ROLE_EMPLOYEE = 'EMPLOYEE'
+    ROLE_MANAGEMENT = 'MANAGEMENT'
+    ROLE_CHOICES = [
+        (ROLE_EMPLOYEE, 'Employee'),
+        (ROLE_MANAGEMENT, 'Management'),
+    ]
+
     name = models.CharField(max_length=128)
     department = models.ForeignKey(
         Department,
@@ -34,6 +41,7 @@ class Position(models.Model):
         blank=True,
         related_name='children',
     )
+    role = models.CharField(max_length=16, choices=ROLE_CHOICES, default=ROLE_EMPLOYEE)
     code = models.CharField(max_length=32, blank=True)
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
