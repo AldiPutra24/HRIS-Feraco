@@ -7,7 +7,7 @@ from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
 
 from apps.audit.services import log_event
-from apps.personnel.permissions import _role
+from apps.personnel.permissions import _role, direct_report_ids
 from apps.personnel.storage import is_configured, signed_url, upload_bytes
 
 from .models import Reimbursement, ReimbursementCategory, ReimbursementNotification
@@ -63,11 +63,23 @@ class ReimbursementViewSet(viewsets.ModelViewSet):
         employee = _employee_for(self.request.user)
         if role in REIMBURSEMENT_ADMIN_ROLES:
             return qs
+        if role == 'MANAGEMENT':
+            # View-only scope: direct reports' reimbursements (Employee.manager).
+            report_ids = direct_report_ids(self.request.user)
+            return qs.filter(employee_id__in=report_ids)
         if employee is None:
             return qs.none()
         return qs.filter(employee_id=employee.id)
 
+    def _block_management_write(self):
+        """Management reimbursement access is view-only (no approve/reject/edit/delete)."""
+        if _role(self.request.user) == 'MANAGEMENT':
+            from rest_framework.exceptions import PermissionDenied
+
+            raise PermissionDenied('Management hanya dapat melihat reimbursement bawahan langsung.')
+
     def perform_create(self, serializer):
+        self._block_management_write()
         employee = _employee_for(self.request.user)
         if employee is None:
             from rest_framework.exceptions import ValidationError
@@ -76,6 +88,7 @@ class ReimbursementViewSet(viewsets.ModelViewSet):
         log_event(self.request, 'create', obj=obj, description=f'Reimbursement {obj.id} draft created')
 
     def destroy(self, request, *args, **kwargs):
+        self._block_management_write()
         if _role(request.user) != 'ADMIN':
             return Response({'detail': 'Hanya ADMIN yang dapat menghapus data reimbursement.'}, status=status.HTTP_403_FORBIDDEN)
         return super().destroy(request, *args, **kwargs)
@@ -94,6 +107,7 @@ class ReimbursementViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'])
     def submit(self, request, pk=None):
+        self._block_management_write()
         obj = self._load(request, pk)
         employee = _employee_for(request.user)
         if employee is not None and obj.employee_id != employee.id and _role(request.user) not in REIMBURSEMENT_ADMIN_ROLES:
@@ -112,6 +126,7 @@ class ReimbursementViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'])
     def approve(self, request, pk=None):
+        self._block_management_write()
         obj = self._load(request, pk)
         role = _role(request.user)
         if role not in REIMBURSEMENT_ADMIN_ROLES:
@@ -150,6 +165,7 @@ class ReimbursementViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'])
     def reject(self, request, pk=None):
+        self._block_management_write()
         obj = self._load(request, pk)
         role = _role(request.user)
         if role not in REIMBURSEMENT_ADMIN_ROLES:
@@ -173,6 +189,7 @@ class ReimbursementViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'])
     def mark_paid(self, request, pk=None):
+        self._block_management_write()
         obj = self._load(request, pk)
         role = _role(request.user)
         if role not in REIMBURSEMENT_ADMIN_ROLES:
@@ -207,6 +224,7 @@ class ReimbursementViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'])
     def cancel(self, request, pk=None):
+        self._block_management_write()
         obj = self._load(request, pk)
         employee = _employee_for(request.user)
         if obj.status != 'DRAFT':
@@ -230,12 +248,16 @@ class ReimbursementViewSet(viewsets.ModelViewSet):
     def attachment(self, request, pk=None):
         obj = self._load(request, pk)
         if request.method == 'POST':
+            self._block_management_write()
+        if request.method == 'POST':
             return self._upload_file(request, obj, 'file', 'attachment')
         return self._download_file(request, obj, 'attachment')
 
     @action(detail=True, methods=['get', 'post'], parser_classes=[MultiPartParser, FormParser], url_path='payment_proof')
     def payment_proof(self, request, pk=None):
         obj = self._load(request, pk)
+        if request.method == 'POST':
+            self._block_management_write()
         if request.method == 'POST':
             return self._upload_file(request, obj, 'file', 'payment_proof')
         return self._download_file(request, obj, 'payment_proof')

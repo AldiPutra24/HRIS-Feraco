@@ -9,7 +9,7 @@
 
 import { useMemo } from 'react';
 import { useAuth } from '@/lib/auth/auth-provider';
-import type { NavItem, NavGroup } from '@/types';
+import type { NavGroup, NavItem } from '@/types';
 
 /**
  * Hook to filter navigation items based on RBAC (fully client-side)
@@ -29,33 +29,17 @@ export function useFilteredNavItems(items: NavItem[]) {
 
   // Filter items synchronously (all client-side)
   const filteredItems = useMemo(() => {
+    const matchesRole = (access: NavItem['access']) => {
+      if (!access) return true;
+      if (access.roles) return access.roles.includes(accessContext.role ?? '');
+      if (access.role) return access.role === accessContext.role;
+      return true;
+    };
     return items
-      .filter((item) => {
-        // No access restrictions
-        if (!item.access) {
-          return true;
-        }
-
-        // Check role
-        if (item.access.role && item.access.role !== accessContext.role) {
-          return false;
-        }
-
-        return true;
-      })
+      .filter((item) => matchesRole(item.access))
       .map((item) => {
         if (item.items && item.items.length > 0) {
-          const filteredChildren = item.items.filter((childItem) => {
-            if (!childItem.access) {
-              return true;
-            }
-
-            if (childItem.access.role && childItem.access.role !== accessContext.role) {
-              return false;
-            }
-
-            return true;
-          });
+          const filteredChildren = item.items.filter((childItem) => matchesRole(childItem.access));
 
           return {
             ...item,

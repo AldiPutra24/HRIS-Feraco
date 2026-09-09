@@ -15,7 +15,7 @@ from apps.audit.services import log_event
 from apps.softdelete import SoftHardDeleteMixin
 
 from .models import Department, Employee, EmployeeContract, EmployeeDocument, EmploymentHistory, Position
-from .permissions import IsHRStaff, _role
+from .permissions import IsHRStaff, IsManagementViewer, _role, direct_report_ids
 from .services import set_current_contract, sync_contract_status
 from .serializers import (
     DepartmentSerializer,
@@ -80,6 +80,9 @@ class EmployeeViewSet(SoftHardDeleteMixin, viewsets.ModelViewSet):
     ordering_fields = ['full_name', 'employee_id', 'join_date', 'created_at']
     filterset_fields = ['department', 'position', 'employment_status', 'status', 'manager']
 
+    def _is_management(self):
+        return _role(self.request.user) == 'MANAGEMENT'
+
     def get_serializer_class(self):
         if self.action in ('list', 'retrieve'):
             return EmployeeReadSerializer
@@ -87,6 +90,10 @@ class EmployeeViewSet(SoftHardDeleteMixin, viewsets.ModelViewSet):
 
     def get_queryset(self):
         qs = super().get_queryset()
+        # MANAGEMENT: read-only scope to direct reports (Employee.manager).
+        if self._is_management():
+            report_ids = direct_report_ids(self.request.user)
+            return qs.filter(id__in=report_ids)
         q = self.request.query_params.get('search')
         if q:
             qs = qs.filter(
@@ -100,6 +107,13 @@ class EmployeeViewSet(SoftHardDeleteMixin, viewsets.ModelViewSet):
         if position_role in (Position.ROLE_EMPLOYEE, Position.ROLE_MANAGEMENT):
             qs = qs.filter(position__isnull=False, position__role=position_role)
         return qs
+
+    def _block_management_write(self):
+        """Management Karyawan access is view-only for every write action."""
+        if self._is_management():
+            from rest_framework.exceptions import PermissionDenied
+
+            raise PermissionDenied('Management hanya dapat melihat data bawahan langsung.')
 
     @action(detail=False, methods=['get'])
     def reporting_candidates(self, request):
@@ -130,10 +144,12 @@ class EmployeeViewSet(SoftHardDeleteMixin, viewsets.ModelViewSet):
         return Response(data)
 
     def perform_create(self, serializer):
+        self._block_management_write()
         employee = serializer.save(employee_id=next_employee_id())
         log_event(self.request, 'create', obj=employee, description=f'Employee {employee.employee_id} created')
 
     def perform_update(self, serializer):
+        self._block_management_write()
         old = self.get_object()
         before = EmployeeSerializer(old).data
         employee = serializer.save()
@@ -154,6 +170,7 @@ class EmployeeViewSet(SoftHardDeleteMixin, viewsets.ModelViewSet):
 
     @action(detail=False, methods=['post'], parser_classes=[MultiPartParser, FormParser])
     def import_csv(self, request):
+        self._block_management_write()
         upload = request.FILES.get('file')
         if upload is None:
             return Response({'file': 'Required.'}, status=status.HTTP_400_BAD_REQUEST)
@@ -216,6 +233,8 @@ class EmployeeViewSet(SoftHardDeleteMixin, viewsets.ModelViewSet):
     @action(detail=True, methods=['get', 'post'])
     def contracts(self, request, pk=None):
         employee = self.get_object()
+        if request.method == 'POST':
+            self._block_management_write()
         if request.method == 'GET':
             sync_contract_status()
             data = EmployeeContractSerializer(
@@ -244,6 +263,7 @@ class EmployeeViewSet(SoftHardDeleteMixin, viewsets.ModelViewSet):
 
     @action(detail=True, methods=['patch'], url_path=r'contracts/(?P<contract_pk>\d+)/edit')
     def edit_contract(self, request, pk=None, contract_pk=None):
+        self._block_management_write()
         employee = self.get_object()
         contract = EmployeeContract.objects.filter(pk=contract_pk, employee=employee).first()
         if contract is None:
@@ -258,6 +278,7 @@ class EmployeeViewSet(SoftHardDeleteMixin, viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'], url_path=r'contracts/(?P<contract_pk>\d+)/activate')
     def activate_contract(self, request, pk=None, contract_pk=None):
+        self._block_management_write()
         employee = self.get_object()
         contract = EmployeeContract.objects.filter(pk=contract_pk, employee=employee).first()
         if contract is None:
@@ -270,6 +291,7 @@ class EmployeeViewSet(SoftHardDeleteMixin, viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'], url_path=r'contracts/(?P<contract_pk>\d+)/terminate')
     def terminate_contract(self, request, pk=None, contract_pk=None):
+        self._block_management_write()
         employee = self.get_object()
         contract = EmployeeContract.objects.filter(pk=contract_pk, employee=employee).first()
         if contract is None:
@@ -285,6 +307,7 @@ class EmployeeViewSet(SoftHardDeleteMixin, viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'], url_path=r'contracts/(?P<contract_pk>\d+)/renew')
     def renew_contract(self, request, pk=None, contract_pk=None):
+        self._block_management_write()
         employee = self.get_object()
         current = EmployeeContract.objects.filter(pk=contract_pk, employee=employee).first()
         if current is None:
@@ -339,6 +362,8 @@ class EmployeeViewSet(SoftHardDeleteMixin, viewsets.ModelViewSet):
     @action(detail=True, methods=['get', 'post'])
     def history(self, request, pk=None):
         employee = self.get_object()
+        if request.method == 'POST':
+            self._block_management_write()
         if request.method == 'GET':
             data = EmploymentHistorySerializer(employee.history.all(), many=True).data
             return Response(data)
@@ -351,6 +376,8 @@ class EmployeeViewSet(SoftHardDeleteMixin, viewsets.ModelViewSet):
     @action(detail=True, methods=['get', 'post'], parser_classes=[MultiPartParser, FormParser])
     def documents(self, request, pk=None):
         employee = self.get_object()
+        if request.method == 'POST':
+            self._block_management_write()
         if request.method == 'GET':
             data = EmployeeDocumentSerializer(
                 employee.documents.filter(deleted_at__isnull=True), many=True, context={'request': request}

@@ -194,6 +194,41 @@ class LeaveWorkflowTests(TestCase):
         self.assertEqual(lr.status, 'REJECTED')
         self.assertEqual(lr.rejection_reason, 'Tidak ada pengganti')
 
+    def test_management_list_scoped_to_direct_reports(self):
+        """MANAGEMENT list view = direct reports + own; other employees hidden."""
+        self.manager_emp.user = self.manager
+        self.manager_emp.save()
+        own = LeaveRequest.objects.create(
+            employee=self.manager_emp, leave_type=self.annual,
+            start_date=date(2026, 2, 1), end_date=date(2026, 2, 2), total_days=2,
+        )
+        other_emp = Employee.objects.create(
+            employee_id='E003', full_name='Outsider', employment_status='ACTIVE'
+        )
+        other_lr = LeaveRequest.objects.create(
+            employee=other_emp, leave_type=self.annual,
+            start_date=date(2026, 3, 1), end_date=date(2026, 3, 2), total_days=2,
+        )
+        self.client.force_login(self.manager)
+        res = self.client.get(reverse('leave-request-list'))
+        self.assertEqual(res.status_code, 200)
+        data = res.json()
+        results = data['results'] if isinstance(data, dict) else data
+        ids = {r['id'] for r in results}
+        self.assertIn(own.id, ids)
+        report_lr = LeaveRequest.objects.create(
+            employee=self.emp, leave_type=self.annual,
+            start_date=date(2026, 4, 1), end_date=date(2026, 4, 2), total_days=2,
+        )
+        res = self.client.get(reverse('leave-request-list'))
+        self.assertEqual(res.status_code, 200)
+        data = res.json()
+        results = data['results'] if isinstance(data, dict) else data
+        ids = {r['id'] for r in results}
+        self.assertIn(own.id, ids)
+        self.assertIn(report_lr.id, ids)
+        self.assertNotIn(other_lr.id, ids)
+
     def test_hr_cannot_approve(self):
         """HR_STAFF must be view-only — approve blocked at API level (403)."""
         self.manager_emp.user = self.manager

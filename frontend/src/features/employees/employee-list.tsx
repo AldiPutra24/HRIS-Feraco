@@ -36,7 +36,9 @@ function StatusBadge({ status }: { status: string }) {
 
 export function EmployeeList() {
   const { user } = useAuth();
-  const canDelete = user?.role === 'admin' || user?.role === 'hr_lead';
+  const isManagement = user?.role === 'management';
+  // MANAGEMENT: view-only (backend enforces direct-report scope + 403 on writes).
+  const canDelete = !isManagement && (user?.role === 'admin' || user?.role === 'hr_lead');
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [positions, setPositions] = useState<Position[]>([]);
@@ -53,7 +55,11 @@ export function EmployeeList() {
 
   async function load() {
     setLoading(true);
-    const data = await listEmployees({ search, department, position, employment_status: status, page });
+    const data = await listEmployees(
+      isManagement
+        ? { search, page }
+        : { search, department, position, employment_status: status, page }
+    );
     setEmployees(data.results);
     setCount(data.count);
     setLoading(false);
@@ -67,14 +73,20 @@ export function EmployeeList() {
   }
 
   useEffect(() => {
+    if (isManagement) {
+      setDepartments([]);
+      setPositions([]);
+      return;
+    }
     listDepartments().then(setDepartments);
     listPositions().then(setPositions);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search, department, position, status, page]);
+  }, [search, department, position, status, page, isManagement]);
 
   const totalPages = Math.max(1, Math.ceil(count / 20));
 
@@ -83,18 +95,22 @@ export function EmployeeList() {
       <div className='flex items-center justify-between'>
         <div>
           <h2 className='text-2xl font-bold tracking-tight'>Karyawan</h2>
-          <p className='text-muted-foreground text-sm'>Kelola data karyawan.</p>
+          <p className='text-muted-foreground text-sm'>
+            {isManagement ? 'Data bawahan langsung Anda (hanya lihat).' : 'Kelola data karyawan.'}
+          </p>
         </div>
-        <div className='flex gap-2'>
-          <Button variant='outline' onClick={() => setImportOpen(true)}>
-            <Icons.upload />
-            Import XLSX
-          </Button>
-          <Button onClick={() => { setEditing(null); setShowForm((v) => !v); }}>
-            <Icons.add />
-            Tambah Karyawan
-          </Button>
-        </div>
+        {!isManagement && (
+          <div className='flex gap-2'>
+            <Button variant='outline' onClick={() => setImportOpen(true)}>
+              <Icons.upload />
+              Import XLSX
+            </Button>
+            <Button onClick={() => { setEditing(null); setShowForm((v) => !v); }}>
+              <Icons.add />
+              Tambah Karyawan
+            </Button>
+          </div>
+        )}
       </div>
 
       <ImportDialog open={importOpen} onOpenChange={setImportOpen} onImported={load} />
@@ -244,17 +260,19 @@ export function EmployeeList() {
                         >
                           Detail
                         </Link>
-                        <Button
-                          variant='ghost'
-                          size='sm'
-                          onClick={() => {
-                            setEditing(e);
-                            setShowForm(true);
-                          }}
-                        >
-                          <Icons.edit />
-                          Edit
-                        </Button>
+                        {!isManagement && (
+                          <Button
+                            variant='ghost'
+                            size='sm'
+                            onClick={() => {
+                              setEditing(e);
+                              setShowForm(true);
+                            }}
+                          >
+                            <Icons.edit />
+                            Edit
+                          </Button>
+                        )}
                         {canDelete && (
                           <DropdownMenu>
                             <DropdownMenuTrigger render={<Button variant='ghost' size='sm'><Icons.trash /> Hapus</Button>} />

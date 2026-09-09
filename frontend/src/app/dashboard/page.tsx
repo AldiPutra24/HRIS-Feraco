@@ -10,7 +10,9 @@ export default function Dashboard() {
 
   useEffect(() => {
     if (isLoading) return;
-    router.replace(user?.role === 'employee' ? '/dashboard/employee' : '/dashboard/overview');
+    if (user?.role === 'employee') router.replace('/dashboard/employee');
+    else if (user?.role === 'management') router.replace('/dashboard/management/overview');
+    else router.replace('/dashboard/overview');
   }, [isLoading, user, router]);
 
   return null;

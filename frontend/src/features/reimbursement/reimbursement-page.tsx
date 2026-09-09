@@ -46,6 +46,8 @@ export function ReimbursementPage() {
   const router = useRouter();
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin';
+  // MANAGEMENT: view-only (backend scopes to direct reports, blocks all writes).
+  const canAct = user?.role !== 'management';
   const searchParams = useSearchParams();
   const fStatus = searchParams.get('status') ?? '';
   const fCategory = searchParams.get('category') ?? '';
@@ -174,7 +176,11 @@ export function ReimbursementPage() {
     <div className='flex flex-1 flex-col gap-4 p-4 md:p-6'>
       <div>
         <h2 className='text-2xl font-bold tracking-tight'>Reimbursement</h2>
-        <p className='text-muted-foreground text-sm'>Kelola pengajuan reimbursement karyawan.</p>
+        <p className='text-muted-foreground text-sm'>
+          {user?.role === 'management'
+            ? 'Reimbursement bawahan langsung Anda (hanya lihat).'
+            : 'Kelola pengajuan reimbursement karyawan.'}
+        </p>
       </div>
 
       <Card>
@@ -295,7 +301,7 @@ export function ReimbursementPage() {
                       </TableCell>
                       <TableCell className='sticky right-0 bg-background text-right shadow-[inset_1px_0_0_var(--color-border)]'>
                         <div className='flex justify-end gap-1'>
-                          {r.status === 'PENDING' && (
+                          {canAct && r.status === 'PENDING' && (
                             <>
                               <Button variant='success' size='sm' onClick={() => approve(r)}>
                                 Setujui
@@ -305,7 +311,7 @@ export function ReimbursementPage() {
                               </Button>
                             </>
                           )}
-                          {r.status === 'APPROVED' && (
+                          {canAct && r.status === 'APPROVED' && (
                             <Button size='sm' onClick={() => setPaying(r)}>
                               Tandai Dibayar
                             </Button>
@@ -316,7 +322,7 @@ export function ReimbursementPage() {
                           {r.status === 'PAID' && r.payment_reference && (
                             <span className='text-muted-foreground text-xs'>Ref: {r.payment_reference}</span>
                           )}
-                          {isAdmin && (
+                          {isAdmin && canAct && (
                             <Button variant='destructive' size='sm' onClick={() => handleDelete(r)}>
                               Hapus
                             </Button>

@@ -1,5 +1,33 @@
 # HRIS FERACO - Progress Note
 
+## Status: Management Navbar + Access Scope — COMPLETE (09 Sep 2026)
+
+### Scope
+- Spec `navbar_update.md`: role MANAGEMENT hanya melihat navbar Dashboard/Karyawan/Leave/Reimbursement/Payroll/Profile; akses data di-enforce backend (bukan hanya hidden menu). Bawahan = `Employee.manager` langsung (bukan department/parent_position). Behavior role lain tidak berubah.
+
+### Backend
+- `apps/personnel/permissions.py`: helper `employee_for(user)` + `direct_report_ids(user)` (set ID bawahan via `manager` FK, hanya utk MANAGEMENT) + permission `IsManagementViewer` (SAFE_METHODS only).
+- `apps/personnel/views.py` `EmployeeViewSet`: `get_queryset()` scope MANAGEMENT → `id__in=direct_report_ids` (detail non-bawahan 404); `_block_management_write()` 403 di create/update/import_csv/contracts POST/edit/activate/terminate/renew/history POST/documents POST. HR unchanged.
+- `apps/reimbursement/permissions.py` + `views.py`: scope list MANAGEMENT → direct reports (detail non-bawahan 404 via object permission); `_block_management_write()` 403 di create/submit/approve/reject/mark_paid/cancel/delete/attachment POST/payment_proof POST. View-only.
+- `apps/payroll/views.py` `PayrollViewSet.get_queryset()`: MANAGEMENT → hanya payroll milik sendiri (`employee_id` dari user); `?employee=` tidak bisa bypass; report/outsider tidak terlihat.
+- Leave: queryset scoping + manager-only approve/reject SUDAH ada (no change) — reused.
+- No model/migration changes.
+
+### Frontend
+- `types/index.ts` + `hooks/use-nav.ts`: `access.roles: string[]` didukung (selain `access.role` single).
+- `config/nav-config.ts`: `managementNavGroups` baru (6 item: Dashboard `/dashboard/management/overview`, Karyawan, Leave `/dashboard/management/leave`, Reimbursement, Payroll `/dashboard/management/payroll`, Profile `/dashboard/settings/account`).
+- `components/layout/app-sidebar.tsx`: pilih `managementNavGroups` utk role management (logo link + label ikut).
+- `app/dashboard/page.tsx`: redirect per role (employee/management/other).
+- `features/employees/employee-list.tsx`: MANAGEMENT view-only — tanpa Tambah/Import/Edit/Delete; filter dept/posisi tidak dipanggil.
+- `features/reimbursement/reimbursement-page.tsx`: `canAct = role!=='management'` — tombol Setujui/Tolak/Tandai Dibayar/Hapus disembunyikan.
+- `features/management/management-payroll.tsx` (BARU) + `app/dashboard/management/payroll/page.tsx`: slip gaji pribadi per periode (read-only, reuse `listPeriods`/`listPayrolls`).
+- `features/management/management-overview.tsx`: quick links Karyawan (Bawahan)/Reimbursement/Payroll Saya.
+- Detail `lastupdate.md`.
+
+### Test
+- Backend (sqlite) — 22 test baru semua pass: `ManagementEmployeeScopeTests` (9), `ManagementScopeTests` reimbursement (7), `ManagementPayrollScopeTests` (5), leaves list-scope (1). Per modul: personnel 93 (1 error `test_import_xlsx` **pre-existing** — sama2 gagal di clean tree via `git stash`, TransactionManagementError di import_csv; out of scope), leaves+accounts 52 OK, reimbursement 42 OK, payroll 37 OK, audit+announcements+recruitment 50 OK, onboarding per-class OK (64+19+16+50; full class run >580s di mesin lokal karena Supabase retry).
+- Frontend: `tsc --noEmit` 0 error; `next build` sukses (route baru `/dashboard/management/payroll`); oxlint 2 error `set-state-in-effect` pada file baru = pattern konvensi existing (sama dgn management-overview.tsx lama).
+
 ## Status: Recruitment Onboarding — Tahap 3 (COMPLETE)
 
 ### Onboarding (`apps.onboarding`) — 04 Sep 2026 (Tahap 3 complete)

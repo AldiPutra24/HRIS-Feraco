@@ -25,7 +25,7 @@ import {
   SidebarRail
 } from '@/components/ui/sidebar';
 import { UserAvatarProfile } from '@/components/user-avatar-profile';
-import { employeeNavGroups, navGroups } from '@/config/nav-config';
+import { employeeNavGroups, managementNavGroups, navGroups } from '@/config/nav-config';
 import { useMediaQuery } from '@/hooks/use-media-query';
 import { useAuth } from '@/lib/auth/auth-provider';
 import { useFilteredNavGroups } from '@/hooks/use-nav';
@@ -40,7 +40,8 @@ export default function AppSidebar() {
   const { user, logout } = useAuth();
   const router = useRouter();
   const isEmployee = user?.role === 'employee';
-  const groups = isEmployee ? employeeNavGroups : navGroups;
+  const isManagement = user?.role === 'management';
+  const groups = isEmployee ? employeeNavGroups : isManagement ? managementNavGroups : navGroups;
   const filteredGroups = useFilteredNavGroups(groups);
 
   React.useEffect(() => {
@@ -50,7 +51,10 @@ export default function AppSidebar() {
   return (
     <Sidebar collapsible='icon'>
       <SidebarHeader className='group-data-[collapsible=icon]:pt-4'>
-        <Link href={isEmployee ? '/dashboard/employee' : '/dashboard/overview'} className='flex items-center gap-2 px-2 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0'>
+        <Link
+          href={isEmployee ? '/dashboard/employee' : isManagement ? '/dashboard/management/overview' : '/dashboard/overview'}
+          className='flex items-center gap-2 px-2 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0'
+        >
           <div className='flex aspect-square size-8 shrink-0 items-center justify-center overflow-hidden rounded-lg'>
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src='/logo.webp' alt='Logo HRIS' className='size-8 object-contain' />

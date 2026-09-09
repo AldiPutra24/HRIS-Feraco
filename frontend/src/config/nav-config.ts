@@ -69,6 +69,57 @@ export const employeeNavGroups: NavGroup[] = [
   }
 ];
 
+// Management role: monitoring-only nav (direct-report scope enforced by backend).
+export const managementNavGroups: NavGroup[] = [
+  {
+    label: 'Management',
+    items: [
+      {
+        title: 'Dashboard',
+        url: '/dashboard/management/overview',
+        icon: 'dashboard',
+        isActive: false,
+        items: []
+      },
+      {
+        title: 'Karyawan',
+        url: '/dashboard/karyawan',
+        icon: 'employee',
+        isActive: false,
+        items: []
+      },
+      {
+        title: 'Leave',
+        url: '/dashboard/management/leave',
+        icon: 'leave',
+        isActive: false,
+        items: []
+      },
+      {
+        title: 'Reimbursement',
+        url: '/dashboard/reimbursements',
+        icon: 'receipt',
+        isActive: false,
+        items: []
+      },
+      {
+        title: 'Payroll',
+        url: '/dashboard/management/payroll',
+        icon: 'wallet',
+        isActive: false,
+        items: []
+      },
+      {
+        title: 'Profile',
+        url: '/dashboard/settings/account',
+        icon: 'account',
+        isActive: false,
+        items: []
+      }
+    ]
+  }
+];
+
 export const navGroups: NavGroup[] = [
   {
     label: 'Overview',

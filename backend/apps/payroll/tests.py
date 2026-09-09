@@ -469,3 +469,68 @@ class PayrollManualItemApiTests(TestCase):
             {'component_code': 'BONUS', 'amount': '100000'}, format='json',
         )
         self.assertEqual(res.status_code, 403)
+
+
+class ManagementPayrollScopeTests(TestCase):
+    """MANAGEMENT sees ONLY their own payroll slips (never reports/others)."""
+
+    def setUp(self):
+        self.mgr_user = make_user('MANAGEMENT', 'mgr@test.com')
+        self.mgr = Employee.objects.create(employee_id='M001', full_name='Manager', employment_status='ACTIVE')
+        self.mgr.user = self.mgr_user
+        self.mgr.save()
+        self.rep = Employee.objects.create(
+            employee_id='E001', full_name='Direct Report', employment_status='ACTIVE', manager=self.mgr
+        )
+        self.outsider = Employee.objects.create(employee_id='E002', full_name='Outsider', employment_status='ACTIVE')
+        self.period = PayrollPeriod.objects.create(
+            period_month=6, period_year=2026,
+            period_start=date(2026, 6, 1), period_end=date(2026, 6, 30),
+        )
+        self.payroll_mgr = Payroll.objects.create(
+            period=self.period, employee=self.mgr,
+            basic_salary=10000000, gross_salary=10000000, net_salary=10000000,
+        )
+        self.payroll_rep = Payroll.objects.create(
+            period=self.period, employee=self.rep,
+            basic_salary=5000000, gross_salary=5000000, net_salary=5000000,
+        )
+        self.payroll_out = Payroll.objects.create(
+            period=self.period, employee=self.outsider,
+            basic_salary=4000000, gross_salary=4000000, net_salary=4000000,
+        )
+
+    def test_management_sees_only_own_payroll(self):
+        self.client.force_login(self.mgr_user)
+        res = self.client.get(reverse('payroll-list'))
+        self.assertEqual(res.status_code, 200)
+        ids = {p['id'] for p in res.json()}
+        self.assertIn(self.payroll_mgr.id, ids)
+        self.assertNotIn(self.payroll_rep.id, ids)
+        self.assertNotIn(self.payroll_out.id, ids)
+
+    def test_management_own_payroll_detail_ok(self):
+        self.client.force_login(self.mgr_user)
+        res = self.client.get(reverse('payroll-detail', args=[self.payroll_mgr.id]))
+        self.assertEqual(res.status_code, 200)
+
+    def test_management_other_payroll_detail_404(self):
+        self.client.force_login(self.mgr_user)
+        for p in (self.payroll_rep, self.payroll_out):
+            res = self.client.get(reverse('payroll-detail', args=[p.id]))
+            self.assertEqual(res.status_code, 404)
+
+    def test_management_filtered_by_report_employee_still_excluded(self):
+        """?employee=<report id> must not leak the report's payroll."""
+        self.client.force_login(self.mgr_user)
+        res = self.client.get(reverse('payroll-list'), {'employee': self.rep.id})
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json(), [])
+
+    def test_hr_still_sees_all_payrolls(self):
+        hr = make_user('HR_STAFF', 'hr@test.com')
+        self.client.force_login(hr)
+        res = self.client.get(reverse('payroll-list'))
+        self.assertEqual(res.status_code, 200)
+        ids = {p['id'] for p in res.json()}
+        self.assertEqual(ids, {self.payroll_mgr.id, self.payroll_rep.id, self.payroll_out.id})

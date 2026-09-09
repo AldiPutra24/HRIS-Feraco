@@ -828,3 +828,87 @@ class DashboardManagementTests(TestCase):
         self.client.force_login(make_user('EMPLOYEE'))
         res = self.client.get('/api/dashboard/management/')
         self.assertEqual(res.status_code, 403)
+
+
+class ManagementEmployeeScopeTests(TestCase):
+    """Management Karyawan access: read-only, direct reports only (manager FK)."""
+
+    def setUp(self):
+        self.mgr_user = make_user('MANAGEMENT')
+        self.mgr = Employee.objects.create(employee_id='M001', full_name='Manager', employment_status='ACTIVE')
+        self.mgr.user = self.mgr_user
+        self.mgr.save()
+        self.rep = Employee.objects.create(
+            employee_id='E001', full_name='Direct Report', employment_status='ACTIVE', manager=self.mgr
+        )
+        self.other = Employee.objects.create(employee_id='E002', full_name='Other Dept', employment_status='ACTIVE')
+        self.outsider_user = make_user('EMPLOYEE')
+        self.other.user = self.outsider_user
+        self.other.save()
+
+    def _list_ids(self):
+        res = self.client.get('/api/employees/')
+        self.assertEqual(res.status_code, 200)
+        data = res.json()
+        results = data['results'] if isinstance(data, dict) else data
+        return {r['id'] for r in results}
+
+    def test_management_sees_only_direct_reports(self):
+        self.client.force_login(self.mgr_user)
+        ids = self._list_ids()
+        self.assertIn(self.rep.id, ids)
+        self.assertNotIn(self.other.id, ids)
+
+    def test_management_detail_of_non_report_404(self):
+        self.client.force_login(self.mgr_user)
+        res = self.client.get(f'/api/employees/{self.other.id}/')
+        self.assertEqual(res.status_code, 404)
+
+    def test_management_detail_of_direct_report_ok(self):
+        self.client.force_login(self.mgr_user)
+        res = self.client.get(f'/api/employees/{self.rep.id}/')
+        self.assertEqual(res.status_code, 200)
+
+    def test_management_cannot_create_employee(self):
+        self.client.force_login(self.mgr_user)
+        res = self.client.post(
+            '/api/employees/',
+            {'full_name': 'New Guy', 'personal_email': 'new@x.com', 'company_email': 'new@x.com'},
+            format='json',
+        )
+        self.assertEqual(res.status_code, 403)
+
+    def test_management_cannot_update_employee(self):
+        self.client.force_login(self.mgr_user)
+        res = self.client.patch(
+            f'/api/employees/{self.rep.id}/',
+            {'full_name': 'Hacked'},
+            format='json',
+        )
+        self.assertEqual(res.status_code, 403)
+
+    def test_management_cannot_delete_employee(self):
+        self.client.force_login(self.mgr_user)
+        res = self.client.delete(f'/api/employees/{self.rep.id}/')
+        self.assertIn(res.status_code, (403, 405))
+
+    def test_management_cannot_import(self):
+        self.client.force_login(self.mgr_user)
+        res = self.client.post('/api/employees/import_csv/', {}, format='multipart')
+        self.assertEqual(res.status_code, 403)
+
+    def test_management_cannot_add_contract(self):
+        self.client.force_login(self.mgr_user)
+        res = self.client.post(
+            f'/api/employees/{self.rep.id}/contracts/',
+            {'contract_type': 'PKWT', 'start_date': '2026-01-01', 'end_date': '2026-12-31'},
+            format='json',
+        )
+        self.assertEqual(res.status_code, 403)
+
+    def test_hr_still_sees_all_employees(self):
+        hr = make_user('HR_STAFF')
+        self.client.force_login(hr)
+        ids = self._list_ids()
+        self.assertIn(self.rep.id, ids)
+        self.assertIn(self.other.id, ids)

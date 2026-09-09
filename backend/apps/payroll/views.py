@@ -179,7 +179,10 @@ class PayrollPeriodViewSet(viewsets.ModelViewSet):
 
 class PayrollViewSet(viewsets.ReadOnlyModelViewSet):
     """Payroll records (and items) for a period. HR + MANAGEMENT read-only via API;
-    manual item editing is handled by HR through dedicated endpoints (see below)."""
+    manual item editing is handled by HR through dedicated endpoints (see below).
+
+    MANAGEMENT scope: only their OWN payroll (self-slip). Direct reports' and
+    other employees' payroll is never visible to MANAGEMENT."""
 
     queryset = Payroll.objects.select_related('employee', 'period').prefetch_related('items')
     serializer_class = PayrollSerializer
@@ -189,7 +192,14 @@ class PayrollViewSet(viewsets.ReadOnlyModelViewSet):
     pagination_class = None
 
     def get_queryset(self):
-        return super().get_queryset()
+        qs = super().get_queryset()
+        if _role(self.request.user) == 'MANAGEMENT':
+            personnel = getattr(self.request.user, 'personnel', None)
+            employee = getattr(personnel, 'employee', None)
+            if employee is None:
+                return qs.none()
+            return qs.filter(employee_id=employee.id)
+        return qs
 
     @action(detail=True, methods=['post'])
     def manual_item(self, request, pk=None):

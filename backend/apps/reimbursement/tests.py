@@ -503,3 +503,96 @@ class ReimbursementWorkflowTests(TestCase):
                          {'approved_amount': 40000}, content_type='application/json')
         log = AuditLog.objects.filter(object_id=str(r.id), action='approve').latest('created_at')
         self.assertEqual(log.changes_after['approved_amount'], '40000.0')
+
+
+class ManagementScopeTests(TestCase):
+    """Management reimbursement access: view-only, direct reports only."""
+
+    def setUp(self):
+        self.mgr_user = make_user('MANAGEMENT', 'mgr@test.com')
+        self.mgr = Employee.objects.create(employee_id='M001', full_name='Manager', employment_status='ACTIVE')
+        self.mgr.user = self.mgr_user
+        self.mgr.save()
+        self.rep_user = make_user('EMPLOYEE', 'rep@test.com')
+        self.rep = Employee.objects.create(
+            employee_id='E001', full_name='Direct Report', employment_status='ACTIVE', manager=self.mgr
+        )
+        self.rep.user = self.rep_user
+        self.rep.save()
+        self.outsider = Employee.objects.create(employee_id='E002', full_name='Outsider', employment_status='ACTIVE')
+        self.cat = ReimbursementCategory.objects.create(name='Transport', code='TRANSPORT')
+
+    def _create(self, emp, status='PENDING'):
+        return Reimbursement.objects.create(
+            employee=emp, category=self.cat,
+            transaction_date=date.today(), amount=50000, status=status,
+        )
+
+    def test_management_sees_only_direct_reports(self):
+        mine = self._create(self.rep)
+        other = self._create(self.outsider)
+        self.client.force_login(self.mgr_user)
+        resp = self.client.get('/api/reimbursements/')
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        results = data['results'] if isinstance(data, dict) else data
+        ids = {r['id'] for r in results}
+        self.assertIn(mine.id, ids)
+        self.assertNotIn(other.id, ids)
+
+    def test_management_cannot_approve(self):
+        r = self._create(self.rep)
+        self.client.force_login(self.mgr_user)
+        resp = self.client.post(
+            f'/api/reimbursements/{r.id}/approve/',
+            {'approved_amount': 40000}, content_type='application/json',
+        )
+        self.assertEqual(resp.status_code, 403)
+        r.refresh_from_db()
+        self.assertEqual(r.status, 'PENDING')
+
+    def test_management_cannot_reject(self):
+        r = self._create(self.rep)
+        self.client.force_login(self.mgr_user)
+        resp = self.client.post(
+            f'/api/reimbursements/{r.id}/reject/',
+            {'rejection_reason': 'no'}, content_type='application/json',
+        )
+        self.assertEqual(resp.status_code, 403)
+        r.refresh_from_db()
+        self.assertEqual(r.status, 'PENDING')
+
+    def test_management_cannot_mark_paid_or_delete(self):
+        r = self._create(self.rep, status='APPROVED')
+        self.client.force_login(self.mgr_user)
+        resp = self.client.post(f'/api/reimbursements/{r.id}/mark_paid/')
+        self.assertEqual(resp.status_code, 403)
+        resp = self.client.delete(f'/api/reimbursements/{r.id}/')
+        self.assertEqual(resp.status_code, 403)
+
+    def test_management_cannot_create(self):
+        self.client.force_login(self.mgr_user)
+        resp = self.client.post('/api/reimbursements/', {
+            'category': self.cat.id,
+            'transaction_date': '2026-09-01',
+            'amount': 10000,
+        }, content_type='application/json')
+        self.assertEqual(resp.status_code, 403)
+
+    def test_management_non_report_detail_404(self):
+        r = self._create(self.outsider)
+        self.client.force_login(self.mgr_user)
+        resp = self.client.get(f'/api/reimbursements/{r.id}/')
+        self.assertEqual(resp.status_code, 404)
+
+    def test_hr_still_sees_all_and_can_approve(self):
+        r = self._create(self.rep)
+        hr = make_user('HR_STAFF', 'hr2@test.com')
+        self.client.force_login(hr)
+        resp = self.client.post(
+            f'/api/reimbursements/{r.id}/approve/',
+            {'approved_amount': 50000}, content_type='application/json',
+        )
+        self.assertEqual(resp.status_code, 200)
+        r.refresh_from_db()
+        self.assertEqual(r.status, 'APPROVED')

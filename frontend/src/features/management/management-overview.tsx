@@ -75,6 +75,30 @@ export function ManagementOverview() {
         <StatCard label='Pengajuan Pending' value={leave.pending} icon='leave' />
       </div>
 
+      <div className='flex flex-wrap gap-2'>
+        <Link
+          href='/dashboard/karyawan'
+          className='border-border hover:bg-muted flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium transition-colors'
+        >
+          <Icons.teams className='size-4' />
+          Karyawan (Bawahan)
+        </Link>
+        <Link
+          href='/dashboard/reimbursements'
+          className='border-border hover:bg-muted flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium transition-colors'
+        >
+          <Icons.receipt className='size-4' />
+          Reimbursement
+        </Link>
+        <Link
+          href='/dashboard/management/payroll'
+          className='border-border hover:bg-muted flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium transition-colors'
+        >
+          <Icons.wallet className='size-4' />
+          Payroll Saya
+        </Link>
+      </div>
+
       <div className='grid grid-cols-1 gap-4 lg:grid-cols-2'>
         <Card>
           <CardHeader>
