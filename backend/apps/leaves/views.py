@@ -12,7 +12,7 @@ from apps.personnel.permissions import _role
 from apps.personnel.storage import is_configured, signed_url, upload_bytes
 
 from .models import LeaveBalance, LeaveNotification, LeaveRequest, LeaveType
-from .permissions import APPROVER_ROLES, LEAVE_ADMIN_ROLES, IsLeaveAdmin, LeaveRequestPermission, _employee_for
+from .permissions import LEAVE_ADMIN_ROLES, IsLeaveAdmin, LeaveRequestPermission, _employee_for
 from .serializers import LeaveBalanceSerializer, LeaveRequestSerializer, LeaveTypeSerializer
 from .services import apply_approval_deduction, get_balance, notify
 
@@ -165,12 +165,10 @@ class LeaveRequestViewSet(viewsets.ModelViewSet):
         leave, err = self._load_request(request, pk)
         if err:
             return err
-        role = _role(request.user)
-        if role not in APPROVER_ROLES:
-            return Response({'detail': 'Anda tidak berwenang menyetujui.'}, status=status.HTTP_403_FORBIDDEN)
-        employee = _employee_for(request.user)
-        if employee is not None and leave.employee_id == employee.id:
-            return Response({'detail': 'Tidak dapat menyetujui pengajuan sendiri.'}, status=status.HTTP_400_BAD_REQUEST)
+        # Only the employee's direct manager (atasan) may approve.
+        manager = _employee_for(request.user)
+        if manager is None or leave.employee.manager_id != manager.id:
+            return Response({'detail': 'Hanya atasan langsung yang dapat menyetujui.'}, status=status.HTTP_403_FORBIDDEN)
         if leave.status != 'PENDING':
             return Response({'detail': 'Hanya pengajuan PENDING yang dapat disetujui.'}, status=status.HTTP_400_BAD_REQUEST)
         with transaction.atomic():
@@ -191,12 +189,10 @@ class LeaveRequestViewSet(viewsets.ModelViewSet):
         leave, err = self._load_request(request, pk)
         if err:
             return err
-        role = _role(request.user)
-        if role not in APPROVER_ROLES:
-            return Response({'detail': 'Anda tidak berwenang menolak.'}, status=status.HTTP_403_FORBIDDEN)
-        employee = _employee_for(request.user)
-        if employee is not None and leave.employee_id == employee.id:
-            return Response({'detail': 'Tidak dapat menolak pengajuan sendiri.'}, status=status.HTTP_400_BAD_REQUEST)
+        # Only the employee's direct manager (atasan) may reject.
+        manager = _employee_for(request.user)
+        if manager is None or leave.employee.manager_id != manager.id:
+            return Response({'detail': 'Hanya atasan langsung yang dapat menolak.'}, status=status.HTTP_403_FORBIDDEN)
         if leave.status != 'PENDING':
             return Response({'detail': 'Hanya pengajuan PENDING yang dapat ditolak.'}, status=status.HTTP_400_BAD_REQUEST)
         reason = (request.data.get('rejection_reason') or '').strip()

@@ -178,6 +178,112 @@ class LeaveWorkflowTests(TestCase):
         res = self.client.post(url)
         self.assertEqual(res.status_code, 404)
 
+    def test_management_rejects_direct_report(self):
+        """MANAGEMENT can reject a direct report's PENDING request with a reason."""
+        self.manager_emp.user = self.manager
+        self.manager_emp.save()
+        lr = LeaveRequest.objects.create(
+            employee=self.emp, leave_type=self.annual,
+            start_date=date(2026, 1, 5), end_date=date(2026, 1, 7), total_days=3,
+        )
+        self.client.force_login(self.manager)
+        url = reverse('leave-request-reject', args=[lr.id])
+        res = self.client.post(url, {'rejection_reason': 'Tidak ada pengganti'}, format='json')
+        self.assertEqual(res.status_code, 200)
+        lr.refresh_from_db()
+        self.assertEqual(lr.status, 'REJECTED')
+        self.assertEqual(lr.rejection_reason, 'Tidak ada pengganti')
+
+    def test_hr_cannot_approve(self):
+        """HR_STAFF must be view-only — approve blocked at API level (403)."""
+        self.manager_emp.user = self.manager
+        self.manager_emp.save()
+        lr = LeaveRequest.objects.create(
+            employee=self.emp, leave_type=self.annual,
+            start_date=date(2026, 1, 5), end_date=date(2026, 1, 7), total_days=3,
+        )
+        self.client.force_login(self.hr)
+        url = reverse('leave-request-approve', args=[lr.id])
+        res = self.client.post(url)
+        self.assertEqual(res.status_code, 403)
+        lr.refresh_from_db()
+        self.assertEqual(lr.status, 'PENDING')
+
+    def test_hr_cannot_reject(self):
+        """HR_STAFF must be view-only — reject blocked at API level (403)."""
+        self.manager_emp.user = self.manager
+        self.manager_emp.save()
+        lr = LeaveRequest.objects.create(
+            employee=self.emp, leave_type=self.annual,
+            start_date=date(2026, 1, 5), end_date=date(2026, 1, 7), total_days=3,
+        )
+        self.client.force_login(self.hr)
+        url = reverse('leave-request-reject', args=[lr.id])
+        res = self.client.post(url, {'rejection_reason': 'x'}, format='json')
+        self.assertEqual(res.status_code, 403)
+        lr.refresh_from_db()
+        self.assertEqual(lr.status, 'PENDING')
+
+    def test_employee_cannot_approve_any(self):
+        """EMPLOYEE (non-manager) cannot approve any request (403)."""
+        self.manager_emp.user = self.manager
+        self.manager_emp.save()
+        lr = LeaveRequest.objects.create(
+            employee=self.emp, leave_type=self.annual,
+            start_date=date(2026, 1, 5), end_date=date(2026, 1, 7), total_days=3,
+        )
+        self.client.force_login(self.emp_user)
+        url = reverse('leave-request-approve', args=[lr.id])
+        res = self.client.post(url)
+        self.assertEqual(res.status_code, 403)
+
+    def test_approve_after_approved_noop(self):
+        """Re-approving an already APPROVED request is rejected (400)."""
+        self.manager_emp.user = self.manager
+        self.manager_emp.save()
+        lr = LeaveRequest.objects.create(
+            employee=self.emp, leave_type=self.annual,
+            start_date=date(2026, 1, 5), end_date=date(2026, 1, 7), total_days=3, status='APPROVED',
+        )
+        self.client.force_login(self.manager)
+        url = reverse('leave-request-approve', args=[lr.id])
+        res = self.client.post(url)
+        self.assertEqual(res.status_code, 400)
+
+    def test_reject_after_rejected_noop(self):
+        """Re-rejecting an already REJECTED request is rejected (400)."""
+        self.manager_emp.user = self.manager
+        self.manager_emp.save()
+        lr = LeaveRequest.objects.create(
+            employee=self.emp, leave_type=self.annual,
+            start_date=date(2026, 1, 5), end_date=date(2026, 1, 7), total_days=3, status='REJECTED',
+        )
+        self.client.force_login(self.manager)
+        url = reverse('leave-request-reject', args=[lr.id])
+        res = self.client.post(url, {'rejection_reason': 'x'}, format='json')
+        self.assertEqual(res.status_code, 400)
+
+    def test_employee_without_manager_safe(self):
+        """Employee with no manager can still submit; request stays PENDING."""
+        orphan = Employee.objects.create(
+            employee_id='E009', full_name='Orphan', employment_status='ACTIVE',
+        )
+        lr = LeaveRequest.objects.create(
+            employee=orphan, leave_type=self.annual,
+            start_date=date(2026, 1, 5), end_date=date(2026, 1, 7), total_days=3,
+        )
+        self.assertEqual(lr.status, 'PENDING')
+        # No manager can approve it (manager check yields 403 for anyone).
+        self.manager_emp.user = self.manager
+        self.manager_emp.save()
+        self.client.force_login(self.manager)
+        url = reverse('leave-request-approve', args=[lr.id])
+        res = self.client.post(url)
+        # Orphan has no manager → not in any manager's queryset → not approvable.
+        self.assertNotEqual(res.status_code, 200)
+        lr.refresh_from_db()
+        self.assertEqual(lr.status, 'PENDING')
+
     def test_audit_log_on_submit(self):
         from apps.audit.models import AuditLog
 

@@ -4,8 +4,6 @@ from apps.personnel.permissions import _role
 
 # HR/admin can read everything and manage leave types + balances.
 LEAVE_ADMIN_ROLES = {'ADMIN', 'HR_STAFF', 'HR_LEAD'}
-# Approvers = HR roles + MANAGEMENT (manager approves direct reports).
-APPROVER_ROLES = {'ADMIN', 'HR_STAFF', 'HR_LEAD', 'MANAGEMENT'}
 
 
 def _employee_for(user):

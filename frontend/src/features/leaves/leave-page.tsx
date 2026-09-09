@@ -57,6 +57,7 @@ export function LeavePage() {
   const { user } = useAuth();
   const role = user?.role;
   const isApprover = role === 'admin' || role === 'hr_staff' || role === 'hr_lead' || role === 'management';
+  const canApproveReject = role === 'management';
   const isAdmin = role === 'admin' || role === 'hr_staff' || role === 'hr_lead';
   const canHardDelete = role === 'admin'; // backend: ADMIN/superadmin only
 
@@ -392,8 +393,10 @@ export function LeavePage() {
                 <TableHead>Karyawan</TableHead>
                 <TableHead>Jenis</TableHead>
                 <TableHead>Periode</TableHead>
-                <TableHead>Hari</TableHead>                  <TableHead>Status Atasan</TableHead>                <TableHead>Status</TableHead>
+                <TableHead>Hari</TableHead>
+                <TableHead>Status Atasan</TableHead>
                 <TableHead>Alasan</TableHead>
+                <TableHead>Lampiran</TableHead>
                 <TableHead className='text-right'>Aksi</TableHead>
               </TableRow>
             </TableHeader>
@@ -414,9 +417,6 @@ export function LeavePage() {
                   <TableCell>
                     <StatusBadge status={r.status} />
                   </TableCell>
-                  <TableCell>
-                    <StatusBadge status={r.status} />
-                  </TableCell>
                   <TableCell className='max-w-48 whitespace-normal break-words'>{r.reason || '-'}</TableCell>
                   <TableCell className='text-right'>
                     <div className='flex items-center justify-end gap-2'>
@@ -425,7 +425,7 @@ export function LeavePage() {
                           Lampiran
                         </Button>
                       )}
-                      {r.status === 'PENDING' && isApprover && (
+                      {r.status === 'PENDING' && canApproveReject && (
                         <>
                           <Button variant='success' size='sm' disabled={acting[r.id]} onClick={() => approve(r.id)}>
                             {acting[r.id] ? 'Memproses...' : 'Setujui'}
