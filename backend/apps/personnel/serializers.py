@@ -125,8 +125,11 @@ class EmployeeSerializer(serializers.ModelSerializer):
         read_only_fields = ('id', 'employee_id', 'department_name', 'position_name', 'manager_name', 'placement_display', 'religion_display', 'gender_display', 'marital_status_display')
         extra_kwargs = {
             'nik': {'required': False, 'allow_blank': True},
-            'personal_email': {'required': True, 'allow_blank': False},
-            'company_email': {'required': True, 'allow_blank': False},
+            'personal_email': {'required': False, 'allow_blank': False},
+            'company_email': {'required': False, 'allow_blank': False},
+            'department': {'required': False, 'allow_null': True},
+            'position': {'required': False, 'allow_null': True},
+            'manager': {'required': False, 'allow_null': True},
         }
 
     def validate_nik(self, value):

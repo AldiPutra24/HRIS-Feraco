@@ -229,7 +229,26 @@ export function EmployeeForm({ employee, onSaved, onCancel }: Props) {
       else await createEmployee(payload);
       onSaved();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Gagal menyimpan.');
+      const msg = err instanceof Error ? err.message : '';
+      let parsed: Record<string, unknown> = {};
+      try {
+        parsed = JSON.parse(msg);
+      } catch {
+        parsed = {};
+      }
+      const fieldErrors: Record<string, string> = {};
+      let topError = '';
+      for (const [key, val] of Object.entries(parsed)) {
+        if (key === 'detail') {
+          topError = String(val);
+          continue;
+        }
+        const text = Array.isArray(val) ? String(val[0]) : String(val);
+        if (key in form) fieldErrors[key] = text;
+        else topError += (topError ? ' ' : '') + `${key}: ${text}`;
+      }
+      if (Object.keys(fieldErrors).length) setErrors((prev) => ({ ...prev, ...fieldErrors }));
+      setError(topError || msg || 'Gagal menyimpan.');
     } finally {
       setSaving(false);
     }

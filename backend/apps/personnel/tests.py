@@ -284,6 +284,24 @@ class EmployeeApiTests(TestCase):
         emp.refresh_from_db()
         self.assertEqual(emp.full_name, 'John Updated')
 
+    def test_patch_nullable_fields_accepted(self):
+        emp = Employee.objects.create(employee_id='E001', full_name='John', department=self.dept, position=self.pos)
+        res = self.client.patch(
+            reverse('employee-detail', args=[emp.pk]),
+            {'manager': None, 'department': None, 'position': None},
+            content_type='application/json',
+        )
+        self.assertEqual(res.status_code, 200)
+        emp.refresh_from_db()
+        self.assertIsNone(emp.manager)
+        self.assertIsNone(emp.department)
+        self.assertIsNone(emp.position)
+
+    def test_patch_without_emails_ok(self):
+        emp = Employee.objects.create(employee_id='E001', full_name='John', personal_email='a@m.com', company_email='a@f.co.id')
+        res = self.client.patch(reverse('employee-detail', args=[emp.pk]), {'full_name': 'Jane'}, content_type='application/json')
+        self.assertEqual(res.status_code, 200)
+
     def test_validation_nik_non_digit(self):
         res = self._create(nik='ABC123')
         self.assertEqual(res.status_code, 400)
