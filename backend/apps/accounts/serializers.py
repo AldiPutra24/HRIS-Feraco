@@ -51,7 +51,20 @@ class UserAdminSerializer(serializers.ModelSerializer):
 
     def validate(self, attrs):
         employee = attrs.get('employee')
+        role = attrs.get('role')
         if employee is not None:
+            # Employee must have a Position (source of role).
+            if employee.position_id is None:
+                raise serializers.ValidationError({'employee': 'Karyawan harus memiliki Position.'})
+            # Role/employee consistency: only EMPLOYEE and MANAGEMENT roles
+            # bind to an employee, and the employee's Position.role must match.
+            if role is not None:
+                role_key = role.key if hasattr(role, 'key') else role
+                if role_key in ('EMPLOYEE', 'MANAGEMENT'):
+                    if employee.position.role != role_key:
+                        raise serializers.ValidationError({
+                            'employee': f'Karyawan harus memiliki Position dengan role {role_key}.'
+                        })
             # Pull name/email from the employee (source of truth).
             attrs['first_name'] = employee.full_name
             attrs['last_name'] = ''

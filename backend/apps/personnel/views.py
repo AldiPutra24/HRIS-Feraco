@@ -96,6 +96,9 @@ class EmployeeViewSet(SoftHardDeleteMixin, viewsets.ModelViewSet):
                 | Q(personal_email__icontains=q)
                 | Q(company_email__icontains=q)
             )
+        position_role = self.request.query_params.get('position_role')
+        if position_role in (Position.ROLE_EMPLOYEE, Position.ROLE_MANAGEMENT):
+            qs = qs.filter(position__isnull=False, position__role=position_role)
         return qs
 
     @action(detail=False, methods=['get'])

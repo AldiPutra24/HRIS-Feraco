@@ -186,11 +186,27 @@ export function UserList() {
   const roleName = (roleKey: string | null) => roles.find((r) => r.key === roleKey)?.name ?? roleKey ?? '-';
   const selectedRoleKey = roles.find((r) => String(r.id) === form.role)?.key ?? null;
   const isEmployeeRole = selectedRoleKey === 'EMPLOYEE';
+  const isManagementRole = selectedRoleKey === 'MANAGEMENT';
   const isHrRole = selectedRoleKey === 'HR_STAFF' || selectedRoleKey === 'HR_LEAD';
-  const showEmployeeSelect = isEmployeeRole || isHrRole;
-  const selectableEmployees = isHrRole
-    ? employees.filter((e) => e.department_name === 'HR & Finance')
-    : employees;
+  const showEmployeeSelect = isEmployeeRole || isManagementRole || isHrRole;
+  // Filter by Position.role (EMPLOYEE/MANAGEMENT) or HR department. Employees
+  // without a Position are excluded (position_role is null).
+  let selectableEmployees = employees;
+  if (isHrRole) {
+    selectableEmployees = employees.filter((e) => e.department_name === 'HR & Finance');
+  } else if (isEmployeeRole) {
+    selectableEmployees = employees.filter((e) => e.position_role === 'EMPLOYEE');
+  } else if (isManagementRole) {
+    selectableEmployees = employees.filter((e) => e.position_role === 'MANAGEMENT');
+  }
+  // Edit mode: keep the currently-linked employee visible even if it no longer
+  // matches the selected role (so the mismatch is shown, not silently dropped).
+  const linkedEmp = employees.find((e) => String(e.id) === form.employee);
+  const optionEmployees = linkedEmp && !selectableEmployees.includes(linkedEmp)
+    ? [...selectableEmployees, linkedEmp]
+    : selectableEmployees;
+  const employeeMismatch =
+    !!linkedEmp && (isEmployeeRole || isManagementRole) && linkedEmp.position_role !== selectedRoleKey;
 
   return (
     <div className='flex flex-1 flex-col gap-4 p-4 md:p-6'>
@@ -232,6 +248,7 @@ export function UserList() {
                     className='border-input h-8 rounded-lg border bg-transparent px-2.5 text-sm'
                     value={form.role}
                     onChange={(e) => setForm((f) => ({ ...f, role: e.target.value, employee: '' }))}
+                    disabled={saving}
                   >
                     <option value=''>-</option>
                     {roles.map((r) => (
@@ -248,7 +265,7 @@ export function UserList() {
                     className='border-input h-8 rounded-lg border bg-transparent px-2.5 text-sm'
                     value={form.employee}
                     onChange={(e) => {
-                      const employee = selectableEmployees.find((emp) => emp.id === Number(e.target.value));
+                      const employee = optionEmployees.find((emp) => emp.id === Number(e.target.value));
                       setForm((f) => ({
                         ...f,
                         employee: e.target.value,
@@ -264,12 +281,17 @@ export function UserList() {
                     }}
                   >
                     <option value=''>-</option>
-                    {selectableEmployees.map((emp) => (
+                    {optionEmployees.map((emp) => (
                       <option key={emp.id} value={emp.id}>
                         {emp.full_name}
                       </option>
                     ))}
                   </select>
+                  {employeeMismatch && (
+                    <p className='text-destructive text-xs'>
+                      Karyawan terhubung ({linkedEmp?.full_name}) memiliki Position role {linkedEmp?.position_role}, tidak sesuai dengan role {selectedRoleKey}. Pilih ulang karyawan yang sesuai atau ubah role user.
+                    </p>
+                  )}
                   </div>
                 )}
                 <div className='space-y-1.5'>

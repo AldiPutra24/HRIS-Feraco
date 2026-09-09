@@ -244,3 +244,31 @@
 ### Skipped (per spec)
 - PPh21, BPJS, lembur, pro-rata, attendance deduction, formula pajak — deferred to Tahap 3 (Calculation Engine).
 - No changes to Employee/Leave/Reimbursement modules.
+
+## Status: Management Dashboard — COMPLETE (09 Sep 2026)
+
+### Scope
+- (1) Management Overview page, (2) Management Leave approval page, (3) Employee→Management leave approval flow (already supported backend-side — no Leave model/status change), (4) read-only Reporting To/Atasan field on Employee Leave form. Reuse existing Leave model/API/serializer/components. Single source of truth for Leave status preserved. No new Leave model, no duplicate approval status.
+
+### Backend
+- `apps/leaves/serializers.py`: added `employee_manager_name` (SerializerMethodField → `employee.manager.full_name`) to `LeaveRequestSerializer` (fields + read_only_fields).
+- `apps/personnel/views.py`: `EmployeeViewSet.filterset_fields` += `'manager'`; new `DashboardManagementView(APIView)` (IsAuthenticated; 403 if role != MANAGEMENT; 404 if no linked employee; else aggregates team counts + leave status counts for direct reports).
+- `apps/personnel/urls.py`: `path('dashboard/management/', DashboardManagementView.as_view())`.
+- `apps/leaves/tests.py`: +`test_management_approves_direct_report`, +`test_management_cannot_approve_non_report`.
+- `apps/personnel/tests.py`: +`DashboardManagementTests` (test_management_sees_team_stats, test_employee_forbidden).
+- No migration needed (SerializerMethodField + APIView + filterset change only).
+
+### Frontend
+- `src/lib/leaves.ts`: `LeaveRequest` type += `employee_manager_name: string | null;`.
+- `src/lib/management.ts`: `getManagementDashboard()` → GET `/api/dashboard/management/`; `ManagementDashboard` type.
+- `src/config/nav-config.ts`: `Manajemen` group (role: management) → Overview + Persetujuan Izin & Cuti.
+- `src/features/management/management-overview.tsx`: stat cards (team total/active/inactive/pending), department distribution, leave summary, link to leave page.
+- `src/features/management/management-leave.tsx`: lists direct-report leave requests; table w/ Atasan column; approve/reject (reject requires reason modal); approved/rejected/cancelled → "Selesai".
+- `src/app/dashboard/management/overview/page.tsx` + `leave/page.tsx`: route pages.
+- `src/features/leaves/leave-form.tsx`: read-only "Atasan / Reporting To" field (from `getMyEmployee().manager_name`) on Employee leave submission form.
+
+### Validation
+- Backend: `manage.py check` OK; 4 new management tests pass ("Ran 4 tests ... OK").
+- Frontend: `tsc --noEmit` 0 errors; `next build` compiled (both /dashboard/management/* routes); lint errors in new files are the same `set-state-in-effect` pattern as existing codebase (overview-dashboard, reimbursement-page, etc.) — consistent convention.
+- Deployed: commit `f6226ca` pushed to main; prod rebuilt via docker compose. Both routes return 200 on https://hris.feraco.co.id.
+- Note: prod data not fully wired (MANAGEMENT user `usermanager@feraco.co.id` has no linked Employee → endpoint correctly returns 404; only 1 employee has a manager). Backend logic verified via shell + tests with seeded data.

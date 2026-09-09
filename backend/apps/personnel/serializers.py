@@ -77,7 +77,11 @@ class EmployeeSerializer(serializers.ModelSerializer):
 
     department_name = serializers.CharField(source='department.name', read_only=True)
     position_name = serializers.CharField(source='position.name', read_only=True)
+    position_role = serializers.SerializerMethodField()
     manager_name = serializers.CharField(source='manager.full_name', read_only=True)
+
+    def get_position_role(self, obj):
+        return obj.position.role if obj.position else None
     placement_display = serializers.CharField(source='get_placement_display', read_only=True)
     religion_display = serializers.CharField(source='get_religion_display', read_only=True)
     gender_display = serializers.CharField(source='get_gender_display', read_only=True)
@@ -116,13 +120,14 @@ class EmployeeSerializer(serializers.ModelSerializer):
             'department_name',
             'position',
             'position_name',
+            'position_role',
             'manager',
             'manager_name',
             'join_date',
             'employment_status',
             'photo',
         )
-        read_only_fields = ('id', 'employee_id', 'department_name', 'position_name', 'manager_name', 'placement_display', 'religion_display', 'gender_display', 'marital_status_display')
+        read_only_fields = ('id', 'employee_id', 'department_name', 'position_name', 'position_role', 'manager_name', 'placement_display', 'religion_display', 'gender_display', 'marital_status_display')
         extra_kwargs = {
             'nik': {'required': False, 'allow_blank': True},
             'personal_email': {'required': False, 'allow_blank': False},

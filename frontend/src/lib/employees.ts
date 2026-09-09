@@ -70,6 +70,7 @@ export type Employee = {
   department_name: string;
   position: number | null;
   position_name: string;
+  position_role: 'EMPLOYEE' | 'MANAGEMENT' | null;
   manager: number | null;
   manager_name: string;
   join_date: string | null;
