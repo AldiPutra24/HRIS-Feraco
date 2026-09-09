@@ -143,6 +143,41 @@ class LeaveWorkflowTests(TestCase):
         res = self.client.post(url)
         self.assertEqual(res.status_code, 403)
 
+    def test_management_approves_direct_report(self):
+        """MANAGEMENT can approve a direct report's PENDING request."""
+        self.manager_emp.user = self.manager
+        self.manager_emp.save()
+        lr = LeaveRequest.objects.create(
+            employee=self.emp, leave_type=self.annual,
+            start_date=date(2026, 1, 5), end_date=date(2026, 1, 7), total_days=3,
+        )
+        self.client.force_login(self.manager)
+        url = reverse('leave-request-approve', args=[lr.id])
+        res = self.client.post(url)
+        self.assertEqual(res.status_code, 200)
+        lr.refresh_from_db()
+        self.assertEqual(lr.status, 'APPROVED')
+
+    def test_management_cannot_approve_non_report(self):
+        """MANAGEMENT cannot act on employees outside their reporting line."""
+        other_mgr = make_user('MANAGEMENT', 'mgr2@test.com')
+        other_mgr_emp = Employee.objects.create(
+            employee_id='M002', full_name='Manager2', employment_status='ACTIVE'
+        )
+        other_mgr_emp.user = other_mgr
+        other_mgr_emp.save()
+        other_emp = Employee.objects.create(
+            employee_id='E002', full_name='Jane', employment_status='ACTIVE', manager=other_mgr_emp
+        )
+        lr = LeaveRequest.objects.create(
+            employee=other_emp, leave_type=self.annual,
+            start_date=date(2026, 1, 5), end_date=date(2026, 1, 7), total_days=3,
+        )
+        self.client.force_login(self.manager)
+        url = reverse('leave-request-approve', args=[lr.id])
+        res = self.client.post(url)
+        self.assertEqual(res.status_code, 404)
+
     def test_audit_log_on_submit(self):
         from apps.audit.models import AuditLog
 

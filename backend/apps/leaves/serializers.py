@@ -45,6 +45,7 @@ class LeaveBalanceSerializer(serializers.ModelSerializer):
 
 class LeaveRequestSerializer(serializers.ModelSerializer):
     employee_name = serializers.CharField(source='employee.full_name', read_only=True)
+    employee_manager_name = serializers.SerializerMethodField()
     leave_type_name = serializers.CharField(source='leave_type.name', read_only=True)
     leave_type_kind = serializers.CharField(source='leave_type.kind', read_only=True)
     approver_name = serializers.CharField(source='approver.username', read_only=True)
@@ -62,7 +63,7 @@ class LeaveRequestSerializer(serializers.ModelSerializer):
     class Meta:
         model = LeaveRequest
         fields = (
-            'id', 'employee', 'employee_name', 'leave_type', 'leave_type_name', 'leave_type_kind',
+            'id', 'employee', 'employee_name', 'employee_manager_name', 'leave_type', 'leave_type_name', 'leave_type_kind',
             'start_date', 'end_date', 'total_days', 'reason', 'attachment_name',
             'attachment_url', 'status', 'submitted_at', 'approved_at', 'rejected_at',
             'approver', 'approver_name', 'rejection_reason', 'created_at', 'updated_at',
@@ -72,6 +73,14 @@ class LeaveRequestSerializer(serializers.ModelSerializer):
             'rejected_at', 'approver', 'created_at', 'updated_at', 'employee_name',
             'leave_type_name', 'leave_type_kind', 'approver_name', 'attachment_url',
         )
+
+    def get_employee_manager_name(self, obj):
+        mgr = getattr(obj.employee, 'manager', None)
+        return mgr.full_name if mgr else None
+
+    def get_employee_manager_name(self, obj):
+        mgr = getattr(obj.employee, 'manager', None)
+        return mgr.full_name if mgr else None
 
     def get_attachment_url(self, obj):
         if not obj.attachment_path:

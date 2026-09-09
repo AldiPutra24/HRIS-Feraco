@@ -15,7 +15,7 @@ from apps.audit.services import log_event
 from apps.softdelete import SoftHardDeleteMixin
 
 from .models import Department, Employee, EmployeeContract, EmployeeDocument, EmploymentHistory, Position
-from .permissions import IsHRStaff
+from .permissions import IsHRStaff, _role
 from .services import set_current_contract, sync_contract_status
 from .serializers import (
     DepartmentSerializer,
@@ -78,7 +78,7 @@ class EmployeeViewSet(SoftHardDeleteMixin, viewsets.ModelViewSet):
     permission_classes = [IsHRStaff]
     search_fields = ['full_name', 'employee_id', 'nik', 'personal_email', 'company_email']
     ordering_fields = ['full_name', 'employee_id', 'join_date', 'created_at']
-    filterset_fields = ['department', 'position', 'employment_status', 'status']
+    filterset_fields = ['department', 'position', 'employment_status', 'status', 'manager']
 
     def get_serializer_class(self):
         if self.action in ('list', 'retrieve'):
@@ -589,5 +589,63 @@ class DashboardHrView(APIView):
                 'contracts_ending': contracts_data,
                 'birthdays': birthdays,
                 'announcements': announcements_data,
+            }
+        )
+
+
+class DashboardManagementView(APIView):
+    """Read-only team + leave stats for MANAGEMENT (their direct reports)."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        from apps.leaves.models import LeaveRequest
+
+        role = _role(request.user)
+        if role != 'MANAGEMENT':
+            return Response({'detail': 'Hanya untuk peran Manajemen.'}, status=status.HTTP_403_FORBIDDEN)
+        employee = getattr(getattr(request.user, 'personnel', None), 'employee', None)
+        if employee is None:
+            return Response({'detail': 'Akun tidak terhubung ke data karyawan.'}, status=status.HTTP_404_NOT_FOUND)
+
+        team = Employee.objects.filter(manager=employee)
+        active = team.filter(employment_status='ACTIVE').count()
+        from django.db.models import Count
+
+        by_dept = (
+            team.values('department', 'department__name')
+            .annotate(count=Count('id'))
+            .order_by('department__name')
+        )
+        by_department = [
+            {
+                'department': d['department'],
+                'department_name': d['department__name'] or 'Tanpa Departemen',
+                'count': d['count'],
+            }
+            for d in by_dept
+        ]
+
+        team_ids = list(team.values_list('id', flat=True))
+        leaves = LeaveRequest.objects.filter(employee_id__in=team_ids)
+        leave_counts = leaves.values('status').annotate(count=Count('id'))
+        counts = {c['status']: c['count'] for c in leave_counts}
+        leave = {
+            'pending': counts.get('PENDING', 0),
+            'approved': counts.get('APPROVED', 0),
+            'rejected': counts.get('REJECTED', 0),
+            'cancelled': counts.get('CANCELLED', 0),
+            'total': sum(counts.values()),
+        }
+
+        return Response(
+            {
+                'team': {
+                    'total': team.count(),
+                    'active': active,
+                    'inactive': team.count() - active,
+                    'by_department': by_department,
+                },
+                'leave': leave,
             }
         )

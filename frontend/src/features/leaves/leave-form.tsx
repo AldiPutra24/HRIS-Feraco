@@ -14,6 +14,8 @@ import {
   uploadLeaveAttachment,
   type LeaveType
 } from '@/lib/leaves';
+import { getMyEmployee } from '@/lib/employee-self';
+import type { Employee } from '@/lib/employees';
 
 export function LeaveForm({ redirectTo = '/dashboard/leave' }: { redirectTo?: string }) {
   const router = useRouter();
@@ -28,11 +30,13 @@ export function LeaveForm({ redirectTo = '/dashboard/leave' }: { redirectTo?: st
   });
   const [file, setFile] = useState<File | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [me, setMe] = useState<Employee | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
-    const t = await listLeaveTypes();
+    const [t, emp] = await Promise.all([listLeaveTypes(), getMyEmployee().catch(() => null)]);
     setTypes(t);
+    setMe(emp);
     setLoading(false);
   }, []);
 
@@ -101,6 +105,15 @@ export function LeaveForm({ redirectTo = '/dashboard/leave' }: { redirectTo?: st
                 <option value='LEAVE'>Cuti</option>
                 <option value='PERMISSION'>Izin</option>
               </select>
+            </div>
+            <div>
+              <Label className='text-xs'>Atasan / Reporting To</Label>
+              <Input
+                readOnly
+                value={me?.manager_name || ''}
+                placeholder='Belum ditentukan'
+                className='bg-muted/50'
+              />
             </div>
             <div>
               <Label className='text-xs'>Kategori</Label>

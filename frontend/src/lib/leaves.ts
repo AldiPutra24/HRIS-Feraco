@@ -71,6 +71,7 @@ export type LeaveRequest = {
   id: number;
   employee: number;
   employee_name: string;
+  employee_manager_name: string | null;
   leave_type: number;
   leave_type_name: string;
   leave_type_kind: string;

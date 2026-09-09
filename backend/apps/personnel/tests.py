@@ -796,3 +796,35 @@ class EmployeePhotoApiTests(TestCase):
         res = self.client.post(reverse('me-employee-photo'), {'photo': f}, format='multipart')
         # Storage not configured in tests -> 503 expected, not 500.
         self.assertIn(res.status_code, (200, 503))
+
+
+class DashboardManagementTests(TestCase):
+    def setUp(self):
+        from apps.accounts.models import Role
+        from apps.leaves.models import LeaveRequest, LeaveType
+
+        self.mgr_user = make_user('MANAGEMENT')
+        self.mgr = Employee.objects.create(employee_id='M001', full_name='Manager', employment_status='ACTIVE')
+        self.mgr.user = self.mgr_user
+        self.mgr.save()
+        self.rep = Employee.objects.create(
+            employee_id='E001', full_name='Rep', employment_status='ACTIVE', manager=self.mgr
+        )
+        self.annual = LeaveType.objects.create(name='Annual', code='ANNUAL', kind='LEAVE', default_quota=12)
+        LeaveRequest.objects.create(
+            employee=self.rep, leave_type=self.annual,
+            start_date=date(2026, 1, 5), end_date=date(2026, 1, 7), total_days=3, status='PENDING',
+        )
+
+    def test_management_sees_team_stats(self):
+        self.client.force_login(self.mgr_user)
+        res = self.client.get('/api/dashboard/management/')
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.data['team']['total'], 1)
+        self.assertEqual(res.data['team']['active'], 1)
+        self.assertEqual(res.data['leave']['pending'], 1)
+
+    def test_employee_forbidden(self):
+        self.client.force_login(make_user('EMPLOYEE'))
+        res = self.client.get('/api/dashboard/management/')
+        self.assertEqual(res.status_code, 403)

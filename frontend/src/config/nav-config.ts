@@ -129,6 +129,27 @@ export const navGroups: NavGroup[] = [
         items: []
       },
       {
+        title: 'Manajemen',
+        url: '/dashboard/management/overview',
+        icon: 'teams',
+        isActive: false,
+        access: { role: 'management' },
+        items: [
+          {
+            title: 'Overview',
+            url: '/dashboard/management/overview',
+            isActive: false,
+            items: []
+          },
+          {
+            title: 'Persetujuan Izin & Cuti',
+            url: '/dashboard/management/leave',
+            isActive: false,
+            items: []
+          }
+        ]
+      },
+      {
         title: 'Reimbursement',
         url: '/dashboard/reimbursements',
         icon: 'receipt',
