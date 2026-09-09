@@ -303,6 +303,26 @@ class EmployeeApiTests(TestCase):
         res = self.client.patch(reverse('employee-detail', args=[emp.pk]), {'full_name': 'Jane'}, content_type='application/json')
         self.assertEqual(res.status_code, 200)
 
+    def test_patch_ui_payload_null_choice_fields(self):
+        # reproduces Edit Karyawan Save: frontend sends null for empty choice CharFields
+        emp = Employee.objects.create(employee_id='E001', full_name='John', department=self.dept, position=self.pos)
+        payload = {
+            'full_name': 'John', 'nik': '', 'birth_place': '', 'birth_date': None, 'address': '',
+            'phone': '', 'company_email': 'a@f.co.id', 'personal_email': 'a@m.com',
+            'emergency_contact_name': '', 'emergency_contact_phone': '', 'bank_account_number': '',
+            'bank_account_name': '', 'npwp': '', 'bpjs_kesehatan': '', 'bpjs_ketenagakerjaan': '',
+            'placement': None, 'religion': None, 'gender': None, 'marital_status': None,
+            'department': self.dept.id, 'position': self.pos.id, 'manager': None,
+            'join_date': '2020-01-01', 'employment_status': 'ACTIVE',
+        }
+        res = self.client.patch(reverse('employee-detail', args=[emp.pk]), data=json.dumps(payload), content_type='application/json')
+        self.assertEqual(res.status_code, 200)
+        emp.refresh_from_db()
+        self.assertEqual(emp.placement, '')
+        self.assertEqual(emp.religion, '')
+        self.assertEqual(emp.gender, '')
+        self.assertEqual(emp.marital_status, '')
+
     def test_validation_nik_non_digit(self):
         res = self._create(nik='ABC123')
         self.assertEqual(res.status_code, 400)

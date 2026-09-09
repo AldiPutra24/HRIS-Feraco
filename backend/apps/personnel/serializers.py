@@ -130,12 +130,28 @@ class EmployeeSerializer(serializers.ModelSerializer):
             'department': {'required': False, 'allow_null': True},
             'position': {'required': False, 'allow_null': True},
             'manager': {'required': False, 'allow_null': True},
+            'placement': {'required': False, 'allow_null': True, 'allow_blank': True},
+            'religion': {'required': False, 'allow_null': True, 'allow_blank': True},
+            'gender': {'required': False, 'allow_null': True, 'allow_blank': True},
+            'marital_status': {'required': False, 'allow_null': True, 'allow_blank': True},
         }
 
     def validate_nik(self, value):
         if value and not value.isdigit():
             raise serializers.ValidationError('NIK must contain digits only.')
         return value
+
+    def validate_placement(self, value):
+        return value or ''
+
+    def validate_religion(self, value):
+        return value or ''
+
+    def validate_gender(self, value):
+        return value or ''
+
+    def validate_marital_status(self, value):
+        return value or ''
 
     def validate_department(self, value):
         if value is not None and not value.is_active:
