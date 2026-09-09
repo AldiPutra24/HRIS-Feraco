@@ -392,8 +392,7 @@ export function LeavePage() {
                 <TableHead>Karyawan</TableHead>
                 <TableHead>Jenis</TableHead>
                 <TableHead>Periode</TableHead>
-                <TableHead>Hari</TableHead>
-                <TableHead>Status</TableHead>
+                <TableHead>Hari</TableHead>                  <TableHead>Status Atasan</TableHead>                <TableHead>Status</TableHead>
                 <TableHead>Alasan</TableHead>
                 <TableHead className='text-right'>Aksi</TableHead>
               </TableRow>
@@ -412,6 +411,9 @@ export function LeavePage() {
                     {r.start_date} — {r.end_date}
                   </TableCell>
                   <TableCell>{r.total_days}</TableCell>
+                  <TableCell>
+                    <StatusBadge status={r.status} />
+                  </TableCell>
                   <TableCell>
                     <StatusBadge status={r.status} />
                   </TableCell>
@@ -449,7 +451,7 @@ export function LeavePage() {
               ))}
               {requests.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={7} className='text-muted-foreground py-10 text-center'>
+                  <TableCell colSpan={8} className='text-muted-foreground py-10 text-center'>
                     Tidak ada pengajuan yang cocok dengan filter.
                   </TableCell>
                 </TableRow>

@@ -272,3 +272,29 @@
 - Frontend: `tsc --noEmit` 0 errors; `next build` compiled (both /dashboard/management/* routes); lint errors in new files are the same `set-state-in-effect` pattern as existing codebase (overview-dashboard, reimbursement-page, etc.) — consistent convention.
 - Deployed: commit `f6226ca` pushed to main; prod rebuilt via docker compose. Both routes return 200 on https://hris.feraco.co.id.
 - Note: prod data not fully wired (MANAGEMENT user `usermanager@feraco.co.id` has no linked Employee → endpoint correctly returns 404; only 1 employee has a manager). Backend logic verified via shell + tests with seeded data.
+## Status: User Karyawan Filtering by Position.role — COMPLETE (09 Sep 2026)
+
+### Scope
+- User form "Karyawan" dropdown filters by selected User Role via `Position.role` of the linked Employee. Role=EMPLOYEE → only Employees with Position.role=EMPLOYEE; Role=MANAGEMENT → only Employees with Position.role=MANAGEMENT; HR roles unchanged (filter by dept `HR & Finance`); ADMIN/HR_STAFF/HR_LEAD unchanged. Backend MUST validate (reject mismatched combos). Reuse existing Employee API with new `?position_role=` filter. Employees without Position never appear.
+
+### Root cause
+- Dropdown showed all employees (HR roles filtered by dept only) with no `Position.role` filtering. Backend `UserAdminSerializer.validate()` only checked one-user-per-employee, never role/employee consistency. Employees without Position appeared in dropdown.
+
+### Backend
+- `apps/personnel/serializers.py`: added `position_role` SerializerMethodField (returns `obj.position.role` or `None`) to `EmployeeSerializer` (fields + read_only_fields).
+- `apps/personnel/views.py`: `EmployeeViewSet.get_queryset()` accepts `?position_role=EMPLOYEE|MANAGEMENT` → filters `position__isnull=False, position__role=...`.
+- `apps/accounts/serializers.py`: `UserAdminSerializer.validate()` now rejects: employee without Position (`'Karyawan harus memiliki Position.'`); EMPLOYEE/MANAGEMENT role + employee whose `position.role != role` (`'Karyawan harus memiliki Position dengan role {role}.'`). Auto-fills name/email/username from Employee unchanged.
+- `apps/accounts/tests.py`: +`UserEmployeeRoleValidationTests` (6 tests: employee-role+employee-pos OK, management-role+management-pos OK, employee-role+management-pos rejected 400, management-role+employee-pos rejected 400, employee-without-position rejected 400, one-user-per-employee unchanged).
+
+### Frontend
+- `src/lib/employees.ts`: `Employee` type += `position_role: 'EMPLOYEE' | 'MANAGEMENT' | null;`. `listEmployees` already forwards arbitrary params (no change).
+- `src/features/settings/user-list.tsx`: role-driven filtering (EMPLOYEE→position_role EMPLOYEE, MANAGEMENT→MANAGEMENT, HR roles→dept `HR & Finance`); role `<select>` onChange resets employee; linked employee shown even if filtered out (edit mode); mismatch warning when linked employee's `position_role != selectedRoleKey` (EMPLOYEE/MANAGEMENT only).
+
+### Endpoint / Filter
+- Reused existing `GET /api/employees/?position_role=MANAGEMENT|EMPLOYEE` (no new endpoint). Backend validation on `POST /api/auth/users/`.
+
+### Validation
+- Backend: `manage.py check` 0 issues; `manage.py test apps.accounts` → 14 tests OK (incl. 6 new validation tests).
+- Frontend: `tsc --noEmit` clean; `next build` success (both /dashboard/settings/users + all routes).
+- Prod: `?position_role=MANAGEMENT` → 4 (all MANAGEMENT); `?position_role=EMPLOYEE` → 16 (all EMPLOYEE). EMPLOYEE role + MANAGEMENT employee → **400** `{"employee":["Karyawan harus memiliki Position dengan role EMPLOYEE."]}`.
+- Deployed: commit `0f550d4` pushed to main; prod rebuilt via docker compose.
