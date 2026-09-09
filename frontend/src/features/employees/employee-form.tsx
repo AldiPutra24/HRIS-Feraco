@@ -176,6 +176,14 @@ export function EmployeeForm({ employee, onSaved, onCancel }: Props) {
     }
     setMgrLoading(true);
     listReportingCandidates(Number(form.position), employee?.id)
+      .then((list) => {
+        // keep current manager selectable even if not a candidate (e.g. role changed)
+        const current = employee?.manager;
+        if (current && !list.some((m) => m.id === current)) {
+          list = [{ id: current, full_name: employee?.manager_name || `ID ${current}`, position_name: '' }, ...list];
+        }
+        return list;
+      })
       .then(setManagers)
       .catch(() => setManagers([]))
       .finally(() => setMgrLoading(false));

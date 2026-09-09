@@ -1,4 +1,5 @@
 from datetime import date, timedelta
+import json
 
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -397,6 +398,31 @@ class ReportingLineApiTests(TestCase):
         mgr = self._emp('M001', 'Super', self.mgmt_pos)
         res = self.client.get(reverse('employee-reporting-candidates'), {'position': self.ae.id, 'exclude': mgr.id})
         self.assertEqual(res.data, [])
+
+    def test_patch_assign_valid_manager(self):
+        mgr = self._emp('M001', 'Super', self.mgmt_pos)
+        emp = self._emp('A001', 'AE', self.ae)
+        res = self.client.patch(reverse('employee-detail', args=[emp.id]), data=json.dumps({'manager': mgr.id}), content_type='application/json')
+        self.assertEqual(res.status_code, 200)
+        emp.refresh_from_db()
+        self.assertEqual(emp.manager_id, mgr.id)
+
+    def test_patch_clear_manager(self):
+        mgr = self._emp('M001', 'Super', self.mgmt_pos)
+        emp = self._emp('A001', 'AE', self.ae, dept=self.dept)
+        emp.manager = mgr
+        emp.save()
+        res = self.client.patch(reverse('employee-detail', args=[emp.id]), data=json.dumps({'manager': None}), content_type='application/json')
+        self.assertEqual(res.status_code, 200)
+        emp.refresh_from_db()
+        self.assertIsNone(emp.manager)
+
+    def test_patch_manager_rejects_non_management(self):
+        peer = self._emp('X001', 'Peer', self.ae)
+        emp = self._emp('A001', 'AE', self.ae)
+        res = self.client.patch(reverse('employee-detail', args=[emp.id]), data=json.dumps({'manager': peer.id}), content_type='application/json')
+        self.assertEqual(res.status_code, 400)
+        self.assertIn('manager', res.data)
 
     def test_manager_validation_rejects_non_management(self):
         peer = self._emp('X001', 'Peer', self.ae)
