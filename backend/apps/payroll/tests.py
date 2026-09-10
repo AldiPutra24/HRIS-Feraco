@@ -1029,6 +1029,46 @@ class TaxConfigApiTests(TestCase):
         self.assertEqual(res.status_code, 200)
         self.assertEqual(EmployeeTaxProfile.objects.get(pk=profile_id).ptkp_status, 'K/3')
 
+    def test_tax_profile_upsert_via_post(self):
+        emp = Employee.objects.create(employee_id='E012', full_name='Upsert', employment_status='ACTIVE')
+        url = reverse('payroll-tax-profile-list')
+        # 1. create
+        res = self.client.post(url, {'employee': emp.id, 'ptkp_status': 'TK/0'}, format='json')
+        self.assertEqual(res.status_code, 201)
+        profile_id = res.json()['id']
+        # 2. update same profile via POST (no duplicate)
+        res = self.client.post(url, {'employee': emp.id, 'ptkp_status': 'K/1'}, format='json')
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json()['id'], profile_id)
+        self.assertEqual(EmployeeTaxProfile.objects.filter(employee=emp).count(), 1)
+        # 3. update several times
+        for status in ('K/2', 'K/3', 'TK/2'):
+            res = self.client.post(url, {'employee': emp.id, 'ptkp_status': status}, format='json')
+            self.assertEqual(res.status_code, 200)
+        self.assertEqual(EmployeeTaxProfile.objects.get(pk=profile_id).ptkp_status, 'TK/2')
+        self.assertEqual(EmployeeTaxProfile.objects.filter(employee=emp).count(), 1)
+        # 4. reset (delete) -> back to default
+        res = self.client.delete(reverse('payroll-tax-profile-reset', args=[profile_id]))
+        self.assertEqual(res.status_code, 204)
+        self.assertFalse(EmployeeTaxProfile.objects.filter(employee=emp).exists())
+        # 5. create again after reset
+        res = self.client.post(url, {'employee': emp.id, 'ptkp_status': 'K/0'}, format='json')
+        self.assertEqual(res.status_code, 201)
+        self.assertEqual(EmployeeTaxProfile.objects.get(employee=emp).ptkp_status, 'K/0')
+
+    def test_tax_profile_upsert_invalid_ptkp_rejected(self):
+        emp = Employee.objects.create(employee_id='E013', full_name='Invalid', employment_status='ACTIVE')
+        url = reverse('payroll-tax-profile-list')
+        res = self.client.post(url, {'employee': emp.id, 'ptkp_status': 'ZZ/9'}, format='json')
+        self.assertEqual(res.status_code, 400)
+        self.assertFalse(EmployeeTaxProfile.objects.filter(employee=emp).exists())
+        # Existing profile + invalid payload -> rejected, profile untouched.
+        profile = EmployeeTaxProfile.objects.create(employee=emp, ptkp_status='K/1')
+        res = self.client.post(url, {'employee': emp.id, 'ptkp_status': 'ZZ/9'}, format='json')
+        self.assertEqual(res.status_code, 400)
+        profile.refresh_from_db()
+        self.assertEqual(profile.ptkp_status, 'K/1')
+
     def test_tax_profile_employee_forbidden(self):
         emp = Employee.objects.create(employee_id='E011', full_name='Taxed2', employment_status='ACTIVE')
         self.client.force_login(make_user('EMPLOYEE', 'emp2@test.com'))
