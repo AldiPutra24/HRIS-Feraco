@@ -278,6 +278,15 @@ class EmployeeApiTests(TestCase):
         res = self._create()
         self.assertEqual(res.status_code, 201)
 
+    def test_auto_employee_id_skips_non_numeric(self):
+        """POST without employee_id: mixed formats (imported EMP-2026-0001) must not
+        reset the sequence — next id is max numeric EMP + 1."""
+        Employee.objects.create(employee_id='EMP-2026-0001', full_name='Imported')
+        Employee.objects.create(employee_id='EMP0007', full_name='Seq')
+        res = self._create(employee_id=None)
+        self.assertEqual(res.status_code, 201)
+        self.assertEqual(res.json()['employee_id'], 'EMP0008')
+
     def test_update_employee(self):
         emp = Employee.objects.create(employee_id='E001', full_name='John')
         res = self.client.patch(reverse('employee-detail', args=[emp.pk]), {'full_name': 'John Updated'}, content_type='application/json')
