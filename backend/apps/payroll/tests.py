@@ -706,20 +706,204 @@ class EngineTahap3aTests(TestCase):
         self.assertEqual(payroll.ptkp_status_snapshot, 'K/2')
         self.assertEqual(payroll.ter_category_snapshot, 'B')
 
-    def test_december_carries_prior_months_pph(self):
-        # June: PPh 50.000. December: 50.000 + Jan-Nov 50.000 = 100.000
-        # (3b replaces this carry with the full annual true-up).
-        make_tax_config(rate='1', threshold='0')
-        calculate_period(self.period)
-        dec_period = PayrollPeriod.objects.create(
-            period_month=12, period_year=2026,
-            period_start=date(2026, 12, 1), period_end=date(2026, 12, 31),
+
+def make_month_period(month, year=2026):
+    import calendar as _cal
+    last_day = _cal.monthrange(year, month)[1]
+    return PayrollPeriod.objects.create(
+        period_month=month, period_year=year,
+        period_start=date(year, month, 1), period_end=date(year, month, last_day),
+    )
+
+
+class EngineTahap3bTests(TestCase):
+    """Tahap 3b: December annual true-up (Pasal 17 + biaya jabatan + PTKP)."""
+
+    def setUp(self):
+        self.emp = Employee.objects.create(
+            employee_id='E001', full_name='John', employment_status='ACTIVE',
         )
+        SalaryStructure.objects.create(
+            employee=self.emp, effective_from=date(2026, 1, 1), basic_salary=5000000,
+        )
+
+    def _calc_through(self, last_month, year=2026):
+        for m in range(1, last_month + 1):
+            period = PayrollPeriod.objects.filter(
+                period_month=m, period_year=year,
+            ).first()
+            if period is None:
+                period = make_month_period(m, year)
+            calculate_period(period)
+
+    def test_annual_pph21_progressive_layers(self):
+        from .tax import annual_pph21
+        from decimal import Decimal
+        # 100 jt PKP: 5% x 60jt + 15% x 40jt = 3jt + 6jt = 9jt.
+        self.assertEqual(annual_pph21(Decimal('100000000')), Decimal('9000000'))
+        # PKP 0 → 0; PKP 50jt stays fully in layer 1 → 5% = 2.5jt.
+        self.assertEqual(annual_pph21(Decimal('0')), Decimal('0'))
+        self.assertEqual(annual_pph21(Decimal('50000000')), Decimal('2500000'))
+        # First-layer boundary: exactly 60 jt → 3jt.
+        self.assertEqual(annual_pph21(Decimal('60000000')), Decimal('3000000'))
+        # 60jt + 1 → 3jt + 15% × 1 = 3.000.000,15.
+        self.assertEqual(annual_pph21(Decimal('60000001')), Decimal('3000000.15'))
+
+    def test_compute_december_trueup_full_year(self):
+        """5jt/month, full year: gross 60jt − BJ 3jt (5%) − PTKP 54jt = 3jt PKP."""
+        from .tax import compute_december_trueup
+        config = make_tax_config()
+        dec, annual, pkp, _bj = compute_december_trueup(
+            config, 'TK/0', 60000000, 0,
+        )
+        self.assertEqual(pkp, 3000000)
+        self.assertEqual(annual, 150000)
+        self.assertEqual(dec, 150000)
+
+    def test_compute_december_trueup_with_surplus(self):
+        """6jt/month → PKP 14,4jt → annual 720.000; Jan-Nov TER 0 → Dec = annual."""
+        from .tax import compute_december_trueup
+        config = make_tax_config()
+        dec, annual, pkp, _bj = compute_december_trueup(
+            config, 'TK/0', 72000000, 0,
+        )
+        # PKP = 72jt − BJ 3,6jt (5%, cap 6jt not reached) − 54jt = 14,4jt → 5%.
+        self.assertEqual(pkp, 14400000)
+        self.assertEqual(annual, 720000)
+        self.assertEqual(dec, 720000)
+
+    def test_december_deducts_prior_withholding(self):
+        """Jan-Nov PPh (TER 1%) is subtracted from the annual amount."""
+        from .tax import compute_december_trueup
+        config = make_tax_config()
+        # Annual 720.000; Jan-Nov TER 1% × 6jt × 11 = 660.000 → Dec = 60.000.
+        dec, annual, pkp, _bj = compute_december_trueup(
+            config, 'TK/0', 72000000, 660000,
+        )
+        self.assertEqual(dec, 60000)
+
+    def test_december_negative_trueup_floored_at_zero(self):
+        """Overpayment via TER months → December withholds 0 (refund elsewhere)."""
+        from .tax import compute_december_trueup
+        config = make_tax_config()
+        dec, _a, _p, _bj = compute_december_trueup(
+            config, 'TK/0', 72000000, 2000000,
+        )
+        self.assertEqual(dec, 0)
+
+    def test_december_engine_with_prior_months(self):
+        """Full engine: Jun calc (TER 1% = 50rb), then December true-up.
+
+        Annual: gross 60jt (12×5jt) − BJ 6jt − PTKP 54jt = PKP 0 → annual 0;
+        Dec true-up = max(0 − 50rb, 0) = 0. Only the June month has PPh 21.
+        """
+        make_tax_config(rate='1', threshold='0')
+        self._calc_through(6)
+        dec_period = make_month_period(12)
         calculate_period(dec_period)
         dec_payroll = Payroll.objects.get(period=dec_period, employee=self.emp)
-        self.assertEqual(
-            dec_payroll.items.get(component_code='PPh21').amount, 100000,
+        # Jan-Jun TER 1% x 5jt = 50rb x 6 = 300rb already withheld.
+        self.assertEqual(dec_payroll.pph_prior_months, 300000)
+        self.assertEqual(dec_payroll.pph_annual, 0)
+        self.assertFalse(dec_payroll.items.filter(component_code='PPh21').exists())
+
+    def test_december_engine_trueup_extra_withholding(self):
+        """Employee whose annual progressive exceeds TER months pays extra in Dec.
+
+        Salary structure changes in July (Jan-Jun 8jt, Jul-Des 25jt):
+        gross year = 6×8jt + 6×25jt = 198jt; BJ capped 6jt; PTKP 54jt →
+        PKP 138jt → annual = 3jt + 15%×78jt = 14.700.000. TER months (rate 1%):
+        Jan-Jun 80rb×6 = 480rb; Jul-Nov 250rb×5 = 1.250.000 → prior 1.730.000
+        → December PPh = 12.970.000.
+        """
+        SalaryStructure.objects.create(
+            employee=self.emp, effective_from=date(2026, 7, 1), basic_salary=25000000,
         )
+        SalaryStructure.objects.filter(effective_from=date(2026, 1, 1)).update(
+            effective_to=date(2026, 6, 30), basic_salary=8000000,
+        )
+        make_tax_config(rate='1', threshold='0')
+        self._calc_through(11)
+        dec_period = make_month_period(12)
+        calculate_period(dec_period)
+        dec_payroll = Payroll.objects.get(period=dec_period, employee=self.emp)
+        self.assertEqual(dec_payroll.pph_prior_months, 1730000)
+        self.assertEqual(dec_payroll.pph_annual, 14700000)
+        dec_item = dec_payroll.items.get(component_code='PPh21')
+        self.assertEqual(dec_item.amount, 12970000)
+        self.assertIn('true-up', dec_item.description)
+
+    def test_december_recap_pays_missing_months(self):
+        """June-Dec calculated only: annual covers Jan-May missing months.
+
+        gross year = 7×5jt = 35jt; months worked 7 → BJ = min(5%×35jt,
+        500rb×7) = 1.750.000; PTKP 54jt → PKP negative → 0 → Dec = 0.
+        """
+        make_tax_config(rate='1', threshold='0')
+        self._calc_through(6)
+        dec_period = make_month_period(12)
+        calculate_period(dec_period)
+        dec_payroll = Payroll.objects.get(period=dec_period, employee=self.emp)
+        self.assertEqual(dec_payroll.pph_annual, 0)
+        self.assertFalse(dec_payroll.items.filter(component_code='PPh21').exists())
+
+    def test_midyear_termination_trueup_in_final_month(self):
+        """PMK "masa pajak terakhir": termination June → true-up runs in June.
+
+        10jt/month Jan-Jun, terminated 20 Jun (pro-rata 20/30):
+        gross year = 5×10jt + 10jt×20/30 = 56.666.667; months worked
+        5 + 20/30 → BJ = min(2.833.333, 500rb×5.667=2.833.333) → PKP ≈ 0
+        → no true-up item; June PPh is TER-only.
+        """
+        from apps.personnel.models import EmployeeContract
+        from decimal import Decimal
+        self.emp.employment_status = 'INACTIVE'
+        self.emp.save()
+        EmployeeContract.objects.create(
+            employee=self.emp, contract_type='PKWT', contract_number='CTR-1',
+            start_date=date(2025, 1, 1), status='TERMINATED',
+            termination_date=date(2026, 6, 20),
+        )
+        SalaryStructure.objects.filter(employee=self.emp).update(basic_salary=10000000)
+        make_tax_config(rate='1', threshold='0')
+        for m in range(1, 6):
+            calculate_period(make_month_period(m))
+        june = make_month_period(6)
+        calculate_period(june)
+        june_payroll = Payroll.objects.get(period=june, employee=self.emp)
+        # Annual: gross 56.666.667 − BJ 2.833.333 − PTKP 54jt < 0 → PKP 0 →
+        # annual 0; Jan-May already withheld 5 × 100rb = 500rb → June withholds
+        # max(0 − 500rb, 0) = 0 (overpayment refunded via SPT, not in payroll).
+        self.assertFalse(june_payroll.items.filter(component_code='PPh21').exists())
+        self.assertEqual(june_payroll.pph_prior_months, 500000)
+        self.assertEqual(june_payroll.pph_annual, 0)
+
+    def test_biaya_jabatan_monthly_cap(self):
+        from .tax import biaya_jabatan_with_months
+        from decimal import Decimal
+        # 50jt in 6 months: 5% = 2.5jt but 500rb×6 = 3jt → 2.5jt.
+        self.assertEqual(
+            biaya_jabatan_with_months(Decimal('50000000'), Decimal('6')),
+            Decimal('2500000'),
+        )
+        # 50jt in 2 months: 500rb×2 = 1jt < 2.5jt → 1jt.
+        self.assertEqual(
+            biaya_jabatan_with_months(Decimal('50000000'), Decimal('2')),
+            Decimal('1000000'),
+        )
+
+    def test_annual_layer_override(self):
+        """AnnualTaxBracket rows replace the statutory layer for that order."""
+        from .tax import annual_pph21
+        from decimal import Decimal
+        config = make_tax_config()
+        from .models import AnnualTaxBracket
+        AnnualTaxBracket.objects.create(
+            tax_config=config, layer_order=1,
+            pkp_lower=0, pkp_upper=50000000, rate_pct=Decimal('0'),
+        )
+        # 100jt: layer 1 (0-50jt) 0% + layer 2 (50-250jt) 15% × 50jt = 7.5jt.
+        self.assertEqual(annual_pph21(Decimal('100000000'), config), Decimal('7500000'))
 
 
 class TaxConfigApiTests(TestCase):
@@ -775,6 +959,51 @@ class TaxConfigApiTests(TestCase):
             content_type='application/json',
         )
         self.assertEqual(res.status_code, 400)
+
+    def test_annual_brackets_bulk_replace(self):
+        config = make_tax_config()
+        res = self.client.post(
+            reverse('payroll-tax-config-annual-brackets', args=[config.id]),
+            data=json.dumps({'brackets': [
+                {'layer_order': 1, 'pkp_lower': '0',
+                 'pkp_upper': '50000000', 'rate_pct': '0'},
+                {'layer_order': 5, 'pkp_lower': '5000000000',
+                 'pkp_upper': None, 'rate_pct': '36'},
+            ]}),
+            content_type='application/json',
+        )
+        self.assertEqual(res.status_code, 200, getattr(res, 'data', None))
+        self.assertEqual(config.annual_brackets.count(), 2)
+        # Replace with empty list resets to statutory defaults.
+        res = self.client.post(
+            reverse('payroll-tax-config-annual-brackets', args=[config.id]),
+            data=json.dumps({'brackets': []}),
+            content_type='application/json',
+        )
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(config.annual_brackets.count(), 0)
+
+    def test_annual_brackets_invalid_payload(self):
+        config = make_tax_config()
+        res = self.client.post(
+            reverse('payroll-tax-config-annual-brackets', args=[config.id]),
+            data=json.dumps({'brackets': [
+                {'layer_order': 9, 'pkp_lower': '0',
+                 'pkp_upper': '50000000', 'rate_pct': '0'},
+            ]}),
+            content_type='application/json',
+        )
+        self.assertEqual(res.status_code, 400)
+
+    def test_annual_brackets_employee_forbidden(self):
+        config = make_tax_config()
+        self.client.force_login(make_user('EMPLOYEE', 'emp@test.com'))
+        res = self.client.post(
+            reverse('payroll-tax-config-annual-brackets', args=[config.id]),
+            data=json.dumps({'brackets': []}),
+            content_type='application/json',
+        )
+        self.assertEqual(res.status_code, 403)
 
     def test_tax_profile_crud(self):
         emp = Employee.objects.create(employee_id='E010', full_name='Taxed', employment_status='ACTIVE')

@@ -11,6 +11,7 @@ from apps.audit.services import log_event
 from apps.personnel.permissions import _role
 
 from .models import (
+    AnnualTaxBracket,
     EmployeeTaxProfile,
     Payroll,
     PayrollComponent,
@@ -22,6 +23,7 @@ from .models import (
 )
 from .permissions import IsPayrollAdmin, PayrollPeriodPermission, SalaryStructurePermission, PAYROLL_ADMIN_ROLES
 from .serializers import (
+    AnnualTaxBracketSerializer,
     EmployeeTaxProfileSerializer,
     PayrollComponentSerializer,
     PayrollPeriodSerializer,
@@ -36,7 +38,7 @@ from .services import calculate_period, refresh_payroll_totals
 class TaxConfigViewSet(viewsets.ModelViewSet):
     """Per-year PPh 21 tax configuration (ADMIN/HR only)."""
 
-    queryset = TaxConfig.objects.prefetch_related('ter_brackets').all()
+    queryset = TaxConfig.objects.prefetch_related('ter_brackets', 'annual_brackets').all()
     serializer_class = TaxConfigSerializer
     permission_classes = [IsPayrollAdmin]
     pagination_class = None
@@ -94,6 +96,57 @@ class TaxConfigViewSet(viewsets.ModelViewSet):
         log_event(
             request, 'update', obj=config,
             description=f'TER brackets {config.year} replaced ({len(cleaned)} rows)',
+        )
+        return Response(TaxConfigSerializer(config, context={'request': request}).data)
+
+    @action(detail=True, methods=['post'])
+    def annual_brackets(self, request, pk=None):
+        """Bulk-replace annual Pasal 17 layer overrides (Tahap 3b).
+
+        Rows override the corresponding statutory layer (layer_order 1..5);
+        an empty list resets to the defaults. Each row must fully define its
+        layer (pkp_lower, pkp_upper, rate_pct).
+        """
+        if _role(request.user) not in PAYROLL_ADMIN_ROLES:
+            return Response({'detail': 'Tidak berwenang.'}, status=403)
+        config = self.get_object()
+        rows = request.data.get('brackets')
+        if not isinstance(rows, list):
+            return Response({'detail': 'Payload harus berisi daftar brackets.'}, status=400)
+        cleaned = []
+        for i, row in enumerate(rows):
+            if not isinstance(row, dict):
+                return Response({'detail': f'Bracket #{i + 1} tidak valid.'}, status=400)
+            try:
+                layer_order = int(row.get('layer_order'))
+            except Exception:
+                return Response({'detail': f'Bracket #{i + 1}: layer_order tidak valid.'}, status=400)
+            if not 1 <= layer_order <= 5:
+                return Response({'detail': f'Bracket #{i + 1}: layer_order harus 1-5.'}, status=400)
+            try:
+                pkp_lower = Decimal(str(row.get('pkp_lower')))
+                rate_pct = Decimal(str(row.get('rate_pct')))
+            except Exception:
+                return Response({'detail': f'Bracket #{i + 1}: angka tidak valid.'}, status=400)
+            pkp_upper = row.get('pkp_upper')
+            pkp_upper = Decimal(str(pkp_upper)) if pkp_upper not in (None, '') else None
+            if pkp_upper is not None and pkp_upper <= pkp_lower:
+                return Response({'detail': f'Bracket #{i + 1}: batas atas harus > batas bawah.'}, status=400)
+            if rate_pct < 0:
+                return Response({'detail': f'Bracket #{i + 1}: tarif tidak boleh negatif.'}, status=400)
+            cleaned.append({
+                'layer_order': layer_order,
+                'pkp_lower': pkp_lower,
+                'pkp_upper': pkp_upper,
+                'rate_pct': rate_pct,
+            })
+        with transaction.atomic():
+            config.annual_brackets.all().delete()
+            for row in cleaned:
+                AnnualTaxBracket.objects.create(tax_config=config, **row)
+        log_event(
+            request, 'update', obj=config,
+            description=f'Annual Pasal 17 brackets {config.year} replaced ({len(cleaned)} rows)',
         )
         return Response(TaxConfigSerializer(config, context={'request': request}).data)
 

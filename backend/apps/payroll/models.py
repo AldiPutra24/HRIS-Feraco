@@ -23,6 +23,17 @@ class TaxConfig(models.Model):
         max_digits=14, decimal_places=2, default=Decimal('10000000'),
         help_text='THP di bawah/sama dengan nilai ini → PPh DTP (tidak dipotong riil).',
     )
+    # Annual (Pasal 17) layer limits used by the December true-up (Tahap 3b).
+    # Defaults are the statutory PP 55/2022 limits; editable as data.
+    annual_layer_limits = models.JSONField(
+        default=list,
+        blank=True,
+        help_text=(
+            'Batas atas lapisan PKP tahunan (Pasal 17), mis. [60000000, '
+            '250000000, 500000000, 5000000000]. Kosong = default 60jt/250jt/'
+            '500jt/5M. Tarif lapisan 5/15/25/30% tetap (statis, PMK 168/2023).'
+        ),
+    )
     notes = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -34,6 +45,25 @@ class TaxConfig(models.Model):
 
     def __str__(self):
         return f'TaxConfig {self.year} ({"aktif" if self.is_active else "nonaktif"})'
+
+    def clean(self):
+        limits = self.annual_layer_limits
+        if limits:
+            if not isinstance(limits, list) or len(limits) != 4:
+                raise ValidationError(
+                    {'annual_layer_limits': 'Harus berisi tepat 4 batas lapisan tahunan.'}
+                )
+            try:
+                values = [Decimal(str(v)) for v in limits]
+            except Exception:
+                raise ValidationError(
+                    {'annual_layer_limits': 'Batas lapisan harus angka.'}
+                )
+            for a, b in zip(values, values[1:]):
+                if b <= a:
+                    raise ValidationError(
+                        {'annual_layer_limits': 'Batas lapisan harus naik (membesar).'}
+                    )
 
 
 class TerBracket(models.Model):
@@ -63,6 +93,52 @@ class TerBracket(models.Model):
     def __str__(self):
         upper = self.bruto_upper if self.bruto_upper is not None else '∞'
         return f'{self.tax_config.year}-{self.ter_category}: {self.bruto_lower}-{upper} @ {self.rate_pct}%'
+
+
+class AnnualTaxBracket(models.Model):
+    """Annual progressive (Pasal 17) layer for the December true-up (Tahap 3b).
+
+    Empty layer model for the 5%-35% annual rates: override a layer by adding a
+    row (layer_order 1..5); missing layers fall back to the statutory defaults
+    (5/15/25/30/35%). Stored as data so a future regulation change only needs a
+    new row, like TerBracket (PRD 2.2 / 4.4).
+    """
+
+    tax_config = models.ForeignKey(
+        TaxConfig,
+        on_delete=models.CASCADE,
+        related_name='annual_brackets',
+    )
+    layer_order = models.PositiveSmallIntegerField(
+        help_text='Urutan lapisan PKP tahunan (1 = terendah, 5 = tertinggi).',
+    )
+    pkp_lower = models.DecimalField(
+        max_digits=16, decimal_places=2,
+        help_text='Batas bawah lapisan (indeks biaya 0).',
+    )
+    pkp_upper = models.DecimalField(
+        max_digits=16, decimal_places=2, null=True, blank=True,
+        help_text='Batas atas lapisan; NULL = tanpa batas (lapisan tertinggi).',
+    )
+    rate_pct = models.DecimalField(
+        max_digits=6, decimal_places=4,
+        help_text='Persen tarif Pasal 17, mis. 5 = 5%.',
+    )
+
+    class Meta:
+        ordering = ['tax_config', 'layer_order']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['tax_config', 'layer_order'],
+                name='uniq_annual_bracket_per_layer',
+            ),
+        ]
+        verbose_name = 'Annual Tax Bracket'
+        verbose_name_plural = 'Annual Tax Brackets'
+
+    def __str__(self):
+        upper = self.pkp_upper if self.pkp_upper is not None else '∞'
+        return f'{self.tax_config.year} L{self.layer_order}: {self.pkp_lower}-{upper} @ {self.rate_pct}%'
 
 
 class EmployeeTaxProfile(models.Model):
@@ -286,6 +362,13 @@ class Payroll(models.Model):
     # Factor actually applied to basic salary this period (1 = full month).
     pro_rata_factor = models.DecimalField(max_digits=9, decimal_places=7, default=1)
     unpaid_leave_days = models.PositiveIntegerField(default=0)
+    # --- Tahap 3b December true-up ---
+    # Prior-month (Jan-Nov) SYSTEM PPh 21 sum snapshotted at December calc.
+    pph_prior_months = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    # Annual PPh 21 (Pasal 17) computed for the full tax year.
+    pph_annual = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    # December item amount = pph_annual - pph_prior_months (>= 0; overpayment is
+    # a separate refund process outside this module).
     is_dtp = models.BooleanField(
         default=False,
         help_text='True = PPh DTP: tercetak di slip tapi tidak dikurangi dari transfer.',

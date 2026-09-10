@@ -1,9 +1,12 @@
+from decimal import Decimal
+
 from django.db.models import Q
 from rest_framework import serializers
 
 from apps.personnel.models import Employee
 
 from .models import (
+    AnnualTaxBracket,
     EmployeeTaxProfile,
     Payroll,
     PayrollComponent,
@@ -16,11 +19,54 @@ from .models import (
 from .tax import VALID_PTKP
 
 
+class AnnualTaxBracketSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = AnnualTaxBracket
+        fields = ('id', 'tax_config', 'layer_order', 'pkp_lower', 'pkp_upper', 'rate_pct')
+        read_only_fields = ('id',)
+
+    def validate(self, attrs):
+        layer_order = attrs.get('layer_order', getattr(self.instance, 'layer_order', None))
+        if layer_order is not None and not 1 <= layer_order <= 5:
+            raise serializers.ValidationError(
+                {'layer_order': 'Lapisan harus 1-5.'}
+            )
+        pkp_lower = attrs.get('pkp_lower', getattr(self.instance, 'pkp_lower', None))
+        pkp_upper = attrs.get('pkp_upper', getattr(self.instance, 'pkp_upper', None))
+        if pkp_lower is not None and pkp_upper is not None and pkp_upper <= pkp_lower:
+            raise serializers.ValidationError(
+                {'pkp_upper': 'Batas atas harus lebih besar dari batas bawah.'}
+            )
+        rate_pct = attrs.get('rate_pct', getattr(self.instance, 'rate_pct', None))
+        if rate_pct is not None and rate_pct < 0:
+            raise serializers.ValidationError({'rate_pct': 'Tarif tidak boleh negatif.'})
+        return attrs
+
+
 class TaxConfigSerializer(serializers.ModelSerializer):
+    annual_brackets = AnnualTaxBracketSerializer(many=True, read_only=True)
+
     class Meta:
         model = TaxConfig
-        fields = ('id', 'year', 'is_active', 'dtp_threshold', 'notes', 'created_at', 'updated_at')
+        fields = (
+            'id', 'year', 'is_active', 'dtp_threshold', 'annual_layer_limits',
+            'annual_brackets', 'notes', 'created_at', 'updated_at',
+        )
         read_only_fields = ('id', 'created_at', 'updated_at')
+
+    def validate_annual_layer_limits(self, value):
+        if value in (None, []):
+            return []
+        if not isinstance(value, list) or len(value) != 4:
+            raise serializers.ValidationError('Harus berisi tepat 4 batas lapisan tahunan.')
+        try:
+            values = [Decimal(str(v)) for v in value]
+        except Exception:
+            raise serializers.ValidationError('Batas lapisan harus angka.')
+        for a, b in zip(values, values[1:]):
+            if b <= a:
+                raise serializers.ValidationError('Batas lapisan harus naik (membesar).')
+        return value
 
     def validate_year(self, value):
         qs = TaxConfig.objects.filter(year=value)
@@ -192,13 +238,14 @@ class PayrollSerializer(serializers.ModelSerializer):
             'total_fixed_earning', 'total_variable_earning', 'total_deduction',
             'reimbursement_total', 'gross_salary', 'net_salary',
             'pro_rata_factor', 'unpaid_leave_days', 'ptkp_status_snapshot',
-            'ter_category_snapshot', 'is_dtp', 'transfer_amount',
+            'ter_category_snapshot', 'pph_prior_months', 'pph_annual',
+            'is_dtp', 'transfer_amount',
             'items', 'created_at', 'updated_at',
         )
         read_only_fields = (
             'id', 'period', 'employee', 'basic_salary', 'total_fixed_earning',
             'total_variable_earning', 'total_deduction', 'reimbursement_total',
             'gross_salary', 'net_salary', 'pro_rata_factor', 'unpaid_leave_days',
-            'ptkp_status_snapshot', 'ter_category_snapshot', 'is_dtp',
-            'transfer_amount', 'created_at', 'updated_at',
+            'ptkp_status_snapshot', 'ter_category_snapshot', 'pph_prior_months',
+            'pph_annual', 'is_dtp', 'transfer_amount', 'created_at', 'updated_at',
         )

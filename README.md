@@ -78,10 +78,15 @@ Catatan: filtering menu di frontend (`use-nav.ts`) hanya UI; otorisasi di backen
 
 ## Last Progress
 
+**Payroll Module — December Annual True-up (Phase 3b)** — last updated 2026-09-10
+
+- **Annual PPh 21 true-up (`apps.payroll`)** — the final masa pajak (December, or the last paid month of a mid-year termination per PMK 168/2023) now recalculates PPh 21 on the full tax year: `(gross setahun − biaya jabatan − PTKP tahunan) × Pasal 17 (5–35%)` minus the PPh already withheld Jan–Nov. Annual gross is rebuilt from persisted payroll rows (basic salary + SYSTEM taxable items); biaya jabatan = 5% capped Rp500rb/month worked (pro-rata factors count fractionally); negative true-up (TER overpayment) floors at 0 — refund belongs to the annual SPT. Pasal 17 layers default to statutory 60jt/250jt/500jt/5M @ 5/15/25/30/35% (cost index 0, no indexing), overridable per year via `TaxConfig.annual_layer_limits` or new `AnnualTaxBracket` rows (layer 1–5). Snapshots `pph_prior_months` + `pph_annual` stored on December payrolls. API: `POST /api/payroll/tax-config/{id}/annual_brackets/` (bulk replace, ADMIN/HR only). 71 payroll tests pass; docs in `docs/payroll.md`.
+- **Deferred** — slip PDF/terbilang/numbering + recap export + employee self-service slips (Phase 3c), GROSS_UP iterative scheme, GM aggregate/detail access (kept MANAGEMENT = own slips only).
+
 **Payroll Module — Core Calculation Engine (Phase 3a)** — last updated 2026-09-10
 
 - **TER PPh 21 engine (`apps.payroll`)** — tax rates are data, not code: `TaxConfig` (per tax year, `is_active`, DTP threshold), `TerBracket` (TER category A/B/C × bruto bracket × rate), `EmployeeTaxProfile` (PTKP status + reserved tax scheme). `calculate_period` now pays ACTIVE employees plus recently-terminated final pay (pro-rata basic salary on join/termination months), deducts unpaid leave monetarily ((basic+fixed)/30 × days), and computes monthly TER PPh 21 (rounded down to thousands) as a SYSTEM item with PTKP/TER snapshots. DTP: printed THP stays normal; when THP ≤ Rp10 jt threshold the PPh is not really deducted (`transfer_amount = net + pph`, stored separately from `net_salary`). Hard guard: calculation refuses to run without an active tax config. `seed_tax_config` loads an inactive 2026 bracket template (illustrative rates — must be confirmed with the tax consultant per PMK 168/2023). API: `/api/payroll/tax-config/` (+ bulk `brackets/` action) and `/api/payroll/tax-profiles/` (ADMIN/HR only). 58 payroll tests pass; module docs in `docs/payroll.md`.
-- **Deferred** — December annual true-up (Phase 3b), slip PDF/terbilang/numbering + recap export + employee self-service slips (Phase 3c), GM aggregate/detail access (kept MANAGEMENT = own slips only).
+- **Deferred** — slip PDF/terbilang/numbering + recap export + employee self-service slips (Phase 3c), GM aggregate/detail access (kept MANAGEMENT = own slips only).
 
 **Recruitment Onboarding — Tahap 3 (`apps.onboarding`)** — last updated 2026-09-04
 
