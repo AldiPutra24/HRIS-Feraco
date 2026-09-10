@@ -5,6 +5,10 @@ RATE VALUES below are ILLUSTRATIVE. The config is created is_active=False on
 purpose: HR/Admin must confirm the rates with the company's tax consultant,
 edit via admin/API, and only then activate (PRD 2.2 warning).
 
+The annual Pasal 17 layers (Tahap 3b December true-up) are statutory: the
+config stores the default layer limits 60jt/250jt/500jt/5M at 5/15/25/30/35%
+— no annual bracket rows are seeded (absence = statutory defaults).
+
 Usage: python manage.py seed_tax_config
 """
 from decimal import Decimal
@@ -119,6 +123,10 @@ class Command(BaseCommand):
             self.stdout.write('created: TaxConfig 2026 (is_active=False)')
         else:
             self.stdout.write('exists: TaxConfig 2026')
+        self.stdout.write(
+            'annual Pasal 17 layers: statutory defaults '
+            '(60jt/250jt/500jt/5M @ 5/15/25/30/35%) — no rows seeded'
+        )
 
         existing = set(
             TerBracket.objects.filter(tax_config=config).values_list(

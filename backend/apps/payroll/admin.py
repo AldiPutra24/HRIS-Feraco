@@ -1,6 +1,7 @@
 from django.contrib import admin
 
 from .models import (
+    AnnualTaxBracket,
     EmployeeTaxProfile,
     Payroll,
     PayrollComponent,
@@ -29,11 +30,16 @@ class TerBracketInline(admin.TabularInline):
     extra = 0
 
 
+class AnnualTaxBracketInline(admin.TabularInline):
+    model = AnnualTaxBracket
+    extra = 0
+
+
 @admin.register(TaxConfig)
 class TaxConfigAdmin(admin.ModelAdmin):
     list_display = ('year', 'is_active', 'dtp_threshold', 'updated_at')
     list_filter = ('is_active',)
-    inlines = [TerBracketInline]
+    inlines = [TerBracketInline, AnnualTaxBracketInline]
 
 
 @admin.register(EmployeeTaxProfile)

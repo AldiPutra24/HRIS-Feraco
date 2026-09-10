@@ -129,6 +129,55 @@ def _pro_rata_factor(window, period_start, period_end):
     return min(paid_days / days_in_month, Decimal('1'))
 
 
+def _annual_taxable_earnings(employee, year, current_period, current_gross,
+                             current_pro_rata):
+    """PPh 21 taxable gross for the full tax year + months worked (3b).
+
+    Per calculated period of `year` (excluding the December period currently
+    being recalculated): basic salary (stored on the Payroll row, not as an
+    item) plus every SYSTEM taxable earning item (fixed/variable). Manual
+    earnings are already covered by SYSTEM regeneration — they exist as rows
+    too, but only SYSTEM rows are summed to mirror the monthly TER base.
+    Reimbursements stay excluded (code prefix / is_taxable=False).
+
+    months_worked counts paid employment fractions of a month (pro-rata
+    factor) per calculated period, for the biaya jabatan per-month cap.
+
+    Ordering note: months must be calculated in order (December last) —
+    uncalculated months are simply missing from the annual base.
+    """
+    payrolls = Payroll.objects.filter(
+        period__period_year=year,
+        employee=employee,
+    ).exclude(
+        period=current_period,
+    ).select_related('period').prefetch_related('items')
+    gross_year = ZERO
+    months_worked = ZERO
+    for payroll in payrolls:
+        gross_year += payroll.basic_salary
+        for it in payroll.items.all():
+            if it.source != PayrollItem.Source.SYSTEM:
+                continue
+            if it.category not in (
+                PayrollComponent.Category.EARNING_FIXED,
+                PayrollComponent.Category.EARNING_VARIABLE,
+            ):
+                continue
+            comp = it.payroll_component
+            if comp is not None and not comp.is_taxable:
+                continue
+            if comp is None and not tax_mod.is_taxable_code(it.component_code):
+                continue
+            gross_year += it.amount
+        months_worked += payroll.pro_rata_factor
+    # The current (December) month contributes its own taxable earnings and
+    # its pro-rata factor to the annual figures.
+    gross_year += current_gross
+    months_worked += current_pro_rata
+    return gross_year, months_worked
+
+
 def _month_pph_items_sum(employee, year, months):
     """Sum of SYSTEM PPh21 item amounts for the given months (December true-up)."""
     total = ZERO
@@ -215,32 +264,61 @@ def _summarize(employee, period, structure, config, tax_profile):
     gross = basic + fixed_total + variable_total + reimb_total
     net = gross - deduction_total
 
-    # --- PPh 21 via TER (Jan-Nov); December carries prior months (3b refines) ---
+    # --- PPh 21: TER monthly (Jan-Nov), annual true-up in December (3b) ---
     pph = ZERO
     ter_category = ''
     ptkp_status = tax_profile.ptkp_status if tax_profile else 'TK/0'
+    pph_prior = ZERO
+    pph_annual = ZERO
+    # Final period = December, or the last month the employee is paid in the
+    # year (mid-year termination → PMK 168/2023 "masa pajak terakhir").
+    is_final_period = (
+        period.period_month == 12 or window[1] < period.period_end
+    )
     if gross > 0 and pro_rata > 0:
         # Taxable base excludes is_taxable=False components (PRD 4.2 "Kena Pajak?").
         taxable_fixed = sum(
             (it['amount'] for it in fixed_items if it.get('is_taxable', True)), ZERO,
         )
         taxable_earnings = basic + taxable_fixed + variable_total
-        pph, ter_category, _rate = tax_mod.compute_monthly_pph21(
-            config, ptkp_status, taxable_earnings,
-        )
-        if period.period_month == 12:
-            prior = _month_pph_items_sum(employee, period.period_year, range(1, 12))
-            pph = pph + prior
+        if is_final_period:
+            # Tahap 3b: final month = annual progressive true-up (Pasal 17)
+            # minus the PPh 21 actually withheld in prior months of the year.
+            # Reimbursements are excluded from gross_year (not PPh 21 taxable
+            # income) via is_taxable=False.
+            prior = _month_pph_items_sum(
+                employee, period.period_year, range(1, period.period_month),
+            )
+            pph_prior = prior
+            gross_year, months_worked = _annual_taxable_earnings(
+                employee, period.period_year, period, taxable_earnings, pro_rata,
+            )
+            pph, pph_annual, _pkp, _bj = tax_mod.compute_december_trueup(
+                config, ptkp_status, gross_year, prior,
+                months_worked=months_worked,
+            )
+            ter_category = tax_mod.ter_category_for(ptkp_status)
+        else:
+            pph, ter_category, _rate = tax_mod.compute_monthly_pph21(
+                config, ptkp_status, taxable_earnings,
+            )
 
     pph_item = None
     if pph > 0:
+        if is_final_period:
+            description = (
+                f'PPh 21 true-up: setahun {pph_annual} - dipotong sebelumnya '
+                f'{pph_prior} (TER {ter_category}, {ptkp_status})'
+            )
+        else:
+            description = f'PPh 21 TER {ter_category} ({ptkp_status})'
         pph_item = {
             'code': 'PPh21',
             'name': 'Potongan Pajak (PPh 21)',
             'category': PayrollComponent.Category.DEDUCTION,
             'amount': pph,
             'source': PayrollItem.Source.SYSTEM,
-            'description': f'PPh 21 TER {ter_category} ({ptkp_status})',
+            'description': description,
         }
         deduction_total += pph
         net = net - pph
@@ -264,6 +342,8 @@ def _summarize(employee, period, structure, config, tax_profile):
         'unpaid_leave_days': unpaid_days,
         'ptkp_status_snapshot': ptkp_status,
         'ter_category_snapshot': ter_category,
+        'pph_prior_months': pph_prior,
+        'pph_annual': pph_annual,
         'is_dtp': is_dtp,
         'transfer_amount': transfer_amount,
         'items': fixed_items + manual_items + reimb_items + unpaid_items
@@ -346,7 +426,8 @@ def calculate_period(period):
                 for fld in ('basic_salary', 'total_fixed_earning', 'total_variable_earning',
                             'total_deduction', 'reimbursement_total', 'gross_salary', 'net_salary',
                             'pro_rata_factor', 'unpaid_leave_days', 'ptkp_status_snapshot',
-                            'ter_category_snapshot', 'is_dtp', 'transfer_amount'):
+                            'ter_category_snapshot', 'pph_prior_months', 'pph_annual',
+                            'is_dtp', 'transfer_amount'):
                     setattr(payroll, fld, data[fld])
                 payroll.save()
             else:
