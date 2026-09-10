@@ -31,14 +31,13 @@ from .storage import delete_object, is_configured, signed_url, upload_bytes
 
 def next_employee_id():
     """Generate the next sequential employee id: EMP0001, EMP0002, ..."""
-    last = Employee.objects.order_by('-id').values_list('employee_id', flat=True).first()
-    num = 1
-    if last and last.startswith('EMP'):
-        try:
-            num = int(last[3:]) + 1
-        except ValueError:
-            pass
-    return f'EMP{num:04d}'
+    nums = [
+        int(eid[3:])
+        for eid in Employee.objects.filter(employee_id__startswith='EMP')
+        .values_list('employee_id', flat=True)
+        if eid[3:].isdigit()
+    ]
+    return f'EMP{max(nums, default=0) + 1:04d}'
 
 
 IMPORT_FIELDS = [
