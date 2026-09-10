@@ -375,6 +375,10 @@ class Payroll(models.Model):
     )
     # Nominal that Finance actually transfers (may differ from printed THP when DTP).
     transfer_amount = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    # --- Tahap 3c payslip ---
+    # Sequential per period (resets every month, PRD decision #4); assigned at
+    # first payslip download. Format: 001/HRGA/MM/YYYY.
+    slip_number = models.CharField(max_length=32, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -428,3 +432,28 @@ class PayrollItem(models.Model):
 
     def __str__(self):
         return f'{self.component_code}: {self.amount}'
+
+
+class CompanyConfig(models.Model):
+    """Singleton company header data for payslip printing (PRD Section 6)."""
+
+    name = models.CharField(max_length=255, default='PT Feraco')
+    address = models.TextField(blank=True)
+    department_name = models.CharField(max_length=128, default='HRGA DEPARTMENT')
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'Company Config'
+        verbose_name_plural = 'Company Config'
+
+    def save(self, *args, **kwargs):
+        self.pk = 1  # singleton
+        super().save(*args, **kwargs)
+
+    @classmethod
+    def load(cls):
+        obj, _ = cls.objects.get_or_create(pk=1)
+        return obj
+
+    def __str__(self):
+        return self.name

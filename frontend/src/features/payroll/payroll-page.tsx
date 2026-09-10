@@ -29,6 +29,8 @@ import {
   listPayrolls,
   addManualItem,
   removeManualItem,
+  downloadPayslip,
+  downloadRecap,
 } from '@/lib/payroll';
 import { listEmployees, type Employee } from '@/lib/employees';
 
@@ -925,6 +927,7 @@ function PayrollProcessingSection() {
   }
 
   const isLocked = (p: PayrollPeriod) => p.status === 'LOCKED';
+  const isPaidUp = (p: PayrollPeriod) => p.status === 'PAID' || p.status === 'LOCKED';
   const nextAction = (p: PayrollPeriod) => {
     const steps: Record<string, string> = {
       DRAFT: 'calculate',
@@ -1005,6 +1008,18 @@ function PayrollProcessingSection() {
                           {!isLocked(p) && (
                             <Button variant='ghost' size='sm' className='text-destructive' onClick={() => handleDelete(p)}>
                               <Icons.trash />
+                            </Button>
+                          )}
+                          {isPaidUp(p) && (
+                            <Button
+                              variant='ghost'
+                              size='sm'
+                              onClick={() =>
+                                downloadPayslip(p.id, `${p.period_year}-${String(p.period_month).padStart(2, '0')}`)
+                                  .catch(() => {})
+                              }
+                            >
+                              <Icons.download />Rekap
                             </Button>
                           )}
                         </div>
