@@ -1057,3 +1057,101 @@ class TaxHelperUnitTests(TestCase):
         self.assertEqual(round_pph(Decimal('4999')), Decimal('4000'))
         self.assertEqual(round_pph(Decimal('5001')), Decimal('5000'))
         self.assertEqual(round_pph(Decimal('1999.9')), Decimal('1000'))
+
+
+class Tahap3cTests(TestCase):
+    """Tahap 3c: terbilang, slip numbering, payslip PDF, recap XLSX."""
+
+    def setUp(self):
+        self.admin = make_user('ADMIN', 'admin@test.com')
+        self.client.force_login(self.admin)
+        make_tax_config(rate='1', threshold='0')
+        self.emp = Employee.objects.create(
+            employee_id='E001', full_name='John', employment_status='ACTIVE',
+            bank_account_name='BCA', bank_account_number='1234567890',
+        )
+        SalaryStructure.objects.create(
+            employee=self.emp, effective_from=date(2026, 1, 1), basic_salary=5000000,
+        )
+        self.period = make_month_period(6)
+        calculate_period(self.period)
+        self.payroll = Payroll.objects.get(period=self.period, employee=self.emp)
+
+    def _to_paid(self):
+        # Walk the state machine (DRAFT→CALCULATED→REVIEW→APPROVED→PAID).
+        self.period.status = PayrollPeriod.Status.CALCULATED
+        self.period.save(update_fields=['status'])
+        for target in (PayrollPeriod.Status.REVIEW, PayrollPeriod.Status.APPROVED,
+                       PayrollPeriod.Status.PAID):
+            self.period.status = target
+            self.period.save(update_fields=['status'])
+
+    def test_terbilang(self):
+        from .terbilang import terbilang
+        self.assertEqual(terbilang(0), 'Nol Rupiah')
+        self.assertEqual(terbilang(1), 'Satu Rupiah')
+        self.assertEqual(terbilang(11), 'Sebelas Rupiah')
+        self.assertEqual(terbilang(150000), 'Seratus Lima Puluh Ribu Rupiah')
+        self.assertEqual(terbilang(250000), 'Dua Ratus Lima Puluh Ribu Rupiah')
+        self.assertEqual(terbilang(9039000), 'Sembilan Juta Tiga Puluh Sembilan Ribu Rupiah')
+        self.assertEqual(terbilang(1000000), 'Satu Juta Rupiah')
+        self.assertEqual(terbilang(1100000), 'Satu Juta Seratus Ribu Rupiah')
+        self.assertEqual(terbilang(175000), 'Seratus Tujuh Puluh Lima Ribu Rupiah')
+
+    def test_slip_number_sequential_and_monthly_reset(self):
+        from .exports import assign_slip_number
+        self.assertEqual(assign_slip_number(self.payroll), '001/HRGA/06/2026')
+        # Idempotent.
+        self.assertEqual(assign_slip_number(self.payroll), '001/HRGA/06/2026')
+        # Second employee in same period -> 002.
+        emp2 = Employee.objects.create(employee_id='E002', full_name='Jane', employment_status='ACTIVE')
+        SalaryStructure.objects.create(
+            employee=emp2, effective_from=date(2026, 1, 1), basic_salary=4000000,
+        )
+        payroll2 = Payroll.objects.create(period=self.period, employee=emp2, basic_salary=4000000)
+        self.assertEqual(assign_slip_number(payroll2), '002/HRGA/06/2026')
+        # New month resets to 001.
+        july = make_month_period(7)
+        calculate_period(july)
+        p2 = Payroll.objects.get(period=july, employee=self.emp)
+        self.assertEqual(assign_slip_number(p2), '001/HRGA/07/2026')
+
+    def test_payslip_requires_paid_period(self):
+        res = self.client.get(reverse('payroll-payslip', args=[self.payroll.id]))
+        self.assertEqual(res.status_code, 400)
+
+    def test_payslip_pdf_ok(self):
+        self._to_paid()
+        res = self.client.get(reverse('payroll-payslip', args=[self.payroll.id]))
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res['Content-Type'], 'application/pdf')
+        self.assertTrue(res.content.startswith(b'%PDF'))
+        self.payroll.refresh_from_db()
+        self.assertEqual(self.payroll.slip_number, '001/HRGA/06/2026')
+
+    def test_payslip_employee_forbidden(self):
+        self._to_paid()
+        self.client.force_login(make_user('EMPLOYEE', 'emp@test.com'))
+        res = self.client.get(reverse('payroll-payslip', args=[self.payroll.id]))
+        self.assertEqual(res.status_code, 403)
+
+    def test_recap_xlsx_ok(self):
+        self._to_paid()
+        res = self.client.get(reverse('payroll-period-recap', args=[self.period.id]))
+        self.assertEqual(res.status_code, 200)
+        self.assertIn('spreadsheetml', res['Content-Type'])
+        self.assertTrue(res.content.startswith(b'PK'))  # xlsx zip magic
+        import io
+        from openpyxl import load_workbook
+        wb = load_workbook(io.BytesIO(res.content))
+        ws = wb.active
+        rows = list(ws.iter_rows(values_only=True))
+        self.assertEqual(rows[0], ('No', 'Nama Karyawan', 'Bank', 'No Rekening', 'Nominal Transfer'))
+        self.assertEqual(rows[1][1], 'John')
+        self.assertEqual(rows[1][3], '1234567890')
+        self.assertEqual(rows[1][4], int(self.payroll.transfer_amount))
+
+    def test_recap_employee_forbidden(self):
+        self.client.force_login(make_user('EMPLOYEE', 'emp@test.com'))
+        res = self.client.get(reverse('payroll-period-recap', args=[self.period.id]))
+        self.assertEqual(res.status_code, 403)

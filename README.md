@@ -78,6 +78,12 @@ Catatan: filtering menu di frontend (`use-nav.ts`) hanya UI; otorisasi di backen
 
 ## Last Progress
 
+**Payroll Module — Payslip PDF + Recap Export (Phase 3c)** — last updated 2026-09-10
+
+- **Slip gaji PDF (`apps.payroll`)** — `GET /api/payroll/payrolls/{id}/payslip/` (HR only) renders an A4 reportlab PDF per PRD Section 6: company header from the new `CompanyConfig` singleton (name/address/department_name), "SLIP GAJI [BULAN] [TAHUN]" + slip number, employee data, PENGHASILAN vs POTONGAN columns from snapshot items, totals, THP, and terbilang of `net_salary` (stdlib Indonesian number-to-words in `terbilang.py`). Guard: period must be PAID/LOCKED (slip exists only after payment confirmed). Slip numbers `001/HRGA/MM/YYYY` are sequential per period (reset every month, PRD decision #4), unique via partial DB constraint, assigned lazily + idempotently at first download.
+- **Rekap transfer XLSX** — `GET /api/payroll/periods/{id}/recap/` (HR only) exports No / Nama Karyawan / Bank / No Rekening / Nominal Transfer (`transfer_amount`, so DTP rows carry the real figure) + TOTAL row via openpyxl — for manual internet-banking upload (PRD langkah 5). Frontend: blob-download helpers in `lib/payroll.ts`; "Rekap" button per period row and "Slip" button per payroll row, shown only when PAID/LOCKED. 78 payroll tests pass; docs in `docs/payroll.md`.
+- **Deferred** — employee self-service slips, editable per-period payslip footer notes, GROSS_UP iterative scheme, GM aggregate/detail access.
+
 **Payroll Module — December Annual True-up (Phase 3b)** — last updated 2026-09-10
 
 - **Annual PPh 21 true-up (`apps.payroll`)** — the final masa pajak (December, or the last paid month of a mid-year termination per PMK 168/2023) now recalculates PPh 21 on the full tax year: `(gross setahun − biaya jabatan − PTKP tahunan) × Pasal 17 (5–35%)` minus the PPh already withheld Jan–Nov. Annual gross is rebuilt from persisted payroll rows (basic salary + SYSTEM taxable items); biaya jabatan = 5% capped Rp500rb/month worked (pro-rata factors count fractionally); negative true-up (TER overpayment) floors at 0 — refund belongs to the annual SPT. Pasal 17 layers default to statutory 60jt/250jt/500jt/5M @ 5/15/25/30/35% (cost index 0, no indexing), overridable per year via `TaxConfig.annual_layer_limits` or new `AnnualTaxBracket` rows (layer 1–5). Snapshots `pph_prior_months` + `pph_annual` stored on December payrolls. API: `POST /api/payroll/tax-config/{id}/annual_brackets/` (bulk replace, ADMIN/HR only). 71 payroll tests pass; docs in `docs/payroll.md`.

@@ -135,7 +135,9 @@ recompute resets everything.
 | `/api/payroll/components/` | CRUD | plus `is_taxable` field |
 | `/api/payroll/salary-structures/` | CRUD | `history/`, `active/` actions |
 | `/api/payroll/periods/` | CRUD | `calculate/review/approve/mark-paid/lock` actions |
+| `/api/payroll/periods/{id}/recap/` | GET | rekap transfer XLSX (HR only) |
 | `/api/payroll/payrolls/` | GET | `manual_item/`, `remove_manual_item/` actions; MANAGEMENT scoped to own slips |
+| `/api/payroll/payrolls/{id}/payslip/` | GET | slip gaji PDF (HR only; period PAID/LOCKED) |
 | `/api/payroll/tax-config/` | CRUD | ADMIN/HR only; exposes `annual_layer_limits` + nested `annual_brackets` |
 | `/api/payroll/tax-config/{id}/brackets/` | POST | bulk replace TER brackets (validates category/bounds/rate) |
 | `/api/payroll/tax-config/{id}/annual_brackets/` | POST | bulk replace annual Pasal 17 layer overrides; empty list resets to defaults |
@@ -153,14 +155,16 @@ $env:DB_ENGINE='sqlite'
 .\.venv\Scripts\python.exe manage.py test apps.payroll
 ```
 
-- 71 tests: component/structure/period/calculate/manual-item suites,
+- 78 tests: component/structure/period/calculate/manual-item suites,
   `EngineTahap3aTests` (config guard, TER monthly, DTP both sides of the threshold,
   pro-rata join, terminated-employee final pay, `is_taxable` exclusion, PTKP snapshot),
   `EngineTahap3bTests` (Pasal 17 layers + boundaries, biaya jabatan caps, true-up math
   with/without prior withholding, overpayment floored at 0, full-engine December runs,
   salary-raise scenario with extra December withholding, mid-year termination true-up in
   the final month, annual layer override), `TaxConfigApiTests` (RBAC + validation +
-  `annual_brackets/` bulk replace), `TaxHelperUnitTests` (category mapping, rounding).
+  `annual_brackets/` bulk replace), `TaxHelperUnitTests` (category mapping, rounding),
+  `Tahap3cTests` (terbilang, monthly-resetting slip numbers, payslip PDF guard + RBAC +
+  content, recap XLSX content + RBAC).
 - Test helper `make_tax_config()` builds a minimal active single-bracket table; tests
   needing PPh set `rate='1'` and `threshold='0'` to isolate TER from DTP.
 
@@ -168,6 +172,6 @@ $env:DB_ENGINE='sqlite'
 
 BPJS, overtime pay (leave-compensation policy instead), attendance deduction, bank API
 integration, Coretax reporting, GM aggregate/detail access (deferred — see
-`payroll-tahap3-gap-analysis.md` open question A), slip PDF/terbilang/numbering + recap
-export + employee self-service slips (3c), GROSS_UP iterative scheme, refund of TER
-overpayment inside payroll (handled via the annual SPT).
+`payroll-tahap3-gap-analysis.md` open question A), employee self-service slips,
+GROSS_UP iterative scheme, refund of TER overpayment inside payroll (handled via the
+annual SPT).

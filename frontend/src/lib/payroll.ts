@@ -261,3 +261,28 @@ export function upsertTaxProfile(
     body: JSON.stringify({ employee: employeeId, ...data }),
   });
 }
+
+// ---------- Tahap 3c: payslip PDF + recap XLSX (blob downloads) ----------
+
+async function downloadFile(path: string, fallbackName: string): Promise<void> {
+  const res = await fetch(`${BASE}${path}`, { credentials: 'include' });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(extractError(data) || `API error ${res.status}`);
+  }
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = res.headers.get('Content-Disposition')?.match(/filename="?([^";]+)"?/)?.[1] ?? fallbackName;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+export function downloadPayslip(payrollId: number, employeeName: string): Promise<void> {
+  return downloadFile(`/payrolls/${payrollId}/payslip/`, `slip-gaji-${employeeName}.pdf`);
+}
+
+export function downloadRecap(periodId: number, label: string): Promise<void> {
+  return downloadFile(`/periods/${periodId}/recap/`, `rekap-payroll-${label}.xlsx`);
+}

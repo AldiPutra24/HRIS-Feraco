@@ -33,6 +33,7 @@ from .serializers import (
     TerBracketSerializer,
 )
 from .services import calculate_period, refresh_payroll_totals
+from .exports import build_payslip_pdf, build_recap_xlsx
 
 
 class TaxConfigViewSet(viewsets.ModelViewSet):
@@ -334,6 +335,13 @@ class PayrollPeriodViewSet(viewsets.ModelViewSet):
     def lock(self, request, pk=None):
         return self._transition(request, pk, PayrollPeriod.Status.LOCKED, 'Locked')
 
+    @action(detail=True, methods=['get'])
+    def recap(self, request, pk=None):
+        """Rekap transfer per rekening (XLSX) — PRD langkah 5, HR only."""
+        if _role(request.user) not in PAYROLL_ADMIN_ROLES:
+            return Response({'detail': 'Tidak berwenang.'}, status=403)
+        return build_recap_xlsx(self.get_object())
+
 
 class PayrollViewSet(viewsets.ReadOnlyModelViewSet):
     """Payroll records (and items) for a period. HR + MANAGEMENT read-only via API;
@@ -427,4 +435,11 @@ class PayrollViewSet(viewsets.ReadOnlyModelViewSet):
         payroll = Payroll.objects.prefetch_related('items').get(pk=payroll.pk)
         refresh_payroll_totals(payroll)
         return Response(PayrollSerializer(payroll).data)
+
+    @action(detail=True, methods=['get'])
+    def payslip(self, request, pk=None):
+        """Slip gaji PDF (PRD Section 6) — HR only, period PAID/LOCKED."""
+        if _role(request.user) not in PAYROLL_ADMIN_ROLES:
+            return Response({'detail': 'Tidak berwenang.'}, status=403)
+        return build_payslip_pdf(self.get_object())
 
