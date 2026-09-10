@@ -4,19 +4,124 @@ from decimal import Decimal
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
+from django.db import transaction
+from decimal import Decimal
 
 from apps.audit.services import log_event
 from apps.personnel.permissions import _role
 
-from .models import Payroll, PayrollComponent, PayrollItem, PayrollPeriod, SalaryStructure
+from .models import (
+    EmployeeTaxProfile,
+    Payroll,
+    PayrollComponent,
+    PayrollItem,
+    PayrollPeriod,
+    SalaryStructure,
+    TaxConfig,
+    TerBracket,
+)
 from .permissions import IsPayrollAdmin, PayrollPeriodPermission, SalaryStructurePermission, PAYROLL_ADMIN_ROLES
 from .serializers import (
+    EmployeeTaxProfileSerializer,
     PayrollComponentSerializer,
     PayrollPeriodSerializer,
     PayrollSerializer,
     SalaryStructureSerializer,
+    TaxConfigSerializer,
+    TerBracketSerializer,
 )
 from .services import calculate_period, refresh_payroll_totals
+
+
+class TaxConfigViewSet(viewsets.ModelViewSet):
+    """Per-year PPh 21 tax configuration (ADMIN/HR only)."""
+
+    queryset = TaxConfig.objects.prefetch_related('ter_brackets').all()
+    serializer_class = TaxConfigSerializer
+    permission_classes = [IsPayrollAdmin]
+    pagination_class = None
+
+    def perform_create(self, serializer):
+        obj = serializer.save()
+        log_event(self.request, 'create', obj=obj, description=f'Tax config {obj.year} created')
+
+    def perform_update(self, serializer):
+        obj = serializer.save()
+        log_event(self.request, 'update', obj=obj, description=f'Tax config {obj.year} updated')
+
+    def perform_destroy(self, instance):
+        log_event(self.request, 'delete', obj=instance, description=f'Tax config {instance.year} deleted')
+        instance.delete()
+
+    @action(detail=True, methods=['post'])
+    def brackets(self, request, pk=None):
+        """Bulk-upsert TER brackets for this config (replaces existing rows)."""
+        if _role(request.user) not in PAYROLL_ADMIN_ROLES:
+            return Response({'detail': 'Tidak berwenang.'}, status=403)
+        config = self.get_object()
+        rows = request.data.get('brackets')
+        if not isinstance(rows, list):
+            return Response({'detail': 'Payload harus berisi daftar brackets.'}, status=400)
+        valid_categories = {TaxConfig.TerCategory.A, TaxConfig.TerCategory.B, TaxConfig.TerCategory.C}
+        cleaned = []
+        for i, row in enumerate(rows):
+            if not isinstance(row, dict):
+                return Response({'detail': f'Bracket #{i + 1} tidak valid.'}, status=400)
+            category = (row.get('ter_category') or '').strip().upper()
+            if category not in valid_categories:
+                return Response({'detail': f'Bracket #{i + 1}: kategori harus A/B/C.'}, status=400)
+            try:
+                bruto_lower = Decimal(str(row.get('bruto_lower')))
+                rate_pct = Decimal(str(row.get('rate_pct')))
+            except Exception:
+                return Response({'detail': f'Bracket #{i + 1}: angka tidak valid.'}, status=400)
+            bruto_upper = row.get('bruto_upper')
+            bruto_upper = Decimal(str(bruto_upper)) if bruto_upper not in (None, '') else None
+            if bruto_upper is not None and bruto_upper <= bruto_lower:
+                return Response({'detail': f'Bracket #{i + 1}: batas atas harus > batas bawah.'}, status=400)
+            if rate_pct < 0:
+                return Response({'detail': f'Bracket #{i + 1}: tarif tidak boleh negatif.'}, status=400)
+            cleaned.append({
+                'ter_category': category,
+                'bruto_lower': bruto_lower,
+                'bruto_upper': bruto_upper,
+                'rate_pct': rate_pct,
+            })
+        with transaction.atomic():
+            config.ter_brackets.all().delete()
+            for row in cleaned:
+                TerBracket.objects.create(tax_config=config, **row)
+        log_event(
+            request, 'update', obj=config,
+            description=f'TER brackets {config.year} replaced ({len(cleaned)} rows)',
+        )
+        return Response(TaxConfigSerializer(config, context={'request': request}).data)
+
+
+class EmployeeTaxProfileViewSet(viewsets.ModelViewSet):
+    """Per-employee PTKP status + tax scheme (ADMIN/HR only)."""
+
+    queryset = EmployeeTaxProfile.objects.select_related('employee').all()
+    serializer_class = EmployeeTaxProfileSerializer
+    permission_classes = [IsPayrollAdmin]
+    filterset_fields = ['employee', 'ptkp_status', 'tax_scheme']
+    search_fields = ['employee__full_name']
+    pagination_class = None
+
+    def perform_create(self, serializer):
+        obj = serializer.save()
+        log_event(
+            self.request, 'create', obj=obj,
+            description=f'Tax profile {obj.employee.full_name}: PTKP {obj.ptkp_status}',
+        )
+
+    def perform_update(self, serializer):
+        old_status = serializer.instance.ptkp_status
+        obj = serializer.save()
+        log_event(
+            self.request, 'update', obj=obj,
+            description=f'Tax profile {obj.employee.full_name}: PTKP {old_status} -> {obj.ptkp_status}',
+        )
 
 
 class PayrollComponentViewSet(viewsets.ModelViewSet):
@@ -239,6 +344,7 @@ class PayrollViewSet(viewsets.ReadOnlyModelViewSet):
                 'description': description,
             },
         )
+        payroll = Payroll.objects.prefetch_related('items').get(pk=payroll.pk)
         payroll = refresh_payroll_totals(payroll)
         log_event(
             request,
@@ -265,6 +371,7 @@ class PayrollViewSet(viewsets.ReadOnlyModelViewSet):
             component_code=code,
             source=PayrollItem.Source.MANUAL,
         ).delete()
+        payroll = Payroll.objects.prefetch_related('items').get(pk=payroll.pk)
         refresh_payroll_totals(payroll)
         return Response(PayrollSerializer(payroll).data)
 

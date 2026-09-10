@@ -1,5 +1,50 @@
 # HRIS FERACO - Progress Note
 
+## Status: Payroll Tahap 3a — Core Calculation Engine — COMPLETE (10 Sep 2026)
+
+### Scope
+- Implementasi calculation engine sesuai `PRD_Modul_Payroll_Karyawan_Inhouse.md` + gap analysis `payroll-tahap3-gap-analysis.md`: konfigurasi tarif pajak sebagai data (bukan hardcode), TER PPh 21 bulanan, pro-rata, potongan cuti tidak dibayar monetari, dan split DTP (THP tercetak vs nominal transfer riil). Slip PDF/terbilang/penomoran = Tahap 3c; true-up Desember penuh = Tahap 3b.
+
+### Keputusan bisnis (dari gap analysis, dikonfirmasi PO/user)
+- **GM visibility**: PRD #9 (GM lihat agregat + detail) vs keputusan 09 Sep (MANAGEMENT = slip sendiri saja) → **DEFERRED**; behavior existing dipertahankan, tidak ada RBAC GM baru.
+- **Cuti tidak dibayar**: potongan = (gaji pokok + tunjangan tetap) / 30 × hari.
+- **Pro-rata** (join/resign di tengah bulan): hanya **gaji pokok** yang diproratakan — sesuai contoh PRD Section 5; tunjangan tetap full.
+- **Gross-up**: field `tax_scheme` (NORMAL/GROSS_UP) di-reserve; kalkulasi gross-up iteratif DEFER (belum ada karyawan yang memakai).
+
+### Backend (`apps/payroll`)
+- **Models** (migration `0003`): `TaxConfig` (year unique, is_active default False, dtp_threshold default 10jt, notes) + `TerBracket` (FK config, ter_category A/B/C, bruto_lower, bruto_upper NULL=tanpa batas, rate_pct) + `EmployeeTaxProfile` (OneToOne Employee, ptkp_status TK/0..K/3, tax_scheme) + `PayrollComponent.is_taxable` (default True, PRD 4.2 "Kena Pajak?").
+- **`Payroll` fields baru**: `ptkp_status_snapshot`, `ter_category_snapshot` (snapshot per-run, history-safe per PRD 2.3), `pro_rata_factor`, `unpaid_leave_days`, `is_dtp`, `transfer_amount`.
+- **`tax.py`** (baru): `TER_CATEGORY_MAP` (A=TK/0,TK/1,K/0; B=TK/2,TK/3,K/1,K/2; C=K/3), `get_active_config(year)` raise `TaxConfigError` bila config tidak ada/tidak aktif, `ter_rate` (bracket `bruto_lower<=bruto` + upper NULL/gte, terdekat bawah), `compute_monthly_pph21` (base × rate, dibulatkan **ke bawah** ribuan penuh via `round_pph`), `ter_category_for`.
+- **`services.py`** rework:
+  - `calculate_period`: guard status DRAFT + **config guard** (tanpa TaxConfig aktif → ValidationError 400, tidak pernah silent zero-tax); iterasi karyawan **ACTIVE** + yang punya contract TERMINATED dengan `termination_date >= period_start` (final pay); INACTIVE tanpa termination_date di-skip.
+  - `_employment_window`: clamp start dari `join_date`, clamp end dari `termination_date`; window kosong → tanpa row payroll.
+  - `_pro_rata_factor`: hari kalender dibayar ÷ hari kalender bulan (cap 1), diterapkan ke basic saja; full month = persis 1.
+  - Unpaid leave: `_unpaid_leave_days` (overlap kalender, `leave_type.is_paid=False`, APPROVED) → potongan (basic+fixed)/30 × hari sebagai item SYSTEM `UNPAID_LEAVE` (bukan lagi amount 0 placeholder).
+  - PPh 21: taxable base = basic (prorata) + fixed (hanya `is_taxable=True`) + variable manual; hasil = item SYSTEM `PPh21` + snapshot PTKP/kategori; Desember sementara menambahkan sum PPh item Jan–Nov (true-up progresif tahunan = 3b).
+  - **DTP** (PRD 6.2 + keputusan threshold): `net_salary` tetap tercetak normal; bila THP ≤ `dtp_threshold` → `is_dtp=True`, `transfer_amount = net + pph` (pajak DTP tidak benar-benar dipotong dari transfer); di atas threshold → `transfer_amount = net`.
+  - `refresh_payroll_totals` (edit manual item): mempertahankan potongan SYSTEM (PPh21 + unpaid leave) dan split DTP dari flag tersimpan; recalculate penuh menghitung ulang semuanya.
+- **API**: `tax-config` CRUD + action `POST /tax-config/{id}/brackets/` (bulk replace, validasi kategori A/B/C, batas atas > bawah, tarif ≥ 0); `tax-profiles` CRUD (validasi ptkp_status); semua RBAC ADMIN/HR_STAFF/HR_LEAD + audit `log_event`. `PayrollSerializer` expose field engine baru; `PayrollComponentSerializer` + `is_taxable`. Router: components, salary-structures, periods, payrolls, tax-config, tax-profiles.
+- **Admin**: `TaxConfig` (inline TerBracket), `EmployeeTaxProfile`, `PayrollPeriod`, `Payroll`.
+- **`seed_tax_config`** command: TaxConfig 2026 **is_active=False** + template 78 bracket (nilai ILUSTRATIF) — wajib dikonfirmasi ke konsultan pajak (PMK 168/2023) sebelum diaktifkan; idempotent.
+
+### Frontend
+- `lib/payroll.ts`: `PayrollComponent.is_taxable`; type `Payroll` + field engine baru; type baru `TaxConfig`/`TerBracket`/`EmployeeTaxProfile`; API fns `listTaxConfigs/createTaxConfig/updateTaxConfig/replaceTaxBrackets/listTaxProfiles/upsertTaxProfile`. Belum ada UI tax config (next).
+
+### Test
+- `apps.payroll`: **58 tests OK** (37 lama adaptasi + 21 baru). Kelas baru: `EngineTahap3aTests` (11: config inactive/missing guard, TER bulanan, zero-rate, DTP di bawah & di atas threshold, pro-rata join 10 Juni = 3.5jt, INACTIVE excl. + terminated-in-period final pay 4jt, `is_taxable=False` excl. dari base, snapshot K/2→B, Desember carry 50rb+50rb=100rb), `TaxConfigApiTests` (7: create/duplicate/RBAC employee 403/brackets bulk+invalid/profile CRUD+invalid ptkp/employee 403), `TaxHelperUnitTests` (2: mapping PTKP→kategori, pembulatan ribuan ke bawah).
+- Adaptasi test lama: semua test calculate pakai helper `make_tax_config()`; test unpaid leave kini monetari (3 hari × (5jt/30) = 500rb); manual-item tests mengejar prefetch refresh di view.
+- Regression: personnel+leaves+reimbursement+accounts = 187 tests, 1 error `test_import_xlsx` **pre-existing** (sudah didokumentasikan; sama di clean tree).
+- Frontend: `tsc --noEmit` 0 error; oxlint 0 error (`lib/payroll.ts`).
+- Validasi lain: `manage.py check` OK; `makemigrations --check` bersih; migrate + seed_tax_config dijalankan di DB lokal (TaxConfig 2026 nonaktif, 78 bracket).
+
+### Catatan implementasi
+- Django test client default tidak parse JSON nested — test API baru pakai `data=json.dumps(...), content_type='application/json'` (konvensi existing personnel tests).
+- `manual_item`/`remove_manual_item` re-fetch payroll dengan `prefetch_related('items')` sebelum `refresh_payroll_totals` (hindari cache stale setelah update_or_create/delete).
+- Dokumentasi modul: `docs/payroll.md` (architecture, calculation flow, TER, pro-rata, unpaid leave, DTP, config guard, API, testing).
+
+### Next milestone — Tahap 3b (December true-up)
+- Recalc tahunan progresif (bracket 5–35%) atas PKP = (bruto setahun − PTKP − biaya jabatan), kurang/lebih bayar di Desember; butuh `PtkpRate` + progressive brackets di config; rounding rule final dikonfirmasi konsultan. Lanjut 3c: slip PDF + terbilang + penomoran reset bulanan + footer per-periode + company config + recap transfer Excel + self-service slip karyawan.
+
 ## Status: Management Navbar + Access Scope — COMPLETE (09 Sep 2026)
 
 ### Scope

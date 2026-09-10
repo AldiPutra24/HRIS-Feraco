@@ -55,6 +55,8 @@ export type PayrollComponent = {
   description: string;
   sort_order: number;
   is_reimbursement: boolean;
+  /** PRD 4.2 "Kena Pajak?" — false = excluded from the PPh 21 TER base. */
+  is_taxable: boolean;
 };
 
 export type SalaryStructure = {
@@ -144,8 +146,47 @@ export type Payroll = {
   reimbursement_total: string;
   gross_salary: string;
   net_salary: string;
+  /** Tahap 3a engine fields (PRD). */
+  pro_rata_factor: string;
+  unpaid_leave_days: number;
+  ptkp_status_snapshot: string;
+  ter_category_snapshot: string;
+  /** True = PPh printed on slip but not taken from the actual transfer. */
+  is_dtp: boolean;
+  /** Amount Finance actually transfers (differs from net_salary when DTP). */
+  transfer_amount: string;
   items: PayrollItem[];
   created_at: string;
+  updated_at: string;
+};
+
+// ---------- Tax config (Tahap 3a) ----------
+
+export type TerBracket = {
+  id: number;
+  tax_config: number;
+  ter_category: 'A' | 'B' | 'C';
+  bruto_lower: string;
+  bruto_upper: string | null;
+  rate_pct: string;
+};
+
+export type TaxConfig = {
+  id: number;
+  year: number;
+  is_active: boolean;
+  dtp_threshold: string;
+  notes: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type EmployeeTaxProfile = {
+  id: number;
+  employee: number;
+  employee_name: string;
+  ptkp_status: string;
+  tax_scheme: 'NORMAL' | 'GROSS_UP';
   updated_at: string;
 };
 
@@ -180,5 +221,43 @@ export function removeManualItem(payrollId: number, componentCode: string): Prom
   return request<Payroll>(`/payrolls/${payrollId}/remove_manual_item/`, {
     method: 'POST',
     body: JSON.stringify({ component_code: componentCode }),
+  });
+}
+
+// ---------- Tax config API (Tahap 3a) ----------
+
+export function listTaxConfigs(): Promise<TaxConfig[]> {
+  return request<TaxConfig[]>('/tax-config/').then(unwrapList);
+}
+
+export function createTaxConfig(data: Record<string, unknown>): Promise<TaxConfig> {
+  return request<TaxConfig>('/tax-config/', { method: 'POST', body: JSON.stringify(data) });
+}
+
+export function updateTaxConfig(id: number, data: Record<string, unknown>): Promise<TaxConfig> {
+  return request<TaxConfig>(`/tax-config/${id}/`, { method: 'PATCH', body: JSON.stringify(data) });
+}
+
+export function replaceTaxBrackets(
+  configId: number,
+  brackets: { ter_category: string; bruto_lower: string; bruto_upper: string | null; rate_pct: string }[],
+): Promise<TaxConfig> {
+  return request<TaxConfig>(`/tax-config/${configId}/brackets/`, {
+    method: 'POST',
+    body: JSON.stringify({ brackets }),
+  });
+}
+
+export function listTaxProfiles(): Promise<EmployeeTaxProfile[]> {
+  return request<EmployeeTaxProfile[]>('/tax-profiles/').then(unwrapList);
+}
+
+export function upsertTaxProfile(
+  employeeId: number,
+  data: { ptkp_status: string; tax_scheme?: string },
+): Promise<EmployeeTaxProfile> {
+  return request<EmployeeTaxProfile>('/tax-profiles/', {
+    method: 'POST',
+    body: JSON.stringify({ employee: employeeId, ...data }),
   });
 }
