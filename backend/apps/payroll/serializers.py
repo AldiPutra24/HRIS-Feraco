@@ -1,4 +1,4 @@
-from decimal import Decimal
+﻿from decimal import Decimal
 
 from django.db.models import Q
 from rest_framework import serializers
@@ -43,14 +43,33 @@ class AnnualTaxBracketSerializer(serializers.ModelSerializer):
         return attrs
 
 
+class TerBracketSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = TerBracket
+        fields = ('id', 'tax_config', 'ter_category', 'bruto_lower', 'bruto_upper', 'rate_pct')
+        read_only_fields = ('id',)
+
+    def validate(self, attrs):
+        bruto_lower = attrs.get('bruto_lower', getattr(self.instance, 'bruto_lower', None))
+        bruto_upper = attrs.get('bruto_upper', getattr(self.instance, 'bruto_upper', None))
+        if bruto_lower is not None and bruto_upper is not None and bruto_upper <= bruto_lower:
+            raise serializers.ValidationError(
+                {'bruto_upper': 'Batas atas harus lebih besar dari batas bawah.'}
+            )
+        rate_pct = attrs.get('rate_pct', getattr(self.instance, 'rate_pct', None))
+        if rate_pct is not None and rate_pct < 0:
+            raise serializers.ValidationError({'rate_pct': 'Tarif tidak boleh negatif.'})
+        return attrs
+
 class TaxConfigSerializer(serializers.ModelSerializer):
     annual_brackets = AnnualTaxBracketSerializer(many=True, read_only=True)
+    ter_brackets = TerBracketSerializer(many=True, read_only=True)
 
     class Meta:
         model = TaxConfig
         fields = (
             'id', 'year', 'is_active', 'dtp_threshold', 'annual_layer_limits',
-            'annual_brackets', 'notes', 'created_at', 'updated_at',
+            'ter_brackets', 'annual_brackets', 'notes', 'created_at', 'updated_at',
         )
         read_only_fields = ('id', 'created_at', 'updated_at')
 
@@ -76,24 +95,6 @@ class TaxConfigSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError('Konfigurasi pajak untuk tahun ini sudah ada.')
         return value
 
-
-class TerBracketSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = TerBracket
-        fields = ('id', 'tax_config', 'ter_category', 'bruto_lower', 'bruto_upper', 'rate_pct')
-        read_only_fields = ('id',)
-
-    def validate(self, attrs):
-        bruto_lower = attrs.get('bruto_lower', getattr(self.instance, 'bruto_lower', None))
-        bruto_upper = attrs.get('bruto_upper', getattr(self.instance, 'bruto_upper', None))
-        if bruto_lower is not None and bruto_upper is not None and bruto_upper <= bruto_lower:
-            raise serializers.ValidationError(
-                {'bruto_upper': 'Batas atas harus lebih besar dari batas bawah.'}
-            )
-        rate_pct = attrs.get('rate_pct', getattr(self.instance, 'rate_pct', None))
-        if rate_pct is not None and rate_pct < 0:
-            raise serializers.ValidationError({'rate_pct': 'Tarif tidak boleh negatif.'})
-        return attrs
 
 
 class EmployeeTaxProfileSerializer(serializers.ModelSerializer):
