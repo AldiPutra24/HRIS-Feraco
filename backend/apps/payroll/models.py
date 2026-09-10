@@ -5,6 +5,97 @@ from django.db import models
 from django.core.exceptions import ValidationError
 
 
+class TaxConfig(models.Model):
+    """Per-tax-year PPh 21 configuration (PRD 4.4 — data, never hardcoded).
+
+    Rates are loaded from the official PMK 168/2023 tables (via the company's
+    tax consultant). Illustrative values must never be seeded as is_active.
+    """
+
+    class TerCategory(models.TextChoices):
+        A = 'A', 'TER A'
+        B = 'B', 'TER B'
+        C = 'C', 'TER C'
+
+    year = models.PositiveIntegerField(unique=True)
+    is_active = models.BooleanField(default=False)
+    dtp_threshold = models.DecimalField(
+        max_digits=14, decimal_places=2, default=Decimal('10000000'),
+        help_text='THP di bawah/sama dengan nilai ini → PPh DTP (tidak dipotong riil).',
+    )
+    notes = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-year']
+        verbose_name = 'Tax Config'
+        verbose_name_plural = 'Tax Configs'
+
+    def __str__(self):
+        return f'TaxConfig {self.year} ({"aktif" if self.is_active else "nonaktif"})'
+
+
+class TerBracket(models.Model):
+    """TER monthly rate table: one row per (year, category, bruto bracket)."""
+
+    tax_config = models.ForeignKey(
+        TaxConfig,
+        on_delete=models.CASCADE,
+        related_name='ter_brackets',
+    )
+    ter_category = models.CharField(max_length=1, choices=TaxConfig.TerCategory.choices)
+    bruto_lower = models.DecimalField(max_digits=14, decimal_places=2)
+    bruto_upper = models.DecimalField(
+        max_digits=14, decimal_places=2, null=True, blank=True,
+        help_text='NULL = tanpa batas atas (bracket tertinggi).',
+    )
+    rate_pct = models.DecimalField(
+        max_digits=6, decimal_places=4,
+        help_text='Persen tarif TER, mis. 0.2500 = 0,25%.',
+    )
+
+    class Meta:
+        ordering = ['ter_category', 'bruto_lower']
+        verbose_name = 'TER Bracket'
+        verbose_name_plural = 'TER Brackets'
+
+    def __str__(self):
+        upper = self.bruto_upper if self.bruto_upper is not None else '∞'
+        return f'{self.tax_config.year}-{self.ter_category}: {self.bruto_lower}-{upper} @ {self.rate_pct}%'
+
+
+class EmployeeTaxProfile(models.Model):
+    """Per-employee tax attributes (PTKP status + scheme), editable by HR.
+
+    The effective PTKP status used for a payroll run is snapshotted onto the
+    Payroll row (ptkp_status_snapshot) for auditability — editing this profile
+    never rewrites history (PRD 2.3).
+    """
+
+    class TaxScheme(models.TextChoices):
+        NORMAL = 'NORMAL', 'Normal'
+        GROSS_UP = 'GROSS_UP', 'Gross Up'
+
+    employee = models.OneToOneField(
+        'personnel.Employee',
+        on_delete=models.CASCADE,
+        related_name='tax_profile',
+    )
+    ptkp_status = models.CharField(max_length=4, default='TK/0')
+    tax_scheme = models.CharField(
+        max_length=16, choices=TaxScheme.choices, default=TaxScheme.NORMAL,
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'Employee Tax Profile'
+        verbose_name_plural = 'Employee Tax Profiles'
+
+    def __str__(self):
+        return f'{self.employee} — {self.ptkp_status} ({self.tax_scheme})'
+
+
 class PayrollComponent(models.Model):
     """Payroll payment type / component (earning or deduction).
 
@@ -44,6 +135,8 @@ class PayrollComponent(models.Model):
     description = models.TextField(blank=True)
     sort_order = models.PositiveIntegerField(default=0)
     is_reimbursement = models.BooleanField(default=False)
+    # Taxable earnings feed the PPh 21 TER base (PRD 4.2 "Kena Pajak?").
+    is_taxable = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -186,6 +279,19 @@ class Payroll(models.Model):
     reimbursement_total = models.DecimalField(max_digits=14, decimal_places=2, default=0)
     gross_salary = models.DecimalField(max_digits=14, decimal_places=2, default=0)
     net_salary = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    # --- Tahap 3a engine fields ---
+    # Snapshot of the PTKP status used for this run (history-safe, PRD 2.3).
+    ptkp_status_snapshot = models.CharField(max_length=4, blank=True)
+    ter_category_snapshot = models.CharField(max_length=1, blank=True)
+    # Factor actually applied to basic salary this period (1 = full month).
+    pro_rata_factor = models.DecimalField(max_digits=9, decimal_places=7, default=1)
+    unpaid_leave_days = models.PositiveIntegerField(default=0)
+    is_dtp = models.BooleanField(
+        default=False,
+        help_text='True = PPh DTP: tercetak di slip tapi tidak dikurangi dari transfer.',
+    )
+    # Nominal that Finance actually transfers (may differ from printed THP when DTP).
+    transfer_amount = models.DecimalField(max_digits=14, decimal_places=2, default=0)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

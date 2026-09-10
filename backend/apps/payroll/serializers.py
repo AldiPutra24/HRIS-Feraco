@@ -4,12 +4,65 @@ from rest_framework import serializers
 from apps.personnel.models import Employee
 
 from .models import (
+    EmployeeTaxProfile,
     Payroll,
     PayrollComponent,
     PayrollItem,
     PayrollPeriod,
     SalaryStructure,
+    TaxConfig,
+    TerBracket,
 )
+from .tax import VALID_PTKP
+
+
+class TaxConfigSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = TaxConfig
+        fields = ('id', 'year', 'is_active', 'dtp_threshold', 'notes', 'created_at', 'updated_at')
+        read_only_fields = ('id', 'created_at', 'updated_at')
+
+    def validate_year(self, value):
+        qs = TaxConfig.objects.filter(year=value)
+        if self.instance:
+            qs = qs.exclude(pk=self.instance.pk)
+        if qs.exists():
+            raise serializers.ValidationError('Konfigurasi pajak untuk tahun ini sudah ada.')
+        return value
+
+
+class TerBracketSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = TerBracket
+        fields = ('id', 'tax_config', 'ter_category', 'bruto_lower', 'bruto_upper', 'rate_pct')
+        read_only_fields = ('id',)
+
+    def validate(self, attrs):
+        bruto_lower = attrs.get('bruto_lower', getattr(self.instance, 'bruto_lower', None))
+        bruto_upper = attrs.get('bruto_upper', getattr(self.instance, 'bruto_upper', None))
+        if bruto_lower is not None and bruto_upper is not None and bruto_upper <= bruto_lower:
+            raise serializers.ValidationError(
+                {'bruto_upper': 'Batas atas harus lebih besar dari batas bawah.'}
+            )
+        rate_pct = attrs.get('rate_pct', getattr(self.instance, 'rate_pct', None))
+        if rate_pct is not None and rate_pct < 0:
+            raise serializers.ValidationError({'rate_pct': 'Tarif tidak boleh negatif.'})
+        return attrs
+
+
+class EmployeeTaxProfileSerializer(serializers.ModelSerializer):
+    employee_name = serializers.CharField(source='employee.full_name', read_only=True)
+
+    class Meta:
+        model = EmployeeTaxProfile
+        fields = ('id', 'employee', 'employee_name', 'ptkp_status', 'tax_scheme', 'updated_at')
+        read_only_fields = ('id', 'updated_at', 'employee_name')
+
+    def validate_ptkp_status(self, value):
+        value = (value or '').strip().upper()
+        if value not in VALID_PTKP:
+            raise serializers.ValidationError('Status PTKP tidak valid (TK/0 s.d. K/3).')
+        return value
 
 
 class PayrollComponentSerializer(serializers.ModelSerializer):
@@ -17,7 +70,7 @@ class PayrollComponentSerializer(serializers.ModelSerializer):
         model = PayrollComponent
         fields = (
             'id', 'name', 'code', 'category', 'calculation_type', 'default_amount',
-            'is_active', 'description', 'sort_order', 'is_reimbursement',
+            'is_active', 'description', 'sort_order', 'is_reimbursement', 'is_taxable',
         )
         read_only_fields = ('id',)
 
@@ -137,11 +190,15 @@ class PayrollSerializer(serializers.ModelSerializer):
         fields = (
             'id', 'period', 'employee', 'employee_name', 'basic_salary',
             'total_fixed_earning', 'total_variable_earning', 'total_deduction',
-            'reimbursement_total', 'gross_salary', 'net_salary', 'items',
-            'created_at', 'updated_at',
+            'reimbursement_total', 'gross_salary', 'net_salary',
+            'pro_rata_factor', 'unpaid_leave_days', 'ptkp_status_snapshot',
+            'ter_category_snapshot', 'is_dtp', 'transfer_amount',
+            'items', 'created_at', 'updated_at',
         )
         read_only_fields = (
             'id', 'period', 'employee', 'basic_salary', 'total_fixed_earning',
             'total_variable_earning', 'total_deduction', 'reimbursement_total',
-            'gross_salary', 'net_salary', 'created_at', 'updated_at',
+            'gross_salary', 'net_salary', 'pro_rata_factor', 'unpaid_leave_days',
+            'ptkp_status_snapshot', 'ter_category_snapshot', 'is_dtp',
+            'transfer_amount', 'created_at', 'updated_at',
         )

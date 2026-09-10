@@ -78,6 +78,11 @@ Catatan: filtering menu di frontend (`use-nav.ts`) hanya UI; otorisasi di backen
 
 ## Last Progress
 
+**Payroll Module — Core Calculation Engine (Phase 3a)** — last updated 2026-09-10
+
+- **TER PPh 21 engine (`apps.payroll`)** — tax rates are data, not code: `TaxConfig` (per tax year, `is_active`, DTP threshold), `TerBracket` (TER category A/B/C × bruto bracket × rate), `EmployeeTaxProfile` (PTKP status + reserved tax scheme). `calculate_period` now pays ACTIVE employees plus recently-terminated final pay (pro-rata basic salary on join/termination months), deducts unpaid leave monetarily ((basic+fixed)/30 × days), and computes monthly TER PPh 21 (rounded down to thousands) as a SYSTEM item with PTKP/TER snapshots. DTP: printed THP stays normal; when THP ≤ Rp10 jt threshold the PPh is not really deducted (`transfer_amount = net + pph`, stored separately from `net_salary`). Hard guard: calculation refuses to run without an active tax config. `seed_tax_config` loads an inactive 2026 bracket template (illustrative rates — must be confirmed with the tax consultant per PMK 168/2023). API: `/api/payroll/tax-config/` (+ bulk `brackets/` action) and `/api/payroll/tax-profiles/` (ADMIN/HR only). 58 payroll tests pass; module docs in `docs/payroll.md`.
+- **Deferred** — December annual true-up (Phase 3b), slip PDF/terbilang/numbering + recap export + employee self-service slips (Phase 3c), GM aggregate/detail access (kept MANAGEMENT = own slips only).
+
 **Recruitment Onboarding — Tahap 3 (`apps.onboarding`)** — last updated 2026-09-04
 
 - **Onboarding tracking** — bridges `Candidate` (`OFFER_ACCEPTED`) → Employee conversion. `Onboarding` (OneToOne→Candidate) with status `PENDING→IN_PROGRESS→DOCUMENT_REVIEW→READY→COMPLETED` (+ `CANCELLED`), backend-enforced forward-only `TRANSITIONS` map. `COMPLETED` is terminal and reachable ONLY via the `complete` action — PATCH status and `transition` to `COMPLETED` are both blocked (400). `OnboardingStatusHistory` (from/to/changed_by/note) written per transition + AuditLog. `Onboarding` now also links `employee` (OneToOne→`personnel.Employee`) + `completed_by` (FK user).

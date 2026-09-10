@@ -1,6 +1,8 @@
+import json
 from datetime import date
 
 from django.contrib.auth import get_user_model
+from django.core.exceptions import ValidationError
 from django.test import TestCase
 from django.urls import reverse
 
@@ -9,10 +11,32 @@ from apps.leaves.models import LeaveRequest, LeaveType
 from apps.personnel.models import Employee
 from apps.reimbursement.models import Reimbursement, ReimbursementCategory
 
-from .models import Payroll, PayrollComponent, PayrollItem, PayrollPeriod, SalaryStructure
+from .models import (
+    EmployeeTaxProfile,
+    Payroll,
+    PayrollComponent,
+    PayrollItem,
+    PayrollPeriod,
+    SalaryStructure,
+    TaxConfig,
+    TerBracket,
+)
 from .services import calculate_period
 
 User = get_user_model()
+
+
+def make_tax_config(year=2026, rate='0', threshold='10000000', is_active=True):
+    """Minimal active TER table: one bracket 0..inf per category at `rate` %."""
+    config = TaxConfig.objects.create(
+        year=year, is_active=is_active, dtp_threshold=threshold,
+    )
+    for category in ('A', 'B', 'C'):
+        TerBracket.objects.create(
+            tax_config=config, ter_category=category,
+            bruto_lower=0, bruto_upper=None, rate_pct=rate,
+        )
+    return config
 
 
 def make_user(key, username='admin@test.com'):
@@ -174,6 +198,7 @@ class PayrollPeriodTests(TestCase):
     def setUp(self):
         self.admin = make_user('ADMIN', 'admin@test.com')
         self.client.force_login(self.admin)
+        make_tax_config()
 
     def payload(self, month=6, year=2026):
         return {
@@ -253,6 +278,7 @@ class PayrollCalculateTests(TestCase):
     def setUp(self):
         self.admin = make_user('ADMIN', 'admin@test.com')
         self.client.force_login(self.admin)
+        make_tax_config()
         self.emp = Employee.objects.create(
             employee_id='E001', full_name='John', employment_status='ACTIVE',
         )
@@ -339,7 +365,7 @@ class PayrollCalculateTests(TestCase):
         self.assertEqual(payroll.reimbursement_total, 500000)
         self.assertEqual(payroll.gross_salary, 5500000)
 
-    def test_unpaid_leave_snapshotted(self):
+    def test_unpaid_leave_deduction(self):
         self._structure()
         leave_type = LeaveType.objects.create(name='Cuti Tidak Dibayar', code='UNPAID', is_paid=False)
         LeaveRequest.objects.create(
@@ -351,7 +377,11 @@ class PayrollCalculateTests(TestCase):
         payroll = Payroll.objects.get(period=self.period, employee=self.emp)
         items = payroll.items.filter(component_code='UNPAID_LEAVE')
         self.assertEqual(items.count(), 1)
-        self.assertEqual(items.first().amount, 0)  # placeholder only
+        # (basic 5.000.000 + fixed 0) / 30 x 3 hari = 500.000
+        self.assertEqual(items.first().amount, 500000)
+        self.assertEqual(payroll.unpaid_leave_days, 3)
+        self.assertEqual(payroll.total_deduction, 500000)
+        self.assertEqual(payroll.net_salary, 4500000)
         self.assertIn('3 hari', items.first().description)
 
     def test_snapshot_frozen(self):
@@ -411,6 +441,7 @@ class PayrollManualItemApiTests(TestCase):
     def setUp(self):
         self.admin = make_user('ADMIN', 'admin@test.com')
         self.client.force_login(self.admin)
+        make_tax_config()
         self.emp = Employee.objects.create(
             employee_id='E001', full_name='John', employment_status='ACTIVE',
         )
@@ -534,3 +565,266 @@ class ManagementPayrollScopeTests(TestCase):
         self.assertEqual(res.status_code, 200)
         ids = {p['id'] for p in res.json()}
         self.assertEqual(ids, {self.payroll_mgr.id, self.payroll_rep.id, self.payroll_out.id})
+
+
+class EngineTahap3aTests(TestCase):
+    """Tahap 3a engine: TER PPh 21, DTP split, pro-rata, ACTIVE-only, config guard."""
+
+    def setUp(self):
+        self.emp = Employee.objects.create(
+            employee_id='E001', full_name='John', employment_status='ACTIVE',
+        )
+        self.period = PayrollPeriod.objects.create(
+            period_month=6, period_year=2026,
+            period_start=date(2026, 6, 1), period_end=date(2026, 6, 30),
+        )
+        SalaryStructure.objects.create(
+            employee=self.emp, effective_from=date(2026, 1, 1), basic_salary=5000000,
+        )
+
+    def test_inactive_config_blocks_calculate(self):
+        make_tax_config(is_active=False)
+        with self.assertRaises(ValidationError):
+            calculate_period(self.period)
+        self.assertEqual(Payroll.objects.count(), 0)
+
+    def test_missing_config_blocks_calculate(self):
+        # No TaxConfig at all for 2026.
+        with self.assertRaises(ValidationError):
+            calculate_period(self.period)
+
+    def test_monthly_pph21_with_rate(self):
+        # 1% flat over taxable 5.000.000 -> 50.000. Threshold 0 disables DTP
+        # so this test isolates the TER computation.
+        make_tax_config(rate='1', threshold='0')
+        calculate_period(self.period)
+        payroll = Payroll.objects.get(period=self.period, employee=self.emp)
+        self.assertEqual(payroll.gross_salary, 5000000)
+        self.assertEqual(payroll.total_deduction, 50000)
+        self.assertEqual(payroll.net_salary, 4950000)
+        self.assertFalse(payroll.is_dtp)
+        self.assertEqual(payroll.transfer_amount, 4950000)
+        self.assertEqual(payroll.ptkp_status_snapshot, 'TK/0')
+        self.assertEqual(payroll.ter_category_snapshot, 'A')
+        pph_item = payroll.items.get(component_code='PPh21')
+        self.assertEqual(pph_item.source, 'SYSTEM')
+        self.assertEqual(pph_item.amount, 50000)
+
+    def test_zero_rate_no_pph(self):
+        make_tax_config(rate='0')
+        calculate_period(self.period)
+        payroll = Payroll.objects.get(period=self.period, employee=self.emp)
+        self.assertFalse(payroll.items.filter(component_code='PPh21').exists())
+        self.assertEqual(payroll.net_salary, 5000000)
+
+    def test_dtp_under_threshold(self):
+        # 1% -> PPh 50.000, THP 4.950.000 <= 10 jt -> DTP: transfer = full THP + PPh.
+        make_tax_config(rate='1', threshold='10000000')
+        calculate_period(self.period)
+        payroll = Payroll.objects.get(period=self.period, employee=self.emp)
+        self.assertTrue(payroll.is_dtp)
+        self.assertEqual(payroll.net_salary, 4950000)          # printed THP (slip)
+        self.assertEqual(payroll.transfer_amount, 5000000)     # actually transferred
+
+    def test_no_dtp_over_threshold(self):
+        # THP 19.800.000 > 10 jt threshold -> DTP inactive, PPh really deducted.
+        SalaryStructure.objects.filter(employee=self.emp).update(basic_salary=20000000)
+        make_tax_config(rate='1', threshold='10000000')
+        calculate_period(self.period)
+        payroll = Payroll.objects.get(period=self.period, employee=self.emp)
+        self.assertFalse(payroll.is_dtp)
+        self.assertEqual(payroll.gross_salary, 20000000)
+        self.assertEqual(payroll.total_deduction, 200000)
+        self.assertEqual(payroll.net_salary, 19800000)
+        self.assertEqual(payroll.transfer_amount, 19800000)
+
+    def test_pro_rata_join_mid_month(self):
+        # Join 10 Juni (21 of 30 days) -> basic = 5jt x 21/30 = 3.500.000.
+        self.emp.join_date = date(2026, 6, 10)
+        self.emp.save()
+        make_tax_config(rate='1')
+        calculate_period(self.period)
+        payroll = Payroll.objects.get(period=self.period, employee=self.emp)
+        self.assertEqual(payroll.basic_salary, 3500000)
+        self.assertEqual(payroll.gross_salary, 3500000)
+
+    def test_inactive_employee_excluded(self):
+        Employee.objects.create(
+            employee_id='E002', full_name='Old', employment_status='INACTIVE',
+        )
+        make_tax_config()
+        calculate_period(self.period)
+        self.assertEqual(
+            Payroll.objects.filter(period=self.period).count(), 1,
+            'Only the ACTIVE employee gets a payroll row',
+        )
+
+    def test_inactive_with_recent_termination_included(self):
+        # INACTIVE employee whose contract terminated 20 Juni is paid 1-20 Juni.
+        ex = Employee.objects.create(
+            employee_id='E003', full_name='Ex', employment_status='INACTIVE',
+        )
+        from apps.personnel.models import EmployeeContract
+        EmployeeContract.objects.create(
+            employee=ex, contract_type='PKWT', contract_number='CTR-1',
+            start_date=date(2025, 1, 1), status='TERMINATED',
+            termination_date=date(2026, 6, 20),
+        )
+        SalaryStructure.objects.create(
+            employee=ex, effective_from=date(2026, 1, 1), basic_salary=6000000,
+        )
+        make_tax_config()
+        calculate_period(self.period)
+        payroll = Payroll.objects.get(period=self.period, employee=ex)
+        # 20/30 x 6.000.000 = 4.000.000
+        self.assertEqual(payroll.basic_salary, 4000000)
+
+    def test_is_taxable_false_excluded_from_base(self):
+        comp = PayrollComponent.objects.create(
+            code='ALLOW_TAX', name='Tunjangan Non-Kena Pajak',
+            category='EARNING_FIXED', calculation_type='FIXED_AMOUNT',
+            is_taxable=False,
+        )
+        SalaryStructure.objects.filter(employee=self.emp).update(
+            basic_salary=5000000,
+            components=[{'code': 'ALLOW_TAX', 'name': comp.name, 'amount': '2000000'}],
+        )
+        make_tax_config(rate='1')
+        calculate_period(self.period)
+        payroll = Payroll.objects.get(period=self.period, employee=self.emp)
+        self.assertEqual(payroll.gross_salary, 7000000)
+        # Taxable base excludes the non-taxable allowance: 1% x 5.000.000.
+        self.assertEqual(payroll.items.get(component_code='PPh21').amount, 50000)
+
+    def test_tax_profile_snapshot_and_category(self):
+        EmployeeTaxProfile.objects.create(
+            employee=self.emp, ptkp_status='K/2',
+        )
+        make_tax_config(rate='1')
+        calculate_period(self.period)
+        payroll = Payroll.objects.get(period=self.period, employee=self.emp)
+        self.assertEqual(payroll.ptkp_status_snapshot, 'K/2')
+        self.assertEqual(payroll.ter_category_snapshot, 'B')
+
+    def test_december_carries_prior_months_pph(self):
+        # June: PPh 50.000. December: 50.000 + Jan-Nov 50.000 = 100.000
+        # (3b replaces this carry with the full annual true-up).
+        make_tax_config(rate='1', threshold='0')
+        calculate_period(self.period)
+        dec_period = PayrollPeriod.objects.create(
+            period_month=12, period_year=2026,
+            period_start=date(2026, 12, 1), period_end=date(2026, 12, 31),
+        )
+        calculate_period(dec_period)
+        dec_payroll = Payroll.objects.get(period=dec_period, employee=self.emp)
+        self.assertEqual(
+            dec_payroll.items.get(component_code='PPh21').amount, 100000,
+        )
+
+
+class TaxConfigApiTests(TestCase):
+    """Tax config + bracket + tax profile CRUD API (ADMIN/HR only)."""
+
+    def setUp(self):
+        self.admin = make_user('ADMIN', 'admin@test.com')
+        self.client.force_login(self.admin)
+
+    def test_create_tax_config(self):
+        res = self.client.post(
+            reverse('payroll-tax-config-list'),
+            {'year': 2027, 'dtp_threshold': '10000000'}, format='json',
+        )
+        self.assertEqual(res.status_code, 201)
+        self.assertFalse(TaxConfig.objects.get(year=2027).is_active)
+
+    def test_duplicate_year_rejected(self):
+        TaxConfig.objects.create(year=2026)
+        res = self.client.post(
+            reverse('payroll-tax-config-list'), {'year': 2026}, format='json',
+        )
+        self.assertEqual(res.status_code, 400)
+
+    def test_employee_cannot_access_tax_config(self):
+        self.client.force_login(make_user('EMPLOYEE', 'emp@test.com'))
+        res = self.client.get(reverse('payroll-tax-config-list'))
+        self.assertEqual(res.status_code, 403)
+
+    def test_brackets_bulk_replace(self):
+        config = make_tax_config(rate='1')
+        res = self.client.post(
+            reverse('payroll-tax-config-brackets', args=[config.id]),
+            data=json.dumps({'brackets': [
+                {'ter_category': 'A', 'bruto_lower': '0', 'bruto_upper': '5000000', 'rate_pct': '0.5'},
+                {'ter_category': 'A', 'bruto_lower': '5000000', 'bruto_upper': None, 'rate_pct': '2'},
+                {'ter_category': 'B', 'bruto_lower': '0', 'bruto_upper': None, 'rate_pct': '1'},
+                {'ter_category': 'C', 'bruto_lower': '0', 'bruto_upper': None, 'rate_pct': '1.5'},
+            ]}),
+            content_type='application/json',
+        )
+        self.assertEqual(res.status_code, 200, getattr(res, 'data', None))
+        self.assertEqual(config.ter_brackets.count(), 4)
+
+    def test_brackets_invalid_payload(self):
+        config = make_tax_config()
+        res = self.client.post(
+            reverse('payroll-tax-config-brackets', args=[config.id]),
+            data=json.dumps({'brackets': [
+                {'ter_category': 'A', 'bruto_lower': '5000000',
+                 'bruto_upper': '1000000', 'rate_pct': '1'},
+            ]}),
+            content_type='application/json',
+        )
+        self.assertEqual(res.status_code, 400)
+
+    def test_tax_profile_crud(self):
+        emp = Employee.objects.create(employee_id='E010', full_name='Taxed', employment_status='ACTIVE')
+        res = self.client.post(
+            reverse('payroll-tax-profile-list'),
+            {'employee': emp.id, 'ptkp_status': 'K/1', 'tax_scheme': 'NORMAL'}, format='json',
+        )
+        self.assertEqual(res.status_code, 201)
+        profile_id = res.json()['id']
+        # Invalid PTKP rejected.
+        res = self.client.patch(
+            reverse('payroll-tax-profile-detail', args=[profile_id]),
+            data=json.dumps({'ptkp_status': 'ZZ/9'}),
+            content_type='application/json',
+        )
+        self.assertEqual(res.status_code, 400)
+        # Valid update.
+        res = self.client.patch(
+            reverse('payroll-tax-profile-detail', args=[profile_id]),
+            data=json.dumps({'ptkp_status': 'K/3'}),
+            content_type='application/json',
+        )
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(EmployeeTaxProfile.objects.get(pk=profile_id).ptkp_status, 'K/3')
+
+    def test_tax_profile_employee_forbidden(self):
+        emp = Employee.objects.create(employee_id='E011', full_name='Taxed2', employment_status='ACTIVE')
+        self.client.force_login(make_user('EMPLOYEE', 'emp2@test.com'))
+        res = self.client.post(
+            reverse('payroll-tax-profile-list'),
+            {'employee': emp.id, 'ptkp_status': 'K/1'}, format='json',
+        )
+        self.assertEqual(res.status_code, 403)
+
+
+class TaxHelperUnitTests(TestCase):
+    def test_ter_category_mapping(self):
+        from .tax import TaxConfigError, ter_category_for
+        self.assertEqual(ter_category_for('TK/0'), 'A')
+        self.assertEqual(ter_category_for('K/0'), 'A')
+        self.assertEqual(ter_category_for('TK/2'), 'B')
+        self.assertEqual(ter_category_for('K/2'), 'B')
+        self.assertEqual(ter_category_for('K/3'), 'C')
+        with self.assertRaises(TaxConfigError):
+            ter_category_for('ZZ/9')
+
+    def test_round_pph_down_to_thousand(self):
+        from .tax import round_pph
+        from decimal import Decimal
+        self.assertEqual(round_pph(Decimal('999')), Decimal('0'))
+        self.assertEqual(round_pph(Decimal('4999')), Decimal('4000'))
+        self.assertEqual(round_pph(Decimal('5001')), Decimal('5000'))
+        self.assertEqual(round_pph(Decimal('1999.9')), Decimal('1000'))
