@@ -39,6 +39,7 @@ import {
   replaceAnnualBrackets,
   listTaxProfiles,
   upsertTaxProfile,
+  resetTaxProfile,
 } from '@/lib/payroll';
 import { listEmployees, type Employee } from '@/lib/employees';
 
@@ -1564,6 +1565,21 @@ function TaxProfilesCard({
     }
   }
 
+  async function reset(employeeId: number) {
+    const existing = byEmployee.get(employeeId);
+    if (!existing) return;
+    setError('');
+    setSavingId(employeeId);
+    try {
+      await resetTaxProfile(existing.id);
+      onChanged();
+    } catch (err) {
+      setError(apiError(err));
+    } finally {
+      setSavingId(null);
+    }
+  }
+
   return (
     <Card>
       <CardHeader>
@@ -1596,6 +1612,7 @@ function TaxProfilesCard({
               <TableHead>PTKP</TableHead>
               <TableHead>Kategori TER</TableHead>
               <TableHead>Skema</TableHead>
+              <TableHead className='text-right'>Aksi</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -1630,11 +1647,24 @@ function TaxProfilesCard({
                     <option value='GROSS_UP'>GROSS_UP</option>
                   </select>
                 </TableCell>
+                <TableCell className='text-right'>
+                  {profile && (
+                    <Button
+                      variant='ghost'
+                      size='sm'
+                      onClick={() => reset(employee.id)}
+                      disabled={savingId === employee.id}
+                      title='Hapus profil — kembali ke default TK/0 + NORMAL'
+                    >
+                      <Icons.trash className='h-4 w-4' />
+                    </Button>
+                  )}
+                </TableCell>
               </TableRow>
             ))}
             {rows.length === 0 && (
               <TableRow>
-                <TableCell colSpan={4} className='text-muted-foreground py-8 text-center'>
+                <TableCell colSpan={5} className='text-muted-foreground py-8 text-center'>
                   Tidak ada data.
                 </TableCell>
               </TableRow>

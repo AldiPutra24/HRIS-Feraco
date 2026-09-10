@@ -162,6 +162,21 @@ class EmployeeTaxProfileViewSet(viewsets.ModelViewSet):
     search_fields = ['employee__full_name']
     pagination_class = None
 
+    def create(self, request, *args, **kwargs):
+        """Upsert: POST for an employee that already has a profile updates it
+        instead of failing the unique constraint (frontend always POSTs)."""
+        employee_id = request.data.get('employee')
+        profile = (
+            EmployeeTaxProfile.objects.filter(employee_id=employee_id).first()
+            if employee_id else None
+        )
+        if profile is None:
+            return super().create(request, *args, **kwargs)
+        serializer = self.get_serializer(profile, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        self.perform_update(serializer)
+        return Response(serializer.data)
+
     def perform_create(self, serializer):
         obj = serializer.save()
         log_event(
@@ -176,6 +191,15 @@ class EmployeeTaxProfileViewSet(viewsets.ModelViewSet):
             self.request, 'update', obj=obj,
             description=f'Tax profile {obj.employee.full_name}: PTKP {old_status} -> {obj.ptkp_status}',
         )
+
+    @action(detail=True, methods=['delete'])
+    def reset(self, request, pk=None):
+        """Delete the profile so the employee falls back to default TK/0 + NORMAL."""
+        profile = self.get_object()
+        name = profile.employee.full_name
+        profile.delete()
+        log_event(request, 'delete', obj=None, description=f'Tax profile {name} reset to default')
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class PayrollComponentViewSet(viewsets.ModelViewSet):

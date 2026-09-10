@@ -284,6 +284,10 @@ export function upsertTaxProfile(
   });
 }
 
+export function resetTaxProfile(profileId: number): Promise<void> {
+  return request<void>(`/tax-profiles/${profileId}/reset/`, { method: 'DELETE' });
+}
+
 // ---------- Tahap 3c: payslip PDF + recap XLSX (blob downloads) ----------
 
 async function downloadFile(path: string, fallbackName: string): Promise<void> {
