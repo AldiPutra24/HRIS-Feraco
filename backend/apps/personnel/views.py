@@ -6,6 +6,7 @@ from django.utils import timezone
 from rest_framework import generics, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.parsers import MultiPartParser, FormParser
+from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -78,6 +79,8 @@ class EmployeeViewSet(SoftHardDeleteMixin, viewsets.ModelViewSet):
     search_fields = ['full_name', 'employee_id', 'nik', 'personal_email', 'company_email']
     ordering_fields = ['full_name', 'employee_id', 'join_date', 'created_at']
     filterset_fields = ['department', 'position', 'employment_status', 'status', 'manager']
+    # Honor ?page_size= (frontend dropdowns request page_size=1000).
+    pagination_class = type('LargePagePagination', (PageNumberPagination,), {'page_size_query_param': 'page_size'})
 
     def _is_management(self):
         return _role(self.request.user) == 'MANAGEMENT'
