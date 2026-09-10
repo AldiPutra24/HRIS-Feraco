@@ -15,6 +15,8 @@ import {
   type SalaryStructure,
   type PayrollPeriod,
   type Payroll,
+  type TaxConfig,
+  type EmployeeTaxProfile,
   listComponents,
   createComponent,
   updateComponent,
@@ -31,6 +33,12 @@ import {
   removeManualItem,
   downloadPayslip,
   downloadRecap,
+  listTaxConfigs,
+  updateTaxConfig,
+  replaceTaxBrackets,
+  replaceAnnualBrackets,
+  listTaxProfiles,
+  upsertTaxProfile,
 } from '@/lib/payroll';
 import { listEmployees, type Employee } from '@/lib/employees';
 
@@ -45,6 +53,8 @@ const CALC = [
   { value: 'VARIABLE', label: 'Variabel' },
   { value: 'PERCENTAGE', label: 'Persentase' },
 ];
+
+const PTKP_OPTIONS = ['TK/0', 'TK/1', 'TK/2', 'TK/3', 'K/0', 'K/1', 'K/2', 'K/3'];
 
 function apiError(err: unknown): string {
   if (err instanceof Error) return err.message;
@@ -1043,10 +1053,609 @@ function PayrollProcessingSection() {
   );
 }
 
+// ---------- (4) Tax Config (Tahap 3a/3b UI) ----------
+
+function TaxConfigSection() {
+  const [configs, setConfigs] = useState<TaxConfig[]>([]);
+  const [profiles, setProfiles] = useState<EmployeeTaxProfile[]>([]);
+  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [profileSearch, setProfileSearch] = useState('');
+  const [onlyMissing, setOnlyMissing] = useState(false);
+
+  async function load() {
+    setLoading(true);
+    setError('');
+    try {
+      const [c, p, e] = await Promise.all([
+        listTaxConfigs(),
+        listTaxProfiles(),
+        listEmployees({ page_size: '1000' }),
+      ]);
+      setConfigs(c);
+      setProfiles(p);
+      setEmployees(e.results);
+      setSelectedId((prev) => prev ?? c.find((x) => x.is_active)?.id ?? c[0]?.id ?? null);
+    } catch (err) {
+      setError(apiError(err));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => { load(); }, []);
+
+  const selected = configs.find((c) => c.id === selectedId) ?? null;
+
+  return (
+    <div className='flex flex-col gap-4'>
+      {error && <p className='text-destructive text-sm'>{error}</p>}
+      {loading ? (
+        <div className='space-y-2'>
+          {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className='h-24 w-full' />)}
+        </div>
+      ) : configs.length === 0 ? (
+        <Card>
+          <CardContent className='flex flex-col items-center gap-2 py-12 text-center'>
+            <Icons.info className='text-muted-foreground h-8 w-8' />
+            <p className='font-medium'>Belum ada konfigurasi pajak</p>
+            <p className='text-muted-foreground max-w-md text-sm'>
+              Payroll tidak dapat dihitung tanpa konfigurasi pajak aktif. Jalankan
+              <code className='bg-muted mx-1 rounded px-1 py-0.5 text-xs'>seed_tax_config</code>
+              di server, lalu muat ulang halaman ini.
+            </p>
+          </CardContent>
+        </Card>
+      ) : (
+        <>
+          <div className='flex flex-wrap items-center gap-2'>
+            <select
+              value={selectedId ?? ''}
+              onChange={(e) => setSelectedId(Number(e.target.value))}
+              className='border-input h-8 rounded-lg border bg-transparent px-2.5 text-sm'
+            >
+              {configs.map((c) => (
+                <option key={c.id} value={c.id}>
+                  Tahun {c.year}{c.is_active ? ' (aktif)' : ''}
+                </option>
+              ))}
+            </select>
+            {selected?.is_active && (
+              <Badge variant='default'>Konfigurasi Aktif</Badge>
+            )}
+          </div>
+          {selected && <TaxConfigDetail config={selected} onChanged={load} />}
+          <TaxProfilesCard
+            profiles={profiles}
+            employees={employees}
+            search={profileSearch}
+            setSearch={setProfileSearch}
+            onlyMissing={onlyMissing}
+            setOnlyMissing={setOnlyMissing}
+            onChanged={load}
+          />
+        </>
+      )}
+    </div>
+  );
+}
+
+function TaxConfigDetail({ config, onChanged }: { config: TaxConfig; onChanged: () => void }) {
+  const [dtp, setDtp] = useState(String(Number(config.dtp_threshold)));
+  const [layerLimits, setLayerLimits] = useState(
+    (config.annual_layer_limits ?? []).map((v) => String(Number(v))),
+  );
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    setDtp(String(Number(config.dtp_threshold)));
+    setLayerLimits((config.annual_layer_limits ?? []).map((v) => String(Number(v))));
+  }, [config.id]);
+
+  async function saveGeneral(e: React.FormEvent) {
+    e.preventDefault();
+    setError('');
+    setSaving(true);
+    try {
+      await updateTaxConfig(config.id, { dtp_threshold: dtp });
+      onChanged();
+    } catch (err) {
+      setError(apiError(err));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function saveLayers() {
+    setError('');
+    setSaving(true);
+    try {
+      await updateTaxConfig(config.id, {
+        annual_layer_limits: layerLimits.map((v) => v || null),
+      });
+      onChanged();
+    } catch (err) {
+      setError(apiError(err));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function toggleActive() {
+    setError('');
+    try {
+      await updateTaxConfig(config.id, { is_active: !config.is_active });
+      onChanged();
+    } catch (err) {
+      setError(apiError(err));
+    }
+  }
+
+  return (
+    <div className='grid gap-4 lg:grid-cols-2'>
+      <Card>
+        <CardHeader>
+          <CardTitle className='flex items-center justify-between'>
+            <span>Umum — Tahun {config.year}</span>
+            <div className='flex items-center gap-2'>
+              <Switch checked={config.is_active} onCheckedChange={toggleActive} />
+              <Label className='text-sm'>Aktif</Label>
+            </div>
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={saveGeneral} className='space-y-4'>
+            {error && <p className='text-destructive text-sm'>{error}</p>}
+            <div className='space-y-1.5'>
+              <Label>Ambang DTP (Rp) — THP ≤ nilai ini: PPh tidak dipotong dari transfer</Label>
+              <Input
+                type='number'
+                min='0'
+                value={dtp}
+                onChange={(e) => setDtp(e.target.value)}
+              />
+            </div>
+            <div className='flex justify-end'>
+              <Button type='submit' disabled={saving}>
+                {saving ? 'Menyimpan...' : 'Simpan'}
+              </Button>
+            </div>
+          </form>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Batas Lapisan Tahunan (Pasal 17)</CardTitle>
+        </CardHeader>
+        <CardContent className='space-y-3'>
+          <p className='text-muted-foreground text-sm'>
+            Default: 60 jt / 250 jt / 500 jt / 5 M @ 5/15/25/30/35%. Kosongkan untuk kembali ke default.
+          </p>
+          <div className='grid grid-cols-2 gap-3 sm:grid-cols-4'>
+            {layerLimits.map((v, i) => (
+              <div key={i} className='space-y-1.5'>
+                <Label className='text-xs'>Lapisan {i + 1} → {i + 2}</Label>
+                <Input
+                  type='number'
+                  min='0'
+                  value={v}
+                  onChange={(e) =>
+                    setLayerLimits((prev) => prev.map((p, j) => (j === i ? e.target.value : p)))
+                  }
+                />
+              </div>
+            ))}
+          </div>
+          <div className='flex justify-end'>
+            <Button onClick={saveLayers} disabled={saving}>
+              {saving ? 'Menyimpan...' : 'Simpan Batas'}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      <TerBracketsCard config={config} onChanged={onChanged} />
+      <AnnualBracketsCard config={config} onChanged={onChanged} />
+    </div>
+  );
+}
+
+function TerBracketsCard({ config, onChanged }: { config: TaxConfig; onChanged: () => void }) {
+  const [rows, setRows] = useState(
+    config.ter_brackets.map((b) => ({
+      ter_category: b.ter_category,
+      bruto_lower: String(Number(b.bruto_lower)),
+      bruto_upper: b.bruto_upper === null ? '' : String(Number(b.bruto_upper)),
+      rate_pct: String(Number(b.rate_pct)),
+    })),
+  );
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    setRows(
+      config.ter_brackets.map((b) => ({
+        ter_category: b.ter_category,
+        bruto_lower: String(Number(b.bruto_lower)),
+        bruto_upper: b.bruto_upper === null ? '' : String(Number(b.bruto_upper)),
+        rate_pct: String(Number(b.rate_pct)),
+      })),
+    );
+  }, [config.id]);
+
+  function updateRow(i: number, patch: Partial<(typeof rows)[number]>) {
+    setRows((prev) => prev.map((r, j) => (j === i ? { ...r, ...patch } : r)));
+  }
+
+  function addRow() {
+    setRows((prev) => [...prev, { ter_category: 'A', bruto_lower: '', bruto_upper: '', rate_pct: '' }]);
+  }
+
+  function removeRow(i: number) {
+    setRows((prev) => prev.filter((_, j) => j !== i));
+  }
+
+  async function save() {
+    setError('');
+    setSaving(true);
+    try {
+      await replaceTaxBrackets(
+        config.id,
+        rows.map((r) => ({
+          ter_category: r.ter_category,
+          bruto_lower: r.bruto_lower,
+          bruto_upper: r.bruto_upper === '' ? null : r.bruto_upper,
+          rate_pct: r.rate_pct,
+        })),
+      );
+      onChanged();
+    } catch (err) {
+      setError(apiError(err));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className='flex items-center justify-between'>
+          <span>TER PPh 21 Bulanan (Kategori A/B/C)</span>
+          <Button variant='outline' size='sm' onClick={addRow}>
+            <Icons.add />Baris
+          </Button>
+        </CardTitle>
+      </CardHeader>
+        <CardContent className='space-y-3'>
+          {error && <p className='text-destructive text-sm'>{error}</p>}
+          <div className='space-y-2'>
+            {rows.map((r, i) => (
+              <div key={i} className='grid grid-cols-[80px_1fr_1fr_80px_36px] items-center gap-2'>
+                <select
+                  value={r.ter_category}
+                  onChange={(e) => updateRow(i, { ter_category: e.target.value as 'A' | 'B' | 'C' })}
+                  className='border-input h-8 rounded-lg border bg-transparent px-2 text-sm'
+                >
+                  {['A', 'B', 'C'].map((c) => <option key={c} value={c}>{c}</option>)}
+                </select>
+                <Input
+                  type='number'
+                  min='0'
+                  placeholder='Bruto ≥'
+                  value={r.bruto_lower}
+                  onChange={(e) => updateRow(i, { bruto_lower: e.target.value })}
+                />
+                <Input
+                  type='number'
+                  min='0'
+                  placeholder='Bruto < (kosong = ∞)'
+                  value={r.bruto_upper}
+                  onChange={(e) => updateRow(i, { bruto_upper: e.target.value })}
+                />
+                <Input
+                  type='number'
+                  min='0'
+                  step='0.01'
+                  placeholder='%'
+                  value={r.rate_pct}
+                  onChange={(e) => updateRow(i, { rate_pct: e.target.value })}
+                />
+                <Button variant='ghost' size='sm' className='text-destructive' onClick={() => removeRow(i)}>
+                  <Icons.trash />
+                </Button>
+              </div>
+            ))}
+            {rows.length === 0 && (
+              <p className='text-muted-foreground py-4 text-center text-sm'>
+                Belum ada bracket TER. Tambahkan baris atau jalankan seed_tax_config.
+              </p>
+            )}
+          </div>
+          <div className='flex justify-end'>
+            <Button onClick={save} disabled={saving || rows.length === 0}>
+              {saving ? 'Menyimpan...' : rows.length === 0 ? 'Reset ke Statutory' : 'Simpan Semua (ganti total)'}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+  );
+}
+
+function AnnualBracketsCard({ config, onChanged }: { config: TaxConfig; onChanged: () => void }) {
+  const [rows, setRows] = useState(
+    config.annual_brackets.map((b) => ({
+      layer_order: b.layer_order,
+      pkp_lower: String(Number(b.pkp_lower)),
+      pkp_upper: b.pkp_upper === null ? '' : String(Number(b.pkp_upper)),
+      rate_pct: String(Number(b.rate_pct)),
+    })),
+  );
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    setRows(
+      config.annual_brackets.map((b) => ({
+        layer_order: b.layer_order,
+        pkp_lower: String(Number(b.pkp_lower)),
+        pkp_upper: b.pkp_upper === null ? '' : String(Number(b.pkp_upper)),
+        rate_pct: String(Number(b.rate_pct)),
+      })),
+    );
+  }, [config.id]);
+
+  function updateRow(i: number, patch: Partial<(typeof rows)[number]>) {
+    setRows((prev) => prev.map((r, j) => (j === i ? { ...r, ...patch } : r)));
+  }
+
+  function addRow() {
+    setRows((prev) => {
+      const next = prev.length ? Math.max(...prev.map((r) => r.layer_order)) + 1 : 1;
+      return next > 5 ? prev : [...prev, { layer_order: next, pkp_lower: '', pkp_upper: '', rate_pct: '' }];
+    });
+  }
+
+  function removeRow(i: number) {
+    setRows((prev) => prev.filter((_, j) => j !== i));
+  }
+
+  async function save() {
+    setError('');
+    setSaving(true);
+    try {
+      await replaceAnnualBrackets(
+        config.id,
+        rows.map((r) => ({
+          layer_order: r.layer_order,
+          pkp_lower: r.pkp_lower,
+          pkp_upper: r.pkp_upper === '' ? null : r.pkp_upper,
+          rate_pct: r.rate_pct,
+        })),
+      );
+      onChanged();
+    } catch (err) {
+      setError(apiError(err));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className='flex items-center justify-between'>
+          <span>Override Lapisan Tahunan (Pasal 17)</span>
+          <Button variant='outline' size='sm' onClick={addRow} disabled={rows.length >= 5}>
+            <Icons.add />Baris
+          </Button>
+        </CardTitle>
+      </CardHeader>
+        <CardContent className='space-y-3'>
+          {error && <p className='text-destructive text-sm'>{error}</p>}
+          {rows.length === 0 ? (
+            <p className='text-muted-foreground py-4 text-center text-sm'>
+              Menggunakan tarif statutory 5/15/25/30/35%. Tambahkan baris untuk override.
+            </p>
+          ) : (
+            <div className='space-y-2'>
+              {rows.map((r, i) => (
+                <div key={i} className='grid grid-cols-[80px_1fr_1fr_80px_36px] items-center gap-2'>
+                  <select
+                    value={r.layer_order}
+                    onChange={(e) => updateRow(i, { layer_order: Number(e.target.value) })}
+                    className='border-input h-8 rounded-lg border bg-transparent px-2 text-sm'
+                  >
+                    {[1, 2, 3, 4, 5].map((l) => <option key={l} value={l}>Lapisan {l}</option>)}
+                  </select>
+                  <Input
+                    type='number'
+                    min='0'
+                    placeholder='PKP ≥'
+                    value={r.pkp_lower}
+                    onChange={(e) => updateRow(i, { pkp_lower: e.target.value })}
+                  />
+                  <Input
+                    type='number'
+                    min='0'
+                    placeholder='PKP < (kosong = ∞)'
+                    value={r.pkp_upper}
+                    onChange={(e) => updateRow(i, { pkp_upper: e.target.value })}
+                  />
+                  <Input
+                    type='number'
+                    min='0'
+                    step='0.01'
+                    placeholder='%'
+                    value={r.rate_pct}
+                    onChange={(e) => updateRow(i, { rate_pct: e.target.value })}
+                  />
+                  <Button variant='ghost' size='sm' className='text-destructive' onClick={() => removeRow(i)}>
+                    <Icons.trash />
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+          <div className='flex justify-end'>
+            <Button onClick={save} disabled={saving}>
+              {saving ? 'Menyimpan...' : rows.length === 0 ? 'Reset ke Statutory' : 'Simpan Override'}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+  );
+}
+
+function TaxProfilesCard({
+  profiles,
+  employees,
+  search,
+  setSearch,
+  onlyMissing,
+  setOnlyMissing,
+  onChanged,
+}: {
+  profiles: EmployeeTaxProfile[];
+  employees: Employee[];
+  search: string;
+  setSearch: (v: string) => void;
+  onlyMissing: boolean;
+  setOnlyMissing: (v: boolean) => void;
+  onChanged: () => void;
+}) {
+  const [savingId, setSavingId] = useState<number | null>(null);
+  const [error, setError] = useState('');
+
+  const byEmployee = new Map(profiles.map((p) => [p.employee, p]));
+  const active = employees.filter((e) => e.status === 'ACTIVE');
+  const rows = active
+    .map((e) => ({ employee: e, profile: byEmployee.get(e.id) ?? null }))
+    .filter(({ employee, profile }) => {
+      if (onlyMissing && profile) return false;
+      if (search && !employee.full_name.toLowerCase().includes(search.toLowerCase())) return false;
+      return true;
+    });
+
+  async function save(employeeId: number, patch: { ptkp_status?: string; tax_scheme?: string }) {
+    setError('');
+    setSavingId(employeeId);
+    try {
+      const existing = byEmployee.get(employeeId);
+      if (existing) {
+        await upsertTaxProfile(employeeId, {
+          ptkp_status: patch.ptkp_status ?? existing.ptkp_status,
+          tax_scheme: patch.tax_scheme ?? existing.tax_scheme,
+        });
+      } else {
+        await upsertTaxProfile(employeeId, {
+          ptkp_status: patch.ptkp_status ?? 'TK/0',
+          tax_scheme: patch.tax_scheme ?? 'NORMAL',
+        });
+      }
+      onChanged();
+    } catch (err) {
+      setError(apiError(err));
+    } finally {
+      setSavingId(null);
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Profil Pajak Karyawan (PTKP & Skema)</CardTitle>
+      </CardHeader>
+      <CardContent className='space-y-3'>
+        {error && <p className='text-destructive text-sm'>{error}</p>}
+        <div className='flex flex-wrap items-center gap-2'>
+          <div className='relative w-64'>
+            <Icons.search className='text-muted-foreground absolute top-1/2 left-2.5 h-4 w-4 -translate-y-1/2' />
+            <Input
+              placeholder='Cari karyawan'
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className='pl-8'
+            />
+          </div>
+          <div className='flex items-center gap-2'>
+            <Switch checked={onlyMissing} onCheckedChange={setOnlyMissing} />
+            <Label className='text-sm'>Hanya tanpa profil</Label>
+          </div>
+          <span className='text-muted-foreground ml-auto text-xs'>
+            Tanpa profil: {active.filter((e) => !byEmployee.has(e.id)).length} karyawan (default TK/0, NORMAL)
+          </span>
+        </div>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Karyawan</TableHead>
+              <TableHead>PTKP</TableHead>
+              <TableHead>Kategori TER</TableHead>
+              <TableHead>Skema</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {rows.map(({ employee, profile }) => (
+              <TableRow key={employee.id}>
+                <TableCell className='font-medium'>
+                  {employee.full_name}
+                  <span className='text-muted-foreground ml-2 text-xs'>{employee.employee_id}</span>
+                </TableCell>
+                <TableCell>
+                  <select
+                    value={profile?.ptkp_status ?? ''}
+                    onChange={(e) => save(employee.id, { ptkp_status: e.target.value })}
+                    disabled={savingId === employee.id}
+                    className='border-input h-8 rounded-lg border bg-transparent px-2 text-sm'
+                  >
+                    <option value=''>TK/0 (default)</option>
+                    {PTKP_OPTIONS.map((p) => <option key={p} value={p}>{p}</option>)}
+                  </select>
+                </TableCell>
+                <TableCell className='text-sm'>
+                  {profile ? terCategoryFor(profile.ptkp_status) : terCategoryFor('TK/0')}
+                </TableCell>
+                <TableCell>
+                  <select
+                    value={profile?.tax_scheme ?? 'NORMAL'}
+                    onChange={(e) => save(employee.id, { tax_scheme: e.target.value })}
+                    disabled={savingId === employee.id}
+                    className='border-input h-8 rounded-lg border bg-transparent px-2 text-sm'
+                  >
+                    <option value='NORMAL'>NORMAL</option>
+                    <option value='GROSS_UP'>GROSS_UP</option>
+                  </select>
+                </TableCell>
+              </TableRow>
+            ))}
+            {rows.length === 0 && (
+              <TableRow>
+                <TableCell colSpan={4} className='text-muted-foreground py-8 text-center'>
+                  Tidak ada data.
+                </TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+      </CardContent>
+    </Card>
+  );
+}
+
+function terCategoryFor(ptkp: string): 'A' | 'B' | 'C' {
+  if (['TK/0', 'TK/1', 'K/0'].includes(ptkp)) return 'A';
+  if (['TK/2', 'TK/3', 'K/1', 'K/2'].includes(ptkp)) return 'B';
+  return 'C';
+}
+
 // ---------- Main Page ----------
 
 export function PayrollPage() {
-  const [tab, setTab] = useState<'components' | 'structures' | 'processing'>('components');
+  const [tab, setTab] = useState<'components' | 'structures' | 'processing' | 'tax'>('components');
 
   return (
     <div className='flex flex-1 flex-col gap-4 p-4 md:p-6'>
@@ -1090,14 +1699,26 @@ export function PayrollPage() {
         >
           Payroll Processing
         </button>
+        <button
+          onClick={() => setTab('tax')}
+          className={`px-4 py-1.5 text-sm font-medium transition-colors ${
+            tab === 'tax'
+              ? 'border-primary text-primary border-b-2'
+              : 'text-muted-foreground hover:text-foreground'
+          }`}
+        >
+          Konfigurasi Pajak
+        </button>
       </div>
 
       {tab === 'components' ? (
         <ComponentsTable />
       ) : tab === 'structures' ? (
         <StructuresSection />
-      ) : (
+      ) : tab === 'processing' ? (
         <PayrollProcessingSection />
+      ) : (
+        <TaxConfigSection />
       )}
     </div>
   );

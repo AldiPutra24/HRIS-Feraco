@@ -171,11 +171,23 @@ export type TerBracket = {
   rate_pct: string;
 };
 
+export type AnnualTaxBracket = {
+  id: number;
+  tax_config: number;
+  layer_order: number;
+  pkp_lower: string;
+  pkp_upper: string | null;
+  rate_pct: string;
+};
+
 export type TaxConfig = {
   id: number;
   year: number;
   is_active: boolean;
   dtp_threshold: string;
+  annual_layer_limits: string[] | null;
+  ter_brackets: TerBracket[];
+  annual_brackets: AnnualTaxBracket[];
   notes: string;
   created_at: string;
   updated_at: string;
@@ -243,6 +255,16 @@ export function replaceTaxBrackets(
   brackets: { ter_category: string; bruto_lower: string; bruto_upper: string | null; rate_pct: string }[],
 ): Promise<TaxConfig> {
   return request<TaxConfig>(`/tax-config/${configId}/brackets/`, {
+    method: 'POST',
+    body: JSON.stringify({ brackets }),
+  });
+}
+
+export function replaceAnnualBrackets(
+  configId: number,
+  brackets: { layer_order: number; pkp_lower: string; pkp_upper: string | null; rate_pct: string }[],
+): Promise<TaxConfig> {
+  return request<TaxConfig>(`/tax-config/${configId}/annual_brackets/`, {
     method: 'POST',
     body: JSON.stringify({ brackets }),
   });

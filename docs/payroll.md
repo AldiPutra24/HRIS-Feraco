@@ -147,6 +147,30 @@ recompute resets everything.
 `ter_category_snapshot`, `pph_prior_months`, `pph_annual`, `is_dtp`, `transfer_amount`.
 Frontend client: `frontend/src/lib/payroll.ts`.
 
+## Tax Config UI (frontend)
+
+Pure-frontend feature over the existing Tahap 3a/3b APIs — no new endpoints. Lives in the
+4th tab **Konfigurasi Pajak** of `frontend/src/features/payroll/payroll-page.tsx`
+(`TaxConfigSection`). `TaxConfigSerializer` now also exposes `ter_brackets` (read-only
+nested) so the TER editor can load existing rows.
+
+- **Config general** — year `<select>` + active `Badge`; empty state card hints
+  `seed_tax_config`. `TaxConfigDetail` edits `dtp_threshold` (`updateTaxConfig`) and toggles
+  `is_active` via a `Switch`.
+- **Annual layer limits** — 4 number inputs; empty → `null` (resets to statutory
+  60jt/250jt/500jt/5M). Saved through `updateTaxConfig({annual_layer_limits})`.
+- **TER brackets** (`TerBracketsCard`) — rows `{ter_category A/B/C, bruto_lower, bruto_upper
+  (''=∞), rate_pct}`; bulk-saved via `replaceTaxBrackets` (upper `''`→null). Button
+  "Simpan Semua (ganti total)".
+- **Annual Pasal 17 override** (`AnnualBracketsCard`) — rows `{layer_order 1–5, pkp_lower,
+  pkp_upper, rate_pct}`, capped at 5 layers; empty state shows the statutory 5/15/25/30/35%
+  fallback. Saved via `replaceAnnualBrackets`; "Reset ke Statutory" when empty.
+- **Employee tax profiles** (`TaxProfilesCard`) — loads `listTaxProfiles()` +
+  `listEmployees({page_size:'1000'})`; per active employee a PTKP `<select>` (empty =
+  TK/0 default) + TER category display + scheme `<select>` (NORMAL/GROSS_UP). Saved via
+  `upsertTaxProfile`. Header shows "Tanpa profil: N karyawan (default TK/0, NORMAL)" and a
+  missing-profile filter + search.
+
 ## Testing
 
 ```bash

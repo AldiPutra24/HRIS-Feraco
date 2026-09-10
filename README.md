@@ -60,10 +60,6 @@ Starts PostgreSQL, Django (migrate + seed + gunicorn on :8000), Next.js on :3000
 - Backend: `manage.py check` + `manage.py test`
 - Frontend: `npx tsc --noEmit`, `npx oxlint`, `npx next build`
 
-## Demo login
-
-- Email: `admin@feraco.id` / Password: `password`
-
 ## Roles
 
 | Role | Keterangan |
@@ -77,6 +73,10 @@ Starts PostgreSQL, Django (migrate + seed + gunicorn on :8000), Next.js on :3000
 Catatan: filtering menu di frontend (`use-nav.ts`) hanya UI; otorisasi di backend (Django permission/role).
 
 ## Last Progress
+
+**Payroll Module — Tax Config UI (Phase 3d)** — last updated 2026-09-10
+
+- **Konfigurasi Pajak tab (`frontend/src/features/payroll/payroll-page.tsx`)** — pure-frontend UI over the existing Tahap 3a/3b APIs (no new endpoints): edit `dtp_threshold` + `is_active` toggle, annual layer limits (empty = statutory 60jt/250jt/500jt/5M), TER bracket bulk editor (category A/B/C, bruto bounds, rate), annual Pasal 17 override editor (layers 1–5, empty = reset to statutory 5/15/25/30/35%), and per-employee tax profiles (PTKP select + TER category display + NORMAL/GROSS_UP scheme, with missing-profile filter). Backend: `TaxConfigSerializer` now exposes `ter_brackets` (read-only nested) so the TER editor loads existing rows. `tsc` clean, `next build` passes, 78 payroll tests pass; docs in `docs/payroll.md`.
 
 **Payroll Module — Payslip PDF + Recap Export (Phase 3c)** — last updated 2026-09-10
 
