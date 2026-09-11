@@ -1,7 +1,24 @@
-﻿from django.db import models
+﻿from django.core.exceptions import ValidationError
+from django.db import models
+from django.db.models import Q
 from django.utils import timezone
 
 from apps.accounts.models import User
+
+
+def find_email_clash(personal_email, company_email, exclude_pk=None):
+    """Return the clashing email (normalized) if another employee already uses it
+    in either email field. Same employee may reuse one email in both fields.
+    Empty/null allowed. Case-insensitive, whitespace-trimmed."""
+    emails = {(value or '').strip().lower() for value in (personal_email, company_email)}
+    emails.discard('')
+    if not emails:
+        return None
+    query = Q()
+    for email in emails:
+        query |= Q(personal_email__iexact=email) | Q(company_email__iexact=email)
+    clash = Employee.objects.filter(query).exclude(pk=exclude_pk).first()
+    return next(e for e in emails if e in ((clash.personal_email or '').strip().lower(), (clash.company_email or '').strip().lower())) if clash else None
 
 
 class Department(models.Model):
@@ -158,6 +175,12 @@ class Employee(Personnel):
     )
     join_date = models.DateField(null=True, blank=True)
     employment_status = models.CharField(max_length=16, choices=EMPLOYMENT_CHOICES, default='ACTIVE')
+
+    def clean(self):
+        super().clean()
+        clash = find_email_clash(self.personal_email, self.company_email, exclude_pk=self.pk)
+        if clash:
+            raise ValidationError(f'Email {clash} sudah digunakan oleh karyawan lain.')
 
     def save(self, *args, **kwargs):
         if self.pk:

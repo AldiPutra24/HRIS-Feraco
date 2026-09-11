@@ -48,10 +48,8 @@ function validate(f: FormState): Errors {
   if (f.nik && !/^\d+$/.test(f.nik)) e.nik = 'Hanya angka.';
   else if (f.nik && f.nik.length !== 16) e.nik = 'NIK harus 16 digit.';
   if (f.phone && !PHONE_RE.test(f.phone)) e.phone = 'Format telepon tidak valid.';
-  if (f.personal_email && !EMAIL_RE.test(f.personal_email)) e.personal_email = 'Email tidak valid.';
-  if (f.company_email && !EMAIL_RE.test(f.company_email)) e.company_email = 'Email tidak valid.';
-  if (!f.personal_email.trim()) e.personal_email = 'Wajib diisi.';
-  if (!f.company_email.trim()) e.company_email = 'Wajib diisi.';
+  if (f.personal_email && !EMAIL_RE.test(f.personal_email.trim())) e.personal_email = 'Email tidak valid.';
+  if (f.company_email && !EMAIL_RE.test(f.company_email.trim())) e.company_email = 'Email tidak valid.';
   if (f.emergency_contact_phone && !PHONE_RE.test(f.emergency_contact_phone))
     e.emergency_contact_phone = 'Format telepon tidak valid.';
   if (f.bank_account_number && !/^\d+$/.test(f.bank_account_number)) e.bank_account_number = 'Hanya angka.';
