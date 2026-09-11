@@ -287,6 +287,54 @@ class EmployeeApiTests(TestCase):
         self.assertEqual(res.status_code, 201)
         self.assertEqual(res.json()['employee_id'], 'EMP0008')
 
+    def test_email_unique_cross_employee(self):
+        """Email A used by another employee in ANY field is rejected."""
+        Employee.objects.create(employee_id='E002', full_name='Budi', personal_email='budi@gmail.com')
+        res = self._create(full_name='Andi', personal_email='budi@gmail.com')
+        self.assertEqual(res.status_code, 400)
+        res = self._create(full_name='Andi', company_email='budi@gmail.com')
+        self.assertEqual(res.status_code, 400)
+        # reverse direction: clash on company_email of existing employee
+        Employee.objects.create(employee_id='E003', full_name='Cici', company_email='cici@f.co.id')
+        res = self._create(full_name='Andi', personal_email='cici@f.co.id')
+        self.assertEqual(res.status_code, 400)
+
+    def test_email_same_employee_both_fields_allowed(self):
+        """Same employee may use one email in both personal + company fields."""
+        res = self._create(full_name='Budi', personal_email='budi@gmail.com', company_email='budi@gmail.com')
+        self.assertEqual(res.status_code, 201)
+
+    def test_email_case_insensitive_and_trimmed(self):
+        Employee.objects.create(employee_id='E002', full_name='Budi', personal_email='Budi@Gmail.com')
+        res = self._create(full_name='Andi', personal_email='  BUDI@gmail.com  ')
+        self.assertEqual(res.status_code, 400)
+        # trimmed value is stored
+        res = self._create(full_name='Andi', personal_email='  andi@mail.com  ')
+        self.assertEqual(res.status_code, 201)
+        self.assertEqual(res.json()['personal_email'], 'andi@mail.com')
+
+    def test_email_empty_allowed(self):
+        res = self._create(full_name='Andi', personal_email='', company_email='')
+        self.assertEqual(res.status_code, 201)
+        res = self._create(full_name='Dedi', personal_email=None, company_email=None, nik='9876543210')
+        self.assertEqual(res.status_code, 201)
+
+    def test_email_edit_own_email_valid(self):
+        emp = Employee.objects.create(employee_id='E002', full_name='Budi', personal_email='budi@gmail.com', company_email='budi@gmail.com')
+        res = self.client.patch(reverse('employee-detail', args=[emp.pk]), {'personal_email': 'BUDI@gmail.com'}, content_type='application/json')
+        self.assertEqual(res.status_code, 200)
+        # changing other field keeps own emails valid
+        res = self.client.patch(reverse('employee-detail', args=[emp.pk]), {'full_name': 'Budi Updated'}, content_type='application/json')
+        self.assertEqual(res.status_code, 200)
+
+    def test_email_edit_to_clash_rejected(self):
+        Employee.objects.create(employee_id='E002', full_name='Budi', personal_email='budi@gmail.com')
+        emp = Employee.objects.create(employee_id='E003', full_name='Andi', personal_email='andi@mail.com')
+        res = self.client.patch(reverse('employee-detail', args=[emp.pk]), {'personal_email': 'budi@gmail.com'}, content_type='application/json')
+        self.assertEqual(res.status_code, 400)
+        emp.refresh_from_db()
+        self.assertEqual(emp.personal_email, 'andi@mail.com')
+
     def test_update_employee(self):
         emp = Employee.objects.create(employee_id='E001', full_name='John')
         res = self.client.patch(reverse('employee-detail', args=[emp.pk]), {'full_name': 'John Updated'}, content_type='application/json')

@@ -2,7 +2,7 @@
 from django.utils import timezone
 from rest_framework import serializers
 
-from .models import Department, Employee, EmployeeContract, EmployeeDocument, EmploymentHistory, Position
+from .models import Department, Employee, EmployeeContract, EmployeeDocument, EmploymentHistory, Position, find_email_clash
 
 # Status is system-managed. Only 'activate' is a valid write action; the rest
 # (DRAFT/ACTIVE/EXPIRED/RENEWED/TERMINATED) are derived by services/actions.
@@ -130,8 +130,8 @@ class EmployeeSerializer(serializers.ModelSerializer):
         read_only_fields = ('id', 'employee_id', 'department_name', 'position_name', 'position_role', 'manager_name', 'placement_display', 'religion_display', 'gender_display', 'marital_status_display')
         extra_kwargs = {
             'nik': {'required': False, 'allow_blank': True},
-            'personal_email': {'required': False, 'allow_blank': False},
-            'company_email': {'required': False, 'allow_blank': False},
+            'personal_email': {'required': False, 'allow_blank': True, 'allow_null': True},
+            'company_email': {'required': False, 'allow_blank': True, 'allow_null': True},
             'department': {'required': False, 'allow_null': True},
             'position': {'required': False, 'allow_null': True},
             'manager': {'required': False, 'allow_null': True},
@@ -145,6 +145,12 @@ class EmployeeSerializer(serializers.ModelSerializer):
         if value and not value.isdigit():
             raise serializers.ValidationError('NIK must contain digits only.')
         return value
+
+    def validate_personal_email(self, value):
+        return (value or '').strip()
+
+    def validate_company_email(self, value):
+        return (value or '').strip()
 
     def validate_placement(self, value):
         return value or ''
@@ -192,6 +198,11 @@ class EmployeeSerializer(serializers.ModelSerializer):
                 department = self.instance.department
             if department is None or position.department_id != department.id:
                 raise serializers.ValidationError({'position': 'Position tidak termasuk dalam department yang dipilih.'})
+        personal = attrs.get('personal_email', getattr(self.instance, 'personal_email', '') or '')
+        company = attrs.get('company_email', getattr(self.instance, 'company_email', '') or '')
+        clash = find_email_clash(personal, company, exclude_pk=self.instance.pk if self.instance else None)
+        if clash:
+            raise serializers.ValidationError({'personal_email': f'Email {clash} sudah digunakan oleh karyawan lain.'})
         return attrs
 
 
