@@ -390,6 +390,50 @@ def refresh_payroll_totals(payroll):
     return payroll
 
 
+def _eligible_employees(period):
+    """Employees eligible for payroll in this period.
+
+    Eligible = payable window in the period (ACTIVE, or INACTIVE with a
+    TERMINATED contract ending inside/after the period) AND a salary
+    structure whose effective window covers the period start. Employees
+    without a valid structure are excluded (no Rp0 rows) — see
+    payroll_eligibility() for the not-ready list.
+    """
+    return [
+        emp for emp in _payable_employees(period)
+        if _effective_structure(emp, period.period_start) is not None
+    ]
+
+
+def _payable_employees(period):
+    """Employees with a payable employment window in the period."""
+    return [
+        emp for emp in Employee.objects.filter(
+            Q(employment_status='ACTIVE')
+            | Q(
+                contracts__status='TERMINATED',
+                contracts__termination_date__gte=period.period_start,
+            )
+        ).distinct()
+        if _employment_window(emp, period.period_start, period.period_end) is not None
+    ]
+
+
+def payroll_eligibility(period):
+    """Split employees into ready / not-ready for this period.
+
+    Returns dict with `ready` (payable + has effective structure) and
+    `not_ready` (payable but missing structure) employee lists.
+    """
+    ready, not_ready = [], []
+    for emp in _payable_employees(period):
+        if _effective_structure(emp, period.period_start) is not None:
+            ready.append(emp)
+        else:
+            not_ready.append(emp)
+    return {'ready': ready, 'not_ready': not_ready}
+
+
 def calculate_period(period):
     """(Re)calculate all payrolls for a period from DRAFT.
 
@@ -404,16 +448,9 @@ def calculate_period(period):
         raise ValidationError(str(exc))
 
     with transaction.atomic():
-        # ACTIVE employees plus recently-terminated employees (INACTIVE with a
-        # TERMINATED contract ending inside/after the period) get final pay.
-        employees = Employee.objects.filter(
-            Q(employment_status='ACTIVE')
-            | Q(
-                contracts__status='TERMINATED',
-                contracts__termination_date__gte=period.period_start,
-            )
-        ).distinct()
-        for employee in employees:
+        # Eligible only: payable window + salary structure effective at period
+        # start. Employees without a structure are skipped (no Rp0 rows).
+        for employee in _eligible_employees(period):
             structure = _effective_structure(employee, period.period_start)
             tax_profile = EmployeeTaxProfile.objects.filter(employee=employee).first()
             data = _summarize(employee, period, structure, config, tax_profile)
@@ -447,4 +484,9 @@ def calculate_period(period):
                     category=item['category'], amount=item['amount'],
                     source=item['source'], description=item.get('description', ''),
                 )
+        # Drop stale rows for employees who lost eligibility (structure
+        # removed/expired) between recalculations.
+        period.payrolls.exclude(employee_id__in=[
+            emp.id for emp in _eligible_employees(period)
+        ]).delete()
     return period.payrolls.select_related('employee').all()

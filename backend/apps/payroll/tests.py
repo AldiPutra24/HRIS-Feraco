@@ -423,10 +423,9 @@ class PayrollCalculateTests(TestCase):
         )
 
     def test_no_salary_structure_zero_basic(self):
+        # No structure -> employee excluded entirely (no Rp0 row).
         calculate_period(self.period)
-        payroll = Payroll.objects.get(period=self.period, employee=self.emp)
-        self.assertEqual(payroll.basic_salary, 0)
-        self.assertEqual(payroll.gross_salary, 0)
+        self.assertFalse(Payroll.objects.filter(period=self.period).exists())
 
     def test_employee_payroll_uniqueness(self):
         self._structure()
@@ -1510,3 +1509,79 @@ class PayrollReviewTests(APITestCase):
         self.assertEqual(res.status_code, 200)
         self.period.refresh_from_db()
         self.assertEqual(self.period.status, 'APPROVED')
+
+class PayrollEligibilityTests(TestCase):
+    """Eligibility: only employees with an effective salary structure get payroll."""
+
+    def setUp(self):
+        self.emp = Employee.objects.create(
+            employee_id='E001', full_name='John', employment_status='ACTIVE',
+        )
+        self.period = make_month_period(6)
+        make_tax_config()
+
+    def test_employee_with_structure_included(self):
+        SalaryStructure.objects.create(
+            employee=self.emp, effective_from=date(2026, 1, 1), basic_salary=4000000,
+        )
+        calculate_period(self.period)
+        payroll = Payroll.objects.get(period=self.period, employee=self.emp)
+        self.assertEqual(payroll.basic_salary, 4000000)
+
+    def test_employee_without_structure_excluded(self):
+        calculate_period(self.period)
+        self.assertFalse(Payroll.objects.filter(period=self.period).exists())
+
+    def test_expired_structure_excluded(self):
+        SalaryStructure.objects.create(
+            employee=self.emp, effective_from=date(2026, 1, 1),
+            effective_to=date(2026, 5, 31), basic_salary=4000000,
+        )
+        calculate_period(self.period)
+        self.assertFalse(Payroll.objects.filter(period=self.period).exists())
+
+    def test_future_structure_excluded(self):
+        SalaryStructure.objects.create(
+            employee=self.emp, effective_from=date(2026, 7, 1), basic_salary=4000000,
+        )
+        calculate_period(self.period)
+        self.assertFalse(Payroll.objects.filter(period=self.period).exists())
+
+    def test_inactive_employee_excluded(self):
+        SalaryStructure.objects.create(
+            employee=self.emp, effective_from=date(2026, 1, 1), basic_salary=4000000,
+        )
+        self.emp.employment_status = 'INACTIVE'
+        self.emp.save()
+        calculate_period(self.period)
+        self.assertFalse(Payroll.objects.filter(period=self.period).exists())
+
+    def test_effective_date_picks_correct_salary(self):
+        SalaryStructure.objects.create(
+            employee=self.emp, effective_from=date(2026, 1, 1),
+            effective_to=date(2026, 6, 30), basic_salary=4000000,
+        )
+        SalaryStructure.objects.create(
+            employee=self.emp, effective_from=date(2026, 7, 1), basic_salary=6000000,
+        )
+        calculate_period(self.period)
+        payroll = Payroll.objects.get(period=self.period, employee=self.emp)
+        self.assertEqual(payroll.basic_salary, 4000000)  # June covered by old structure
+
+    def test_eligibility_endpoint_counts_not_ready(self):
+        SalaryStructure.objects.create(
+            employee=self.emp, effective_from=date(2026, 1, 1), basic_salary=4000000,
+        )
+        Employee.objects.create(
+            employee_id='E002', full_name='Jane', employment_status='ACTIVE',
+        )
+        Employee.objects.create(
+            employee_id='E003', full_name='Bob', employment_status='INACTIVE',
+        )
+        self.client.force_login(make_user('HR_STAFF', 'hr@test.com'))
+        res = self.client.get(reverse('payroll-period-eligibility', args=[self.period.id]))
+        self.assertEqual(res.status_code, 200)
+        data = res.json()
+        self.assertEqual(data['ready_count'], 1)
+        self.assertEqual(data['not_ready_count'], 1)
+        self.assertEqual(data['not_ready'][0]['full_name'], 'Jane')
