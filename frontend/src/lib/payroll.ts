@@ -263,8 +263,18 @@ export type ReviewData = {
   employees: ReviewRow[];
 };
 
+export type EligibilityData = {
+  ready_count: number;
+  not_ready_count: number;
+  not_ready: { id: number; employee_id: string; full_name: string }[];
+};
+
 export function getPeriodReview(periodId: number): Promise<ReviewData> {
   return request<ReviewData>(`/periods/${periodId}/review/`);
+}
+
+export function getPeriodEligibility(periodId: number): Promise<EligibilityData> {
+  return request<EligibilityData>(`/periods/${periodId}/eligibility/`);
 }
 
 export function addManualItem(payrollId: number, componentCode: string, amount: string, description?: string): Promise<Payroll> {

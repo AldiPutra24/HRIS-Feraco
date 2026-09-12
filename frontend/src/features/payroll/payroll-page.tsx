@@ -32,7 +32,9 @@ import {
   transitionPeriod,
   listPayrolls,
   getPeriodReview,
+  getPeriodEligibility,
   type ReviewData,
+  type EligibilityData,
   addManualItem,
   removeManualItem,
   downloadPayslip,
@@ -770,14 +772,21 @@ const fmtRp = (n: number) => `Rp ${Number(n || 0).toLocaleString('id')}`;
 
 function ReviewSection({ period }: { period: PayrollPeriod }) {
   const [data, setData] = useState<ReviewData | null>(null);
+  const [eligibility, setEligibility] = useState<EligibilityData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [expanded, setExpanded] = useState<number | null>(null);
 
   useEffect(() => {
     setLoading(true);
-    getPeriodReview(period.id)
-      .then(setData)
+    Promise.all([
+      getPeriodReview(period.id),
+      getPeriodEligibility(period.id).catch(() => null),
+    ])
+      .then(([review, elig]) => {
+        setData(review);
+        setEligibility(elig);
+      })
       .catch((err) => setError(apiError(err)))
       .finally(() => setLoading(false));
   }, [period.id]);
@@ -816,6 +825,17 @@ function ReviewSection({ period }: { period: PayrollPeriod }) {
           </Card>
         ))}
       </div>
+
+      {eligibility && eligibility.not_ready_count > 0 && (
+        <div className='rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm'>
+          <p className='font-medium text-amber-900'>
+            {eligibility.not_ready_count} karyawan belum memiliki struktur gaji berlaku — tidak diikutkan payroll periode ini.
+          </p>
+          <p className='mt-1 text-amber-800'>
+            {eligibility.not_ready.map((e) => `${e.full_name} (${e.employee_id})`).join(', ')}
+          </p>
+        </div>
+      )}
 
       <Card>
         <CardContent className='p-0'>

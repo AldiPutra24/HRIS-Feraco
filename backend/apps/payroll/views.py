@@ -32,7 +32,7 @@ from .serializers import (
     TaxConfigSerializer,
     TerBracketSerializer,
 )
-from .services import ZERO, calculate_period, refresh_payroll_totals
+from .services import ZERO, calculate_period, payroll_eligibility, refresh_payroll_totals
 from .exports import build_payslip_pdf, build_recap_xlsx
 from .exports import build_payslip_pdf, build_recap_xlsx
 
@@ -393,6 +393,25 @@ class PayrollPeriodViewSet(viewsets.ModelViewSet):
             description=f'Payroll period {period.period_month}/{period.period_year} calculated ({payrolls.count()} records)',
         )
         return Response(self.get_serializer(period).data)
+
+    @action(detail=True, methods=['get'])
+    def eligibility(self, request, pk=None):
+        """Who is ready / not ready for payroll in this period.
+
+        Not ready = payable (ACTIVE or recently terminated) but no salary
+        structure effective at period start. HR uses this to complete
+        structures before calculating.
+        """
+        period = self.get_object()
+        result = payroll_eligibility(period)
+        return Response({
+            'ready_count': len(result['ready']),
+            'not_ready_count': len(result['not_ready']),
+            'not_ready': [
+                {'id': emp.id, 'employee_id': emp.employee_id, 'full_name': emp.full_name}
+                for emp in result['not_ready']
+            ],
+        })
 
     @action(detail=True, methods=['post'])
     def approve(self, request, pk=None):
