@@ -534,6 +534,59 @@ class PayrollManualItemApiTests(TestCase):
         )
         self.assertEqual(res.status_code, 403)
 
+    def test_review_summary_syncs_after_manual_add_remove(self):
+        """Review summary/detail must reflect manual items immediately."""
+        review_url = reverse('payroll-period-review', args=[self.period.id])
+        self.period.status = 'CALCULATED'
+        self.period.save()
+
+        # Baseline: gross 5.000.000, no deduction.
+        res = self.client.get(review_url)
+        summary = res.json()['summary']
+        self.assertEqual(summary['total_gross'], 5000000)
+        self.assertEqual(summary['total_deduction'], 0)
+        self.assertEqual(summary['total_thp'], 5000000)
+
+        # Add manual earning + deduction.
+        self.client.post(
+            reverse('payroll-manual-item', args=[self.payroll.id]),
+            {'component_code': 'BONUS', 'amount': '20000'}, format='json',
+        )
+        comp_ded = PayrollComponent.objects.create(
+            code='POTONGAN', name='Potongan', category='DEDUCTION',
+            calculation_type='VARIABLE',
+        )
+        self.client.post(
+            reverse('payroll-manual-item', args=[self.payroll.id]),
+            {'component_code': comp_ded.code, 'amount': '100000'}, format='json',
+        )
+        res = self.client.get(review_url)
+        data = res.json()
+        summary = data['summary']
+        self.assertEqual(summary['total_gross'], 5020000)
+        self.assertEqual(summary['total_deduction'], 100000)
+        self.assertEqual(summary['total_thp'], 4920000)
+        self.assertEqual(summary['total_transfer'], 4920000)
+        row = data['employees'][0]
+        self.assertEqual(row['gross_salary'], 5020000)
+        self.assertEqual(row['total_deduction'], 100000)
+        self.assertEqual(row['net_salary'], 4920000)
+        codes = {it['component_code'] for it in row['items']}
+        self.assertIn('BASIC', codes)
+        self.assertIn('BONUS', codes)
+        self.assertIn('POTONGAN', codes)
+
+        # Remove manual earning → summary drops it.
+        self.client.post(
+            reverse('payroll-remove-manual-item', args=[self.payroll.id]),
+            {'component_code': 'BONUS'}, format='json',
+        )
+        res = self.client.get(review_url)
+        summary = res.json()['summary']
+        self.assertEqual(summary['total_gross'], 5000000)
+        self.assertEqual(summary['total_deduction'], 100000)
+        self.assertEqual(summary['total_thp'], 4900000)
+
 
 class ManagementPayrollScopeTests(TestCase):
     """MANAGEMENT sees ONLY their own payroll slips (never reports/others)."""
