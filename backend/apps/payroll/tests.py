@@ -22,7 +22,9 @@ from .models import (
     TaxConfig,
     TerBracket,
 )
-from .services import calculate_period
+from decimal import Decimal
+
+from .services import _annual_taxable_earnings, calculate_period
 
 User = get_user_model()
 
@@ -444,8 +446,8 @@ class PayrollCalculateTests(TestCase):
             PayrollItem.objects.filter(payroll__period=self.period, source='MANUAL').count(), 1
         )
         self.assertEqual(
-            PayrollItem.objects.filter(payroll__period=self.period, source='SYSTEM').count(), 1
-        )
+            PayrollItem.objects.filter(payroll__period=self.period, source='SYSTEM').count(), 2
+        )  # BASIC + TUNJANGAN
         # Recalculate again → still 1 manual + system items replaced.
         calculate_period(self.period)
         self.assertEqual(
@@ -1442,6 +1444,64 @@ class SalaryStructureLifecycleTests(APITestCase):
         res = self.client.delete(reverse('salary-structure-detail', args=[self.structure.id]))
         self.assertEqual(res.status_code, 400)
         self.assertTrue(SalaryStructure.objects.filter(pk=self.structure.id).exists())
+
+class BasicItemAndJoinDateTests(TestCase):
+    """Gaji Pokok PayrollItem + join_date pro-rata scenarios."""
+
+    def setUp(self):
+        make_tax_config(year=2026)
+        self.emp = Employee.objects.create(
+            employee_id='E001', full_name='Andi', employment_status='ACTIVE',
+        )
+        SalaryStructure.objects.create(
+            employee=self.emp, effective_from=date(2026, 9, 1), basic_salary=4000000,
+        )
+
+    def _calc_september(self):
+        period = make_month_period(9)
+        calculate_period(period)
+        return Payroll.objects.get(period=period, employee=self.emp)
+
+    def test_basic_item_created(self):
+        payroll = self._calc_september()
+        item = PayrollItem.objects.get(
+            payroll=payroll, component_code='BASIC', source='SYSTEM',
+        )
+        self.assertEqual(item.amount, payroll.basic_salary)
+        self.assertEqual(item.category, 'EARNING_FIXED')
+        self.assertEqual(item.source, 'SYSTEM')
+
+    def test_join_date_mid_month_prorates(self):
+        self.emp.join_date = date(2026, 9, 7)
+        self.emp.save()
+        payroll = self._calc_september()
+        self.assertEqual(payroll.pro_rata_factor, Decimal('0.8'))
+        self.assertEqual(payroll.basic_salary, 3200000)
+        self.assertEqual(payroll.gross_salary, 3200000)
+        item = PayrollItem.objects.get(payroll=payroll, component_code='BASIC')
+        self.assertEqual(item.amount, 3200000)
+
+    def test_join_date_first_day_full_month(self):
+        self.emp.join_date = date(2026, 9, 1)
+        self.emp.save()
+        payroll = self._calc_september()
+        self.assertEqual(payroll.pro_rata_factor, Decimal('1'))
+        self.assertEqual(payroll.basic_salary, 4000000)
+        self.assertEqual(payroll.gross_salary, 4000000)
+
+    def test_no_join_date_full_month(self):
+        payroll = self._calc_september()
+        self.assertEqual(payroll.pro_rata_factor, Decimal('1'))
+        self.assertEqual(payroll.basic_salary, 4000000)
+
+    def test_basic_item_not_double_counted_annual(self):
+        payroll = self._calc_september()
+        gross_year, months = _annual_taxable_earnings(
+            self.emp, 2026, payroll.period, 4000000, Decimal('1')
+        )
+        self.assertEqual(gross_year, 4000000)  # BASIC item skipped, basic from Payroll row
+        self.assertEqual(months, 1)
+
 
 class PayrollReviewTests(APITestCase):
     """PRD Job 2: review summary + per-employee detail (read-only)."""
