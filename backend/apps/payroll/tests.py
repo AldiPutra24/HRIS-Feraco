@@ -261,6 +261,36 @@ class PayrollPeriodTests(TestCase):
         self.assertEqual(res.status_code, 204)
         self.assertEqual(PayrollPeriod.objects.count(), 0)
 
+    def test_hr_can_delete_unlocked_period(self):
+        self.client.force_login(make_user('HR_STAFF', 'hr@test.com'))
+        period = PayrollPeriod.objects.create(
+            period_month=6, period_year=2026,
+            period_start=date(2026, 6, 1), period_end=date(2026, 6, 30),
+        )
+        res = self.client.delete(reverse('payroll-period-detail', args=[period.id]))
+        self.assertEqual(res.status_code, 204)
+
+    def test_hr_cannot_delete_locked_period(self):
+        self.client.force_login(make_user('HR_STAFF', 'hr@test.com'))
+        period = PayrollPeriod.objects.create(
+            period_month=6, period_year=2026,
+            period_start=date(2026, 6, 1), period_end=date(2026, 6, 30),
+            status='LOCKED',
+        )
+        res = self.client.delete(reverse('payroll-period-detail', args=[period.id]))
+        self.assertEqual(res.status_code, 403)
+        self.assertTrue(PayrollPeriod.objects.filter(pk=period.pk).exists())
+
+    def test_admin_can_delete_locked_period(self):
+        period = PayrollPeriod.objects.create(
+            period_month=6, period_year=2026,
+            period_start=date(2026, 6, 1), period_end=date(2026, 6, 30),
+            status='LOCKED',
+        )
+        res = self.client.delete(reverse('payroll-period-detail', args=[period.id]))
+        self.assertEqual(res.status_code, 204)
+        self.assertEqual(PayrollPeriod.objects.count(), 0)
+
     def test_non_hr_cannot_create(self):
         self.client.force_login(make_user('EMPLOYEE', 'emp@test.com'))
         res = self.client.post(reverse('payroll-period-list'), self.payload(), format='json')
