@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -29,6 +29,8 @@ import {
   deletePeriod,
   transitionPeriod,
   listPayrolls,
+  getPeriodReview,
+  type ReviewData,
   addManualItem,
   removeManualItem,
   downloadPayslip,
@@ -366,17 +368,40 @@ function StructureForm({
   onSaved: () => void;
 }) {
   const [employees, setEmployees] = useState<Employee[]>([]);
+  const [components, setComponents] = useState<PayrollComponent[]>([]);
   const [form, setForm] = useState({
     employee: '',
     effective_from: '',
     basic_salary: '',
   });
+  // ponytail: rows as {code, amount} strings; upgrade to typed form lib when structure form grows
+  const [rows, setRows] = useState<{ code: string; amount: string }[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
   useEffect(() => {
     listEmployees({ page_size: '1000' }).then((p) => setEmployees(p.results)).catch(() => {});
+    listComponents().then((c) =>
+      setComponents(c.filter((x) => x.category === 'EARNING_FIXED' && x.is_active))
+    ).catch(() => {});
   }, []);
+
+  const fixedOptions = components.filter(
+    (c) => !rows.some((r) => r.code === c.code)
+  );
+  const totalComponents = rows.reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
+
+  function addRow() {
+    setRows((r) => [...r, { code: '', amount: '' }]);
+  }
+
+  function updateRow(idx: number, patch: Partial<{ code: string; amount: string }>) {
+    setRows((r) => r.map((row, i) => (i === idx ? { ...row, ...patch } : row)));
+  }
+
+  function removeRow(idx: number) {
+    setRows((r) => r.filter((_, i) => i !== idx));
+  }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -385,13 +410,17 @@ function StructureForm({
       setError('Karyawan, Tanggal Efektif, dan Gaji Pokok wajib diisi.');
       return;
     }
+    if (rows.some((r) => !r.code)) {
+      setError('Pilih Payment Type untuk setiap baris komponen.');
+      return;
+    }
     setSaving(true);
     try {
       await createStructure({
         employee: Number(form.employee),
         effective_from: form.effective_from,
         basic_salary: form.basic_salary,
-        components: [],
+        components: rows.map((r) => ({ code: r.code, amount: r.amount || '0' })),
       });
       onSaved();
     } catch (err) {
@@ -443,6 +472,67 @@ function StructureForm({
               />
             </div>
           </div>
+
+          <div className='space-y-2'>
+            <div className='flex items-center justify-between'>
+              <Label>Komponen Gaji (Payment Type)</Label>
+              <Button type='button' variant='outline' size='sm' onClick={addRow}>
+                <Icons.plusCircle />Tambah Payment Type
+              </Button>
+            </div>
+            {rows.length === 0 && (
+              <p className='text-muted-foreground text-sm'>
+                Belum ada komponen tambahan. Gaji Pokok sudah termasuk di atas.
+              </p>
+            )}
+            {rows.map((row, idx) => (
+              <div key={idx} className='flex items-center gap-2'>
+                <select
+                  value={row.code}
+                  onChange={(e) => updateRow(idx, { code: e.target.value })}
+                  className='border-input h-8 flex-1 rounded-lg border bg-transparent px-2.5 text-sm'
+                >
+                  <option value=''>Pilih Payment Type</option>
+                  {(fixedOptions.some((c) => c.code === row.code)
+                    ? fixedOptions
+                    : [...components.filter((c) => c.code === row.code), ...fixedOptions]
+                  ).map((c) => (
+                    <option key={c.code} value={c.code}>
+                      {c.name} ({c.code})
+                    </option>
+                  ))}
+                </select>
+                <Input
+                  type='number'
+                  step='0.01'
+                  min='0'
+                  placeholder='Nominal'
+                  value={row.amount}
+                  onChange={(e) => updateRow(idx, { amount: e.target.value })}
+                  className='w-40'
+                />
+                <Button
+                  type='button'
+                  variant='ghost'
+                  size='sm'
+                  className='text-destructive'
+                  onClick={() => removeRow(idx)}
+                  aria-label='Hapus komponen'
+                >
+                  <Icons.trash />
+                </Button>
+              </div>
+            ))}
+            {rows.length > 0 && (
+              <div className='text-muted-foreground flex justify-end gap-2 text-sm'>
+                <span>Total Komponen:</span>
+                <span className='text-foreground font-medium'>
+                  Rp {totalComponents.toLocaleString('id')}
+                </span>
+              </div>
+            )}
+          </div>
+
           <div className='flex justify-end gap-2'>
             <Button type='button' variant='outline' onClick={onClose}>
               Batal
@@ -631,7 +721,173 @@ function StructuresSection() {
   );
 }
 
-// ---------- (3) Payroll Processing ----------
+// ---------- (3) Payroll Review ----------
+
+const fmtRp = (n: number) => `Rp ${Number(n || 0).toLocaleString('id')}`;
+
+function ReviewSection({ period }: { period: PayrollPeriod }) {
+  const [data, setData] = useState<ReviewData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [expanded, setExpanded] = useState<number | null>(null);
+
+  useEffect(() => {
+    setLoading(true);
+    getPeriodReview(period.id)
+      .then(setData)
+      .catch((err) => setError(apiError(err)))
+      .finally(() => setLoading(false));
+  }, [period.id]);
+
+  if (loading) {
+    return (
+      <div className='space-y-2'>
+        {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className='h-16 w-full' />)}
+      </div>
+    );
+  }
+  if (error) return <p className='text-destructive text-sm'>{error}</p>;
+  if (!data) return null;
+
+  const s = data.summary;
+  const stats = [
+    { label: 'Jumlah Karyawan', value: String(s.employee_count) },
+    { label: 'Total Gross', value: fmtRp(s.total_gross) },
+    { label: 'Total PPh21', value: fmtRp(s.total_pph21) },
+    { label: 'Total Potongan', value: fmtRp(s.total_deduction) },
+    { label: 'Total THP', value: fmtRp(s.total_thp) },
+    { label: 'Total Transfer', value: fmtRp(s.total_transfer) },
+  ];
+
+  return (
+    <div className='flex flex-col gap-4'>
+      <div className='grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6'>
+        {stats.map((st) => (
+          <Card key={st.label}>
+            <CardContent className='p-4'>
+              <p className='text-muted-foreground text-xs'>{st.label}</p>
+              <p className='mt-1 truncate text-sm font-semibold tracking-tight' title={st.value}>
+                {st.value}
+              </p>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
+      <Card>
+        <CardContent className='p-0'>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Karyawan</TableHead>
+                <TableHead className='text-right'>Gross</TableHead>
+                <TableHead className='text-right'>PPh21</TableHead>
+                <TableHead className='text-right'>Potongan</TableHead>
+                <TableHead className='text-right'>THP</TableHead>
+                <TableHead className='text-right'>Transfer</TableHead>
+                <TableHead className='text-right'>Detail</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {data.employees.map((row) => (
+                <Fragment key={row.payroll_id}>
+                  <TableRow>
+                    <TableCell className='font-medium'>
+                      {row.employee_name}
+                      {row.is_dtp && (
+                        <Badge variant='outline' className='ml-2'>DTP</Badge>
+                      )}
+                    </TableCell>
+                    <TableCell className='text-right'>{fmtRp(row.gross_salary)}</TableCell>
+                    <TableCell className='text-right'>{fmtRp(row.pph21)}</TableCell>
+                    <TableCell className='text-right'>{fmtRp(row.total_deduction)}</TableCell>
+                    <TableCell className='text-right font-medium text-green-600'>
+                      {fmtRp(row.net_salary)}
+                    </TableCell>
+                    <TableCell className='text-right font-medium'>
+                      {fmtRp(row.transfer_amount)}
+                    </TableCell>
+                    <TableCell className='text-right'>
+                      <Button
+                        variant='ghost'
+                        size='sm'
+                        onClick={() => setExpanded((e) => (e === row.payroll_id ? null : row.payroll_id))}
+                      >
+                        <Icons.chevronDown />
+                        Detail
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                  {expanded === row.payroll_id && (
+                    <TableRow key={`${row.payroll_id}-items`}>
+                      <TableCell colSpan={7} className='bg-muted/40 p-0'>
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Komponen</TableHead>
+                              <TableHead>Kategori</TableHead>
+                              <TableHead>Sumber</TableHead>
+                              <TableHead className='text-right'>Jumlah</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {row.items.map((it) => (
+                              <TableRow key={it.id}>
+                                <TableCell>
+                                  {it.component_name}
+                                  {it.description && (
+                                    <span className='text-muted-foreground block text-xs'>
+                                      {it.description}
+                                    </span>
+                                  )}
+                                </TableCell>
+                                <TableCell>
+                                  <Badge variant='outline'>
+                                    {it.category === 'DEDUCTION'
+                                      ? 'Potongan'
+                                      : it.category === 'EARNING_FIXED'
+                                        ? 'Tetap'
+                                        : 'Variabel'}
+                                  </Badge>
+                                </TableCell>
+                                <TableCell className='text-xs'>
+                                  {it.source === 'SYSTEM' ? 'Sistem' : 'Manual'}
+                                </TableCell>
+                                <TableCell className='text-right'>
+                                  {fmtRp(Number(it.amount))}
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                            {row.items.length === 0 && (
+                              <TableRow>
+                                <TableCell colSpan={4} className='text-muted-foreground py-4 text-center'>
+                                  Tidak ada item.
+                                </TableCell>
+                              </TableRow>
+                            )}
+                          </TableBody>
+                        </Table>
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </Fragment>
+              ))}
+              {data.employees.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={7} className='text-muted-foreground py-8 text-center'>
+                    Belum ada data payroll. Hitung periode terlebih dahulu.
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+// ---------- (4) Payroll Processing ----------
 
 const MONTHS = [
   { value: 1, label: 'Januari' }, { value: 2, label: 'Februari' }, { value: 3, label: 'Maret' },
@@ -975,6 +1231,9 @@ function PayrollProcessingSection() {
               <Icons.chevronLeft />Kembali
             </Button>
           </div>
+          {selectedPeriod.status !== 'DRAFT' && (
+            <ReviewSection period={selectedPeriod} />
+          )}
           <PayrollEmployeeTable period={selectedPeriod} />
         </>
       ) : (

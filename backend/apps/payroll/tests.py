@@ -5,6 +5,7 @@ from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.test import TestCase
 from django.urls import reverse
+from rest_framework.test import APITestCase
 
 from apps.accounts.models import Role
 from apps.leaves.models import LeaveRequest, LeaveType
@@ -1195,3 +1196,210 @@ class Tahap3cTests(TestCase):
         self.client.force_login(make_user('EMPLOYEE', 'emp@test.com'))
         res = self.client.get(reverse('payroll-period-recap', args=[self.period.id]))
         self.assertEqual(res.status_code, 403)
+
+
+class SalaryStructureComponentsTests(APITestCase):
+    """PRD Job 1: multi Payment Type salary structure."""
+
+    def setUp(self):
+        self.admin = make_user('ADMIN', 'admin@test.com')
+        self.client.force_login(self.admin)
+        self.emp = Employee.objects.create(
+            employee_id='E001', full_name='John', employment_status='ACTIVE',
+        )
+        self.comp_transport = PayrollComponent.objects.create(
+            code='TRANSPORT', name='Tunjangan Transport', category='EARNING_FIXED',
+            calculation_type='FIXED_AMOUNT', default_amount=500000,
+        )
+        self.comp_makan = PayrollComponent.objects.create(
+            code='MAKAN', name='Tunjangan Makan', category='EARNING_FIXED',
+            calculation_type='FIXED_AMOUNT', default_amount=300000,
+        )
+        self.comp_bonus = PayrollComponent.objects.create(
+            code='BONUS', name='Bonus', category='EARNING_VARIABLE',
+            calculation_type='VARIABLE',
+        )
+        self.comp_jabatan = PayrollComponent.objects.create(
+            code='JABATAN', name='Tunjangan Jabatan', category='EARNING_FIXED',
+            calculation_type='FIXED_AMOUNT', default_amount=750000,
+        )
+
+    def _payload(self, **over):
+        payload = {
+            'employee': self.emp.id,
+            'effective_from': '2026-01-01',
+            'basic_salary': '5000000',
+            'components': [],
+        }
+        payload.update(over)
+        return payload
+
+    def test_create_with_basic_and_components(self):
+        res = self.client.post(reverse('salary-structure-list'), self._payload(
+            components=[
+                {'code': 'TRANSPORT', 'amount': '500000'},
+                {'code': 'MAKAN', 'amount': '300000'},
+            ],
+        ), format='json')
+        self.assertEqual(res.status_code, 201)
+        ss = SalaryStructure.objects.get(pk=res.data['id'])
+        self.assertEqual(ss.basic_salary, 5000000)
+        self.assertEqual(len(ss.components), 2)
+
+    def test_multiple_payment_types(self):
+        res = self.client.post(reverse('salary-structure-list'), self._payload(
+            components=[
+                {'code': 'TRANSPORT', 'amount': '500000'},
+                {'code': 'MAKAN', 'amount': '300000'},
+                {'code': 'JABATAN', 'amount': '750000'},
+            ],
+        ), format='json')
+        self.assertEqual(res.status_code, 201, res.data)
+        ss = SalaryStructure.objects.get(pk=res.data['id'])
+        self.assertEqual(len(ss.components), 3)
+
+    def test_duplicate_component_rejected(self):
+        res = self.client.post(reverse('salary-structure-list'), self._payload(
+            components=[
+                {'code': 'TRANSPORT', 'amount': '500000'},
+                {'code': 'TRANSPORT', 'amount': '100000'},
+            ],
+        ), format='json')
+        self.assertEqual(res.status_code, 400)
+        self.assertIn('duplikat', str(res.data))
+
+    def test_negative_amount_rejected(self):
+        res = self.client.post(reverse('salary-structure-list'), self._payload(
+            components=[{'code': 'TRANSPORT', 'amount': '-1000'}],
+        ), format='json')
+        self.assertEqual(res.status_code, 400)
+
+    def test_variable_component_rejected(self):
+        res = self.client.post(reverse('salary-structure-list'), self._payload(
+            components=[{'code': 'BONUS', 'amount': '1000000'}],
+        ), format='json')
+        self.assertEqual(res.status_code, 400)
+        self.assertIn('bukan tunjangan tetap', str(res.data))
+
+    def test_calculate_produces_items_from_components(self):
+        make_tax_config(year=2026)
+        SalaryStructure.objects.create(
+            employee=self.emp, effective_from=date(2026, 1, 1),
+            basic_salary=5000000,
+            components=[
+                {'code': 'TRANSPORT', 'name': 'Tunjangan Transport', 'amount': '500000'},
+                {'code': 'MAKAN', 'name': 'Tunjangan Makan', 'amount': '300000'},
+            ],
+        )
+        period = PayrollPeriod.objects.create(
+            period_month=6, period_year=2026,
+            period_start=date(2026, 6, 1), period_end=date(2026, 6, 30),
+        )
+        calculate_period(period)
+        payroll = Payroll.objects.get(period=period, employee=self.emp)
+        self.assertEqual(payroll.total_fixed_earning, 800000)
+        self.assertEqual(payroll.gross_salary, 5800000)
+        self.assertTrue(
+            payroll.items.filter(component_code='TRANSPORT', amount=500000).exists()
+        )
+        self.assertTrue(
+            payroll.items.filter(component_code='MAKAN', amount=300000).exists()
+        )
+
+
+class PayrollReviewTests(APITestCase):
+    """PRD Job 2: review summary + per-employee detail (read-only)."""
+
+    def setUp(self):
+        self.admin = make_user('ADMIN', 'admin@test.com')
+        self.client.force_login(self.admin)
+        make_tax_config()
+        self.emp = Employee.objects.create(
+            employee_id='E001', full_name='John', employment_status='ACTIVE',
+        )
+        PayrollComponent.objects.create(
+            code='BASIC', name='Gaji Pokok', category='EARNING_FIXED',
+            calculation_type='FIXED_AMOUNT', default_amount=5000000,
+        )
+        SalaryStructure.objects.create(
+            employee=self.emp, effective_from=date(2026, 1, 1), basic_salary=5000000,
+        )
+        self.period = PayrollPeriod.objects.create(
+            period_month=6, period_year=2026,
+            period_start=date(2026, 6, 1), period_end=date(2026, 6, 30),
+        )
+        calculate_period(self.period)
+        # calculate_period only computes; the API calculate action sets status.
+        self.period.status = 'CALCULATED'
+        self.period.save()
+
+    def test_review_returns_summary(self):
+        res = self.client.get(reverse('payroll-period-review', args=[self.period.id]))
+        self.assertEqual(res.status_code, 200)
+        summary = res.json()['summary']
+        self.assertEqual(summary['employee_count'], 1)
+        self.assertEqual(summary['total_gross'], 5000000)
+        self.assertEqual(summary['total_thp'], 5000000)
+        self.assertEqual(summary['total_transfer'], 5000000)
+
+    def test_review_returns_employee_detail(self):
+        res = self.client.get(reverse('payroll-period-review', args=[self.period.id]))
+        rows = res.json()['employees']
+        self.assertEqual(len(rows), 1)
+        row = rows[0]
+        self.assertEqual(row['employee_name'], 'John')
+        self.assertEqual(row['gross_salary'], 5000000)
+        self.assertEqual(row['transfer_amount'], 5000000)
+        self.assertEqual(row['basic_salary'], 5000000)
+        self.assertIsInstance(row['items'], list)
+
+    def test_review_management_sees_only_own(self):
+        other = Employee.objects.create(
+            employee_id='E002', full_name='Jane', employment_status='ACTIVE',
+        )
+        SalaryStructure.objects.create(
+            employee=other, effective_from=date(2026, 1, 1), basic_salary=4000000,
+        )
+        # Recalculate with all employees (bypass one-way transition check).
+        PayrollPeriod.objects.filter(pk=self.period.pk).update(status='DRAFT')
+        self.period.refresh_from_db()
+        calculate_period(self.period)
+        mgr_emp = Employee.objects.create(
+            employee_id='E003', full_name='Boss', employment_status='ACTIVE',
+        )
+        SalaryStructure.objects.create(
+            employee=mgr_emp, effective_from=date(2026, 1, 1), basic_salary=10000000,
+        )
+        PayrollPeriod.objects.filter(pk=self.period.pk).update(status='DRAFT')
+        self.period.refresh_from_db()
+        calculate_period(self.period)
+        mgr_user = make_user('MANAGEMENT', 'mgr@test.com')
+        mgr_emp.user = mgr_user
+        mgr_emp.save()
+        self.client.force_login(mgr_user)
+        res = self.client.get(reverse('payroll-period-review', args=[self.period.id]))
+        rows = res.json()['employees']
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]['employee_name'], 'Boss')
+
+    def test_review_read_only_no_mutation(self):
+        before = Payroll.objects.get(period=self.period, employee=self.emp)
+        items_before = list(before.items.values_list('id', 'amount'))
+        res = self.client.get(reverse('payroll-period-review', args=[self.period.id]))
+        self.assertEqual(res.status_code, 200)
+        after = Payroll.objects.get(period=self.period, employee=self.emp)
+        items_after = list(after.items.values_list('id', 'amount'))
+        self.assertEqual(before.gross_salary, after.gross_salary)
+        self.assertEqual(before.net_salary, after.net_salary)
+        self.assertEqual(items_before, items_after)
+
+    def test_lifecycle_calculated_review_approved(self):
+        self.assertEqual(self.period.status, 'CALCULATED')
+        res = self.client.post(reverse('payroll-period-review', args=[self.period.id]))
+        self.assertEqual(res.status_code, 200)
+        self.period.refresh_from_db()
+        self.assertEqual(self.period.status, 'REVIEW')
+        res = self.client.post(reverse('payroll-period-approve', args=[self.period.id]))
+        self.assertEqual(res.status_code, 200)
+        self.period.refresh_from_db()
+        self.assertEqual(self.period.status, 'APPROVED')

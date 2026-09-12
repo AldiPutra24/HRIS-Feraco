@@ -5,7 +5,6 @@ from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from django.db import transaction
-from decimal import Decimal
 
 from apps.audit.services import log_event
 from apps.personnel.permissions import _role
@@ -26,13 +25,15 @@ from .serializers import (
     AnnualTaxBracketSerializer,
     EmployeeTaxProfileSerializer,
     PayrollComponentSerializer,
+    PayrollItemSerializer,
     PayrollPeriodSerializer,
     PayrollSerializer,
     SalaryStructureSerializer,
     TaxConfigSerializer,
     TerBracketSerializer,
 )
-from .services import calculate_period, refresh_payroll_totals
+from .services import ZERO, calculate_period, refresh_payroll_totals
+from .exports import build_payslip_pdf, build_recap_xlsx
 from .exports import build_payslip_pdf, build_recap_xlsx
 
 
@@ -344,10 +345,6 @@ class PayrollPeriodViewSet(viewsets.ModelViewSet):
         return Response(self.get_serializer(period).data)
 
     @action(detail=True, methods=['post'])
-    def review(self, request, pk=None):
-        return self._transition(request, pk, PayrollPeriod.Status.REVIEW, 'Review')
-
-    @action(detail=True, methods=['post'])
     def approve(self, request, pk=None):
         return self._transition(request, pk, PayrollPeriod.Status.APPROVED, 'Approved')
 
@@ -365,6 +362,74 @@ class PayrollPeriodViewSet(viewsets.ModelViewSet):
         if _role(request.user) not in PAYROLL_ADMIN_ROLES:
             return Response({'detail': 'Tidak berwenang.'}, status=403)
         return build_recap_xlsx(self.get_object())
+
+    @action(detail=True, methods=['get', 'post'])
+    def review(self, request, pk=None):
+        """GET: review data (read-only summary + per-employee detail).
+        POST: transition CALCULATED → REVIEW.
+
+        HR sees everything; MANAGEMENT only their own payroll.
+        """
+        if request.method == 'POST':
+            return self._transition(request, pk, PayrollPeriod.Status.REVIEW, 'Review')
+        period = self.get_object()
+        payrolls = (
+            Payroll.objects.filter(period=period)
+            .select_related('employee')
+            .prefetch_related('items')
+        )
+        role = _role(request.user)
+        if role == 'MANAGEMENT':
+            personnel = getattr(request.user, 'personnel', None)
+            employee = getattr(personnel, 'employee', None)
+            if employee is None:
+                payrolls = payrolls.none()
+            else:
+                payrolls = payrolls.filter(employee_id=employee.id)
+
+        def _num(v):
+            return float(v or 0)
+
+        rows = []
+        totals = {
+            'employee_count': payrolls.count(),
+            'total_gross': ZERO,
+            'total_pph21': ZERO,
+            'total_deduction': ZERO,
+            'total_thp': ZERO,
+            'total_transfer': ZERO,
+        }
+        for p in payrolls:
+            pph = sum(
+                (it.amount for it in p.items.all() if it.component_code == 'PPh21'),
+                ZERO,
+            )
+            totals['total_gross'] += p.gross_salary
+            totals['total_pph21'] += pph
+            totals['total_deduction'] += p.total_deduction
+            totals['total_thp'] += p.net_salary
+            totals['total_transfer'] += p.transfer_amount
+            rows.append({
+                'payroll_id': p.id,
+                'employee_id': p.employee_id,
+                'employee_name': p.employee.full_name,
+                'basic_salary': _num(p.basic_salary),
+                'total_fixed_earning': _num(p.total_fixed_earning),
+                'total_variable_earning': _num(p.total_variable_earning),
+                'reimbursement_total': _num(p.reimbursement_total),
+                'gross_salary': _num(p.gross_salary),
+                'pph21': _num(pph),
+                'total_deduction': _num(p.total_deduction),
+                'net_salary': _num(p.net_salary),
+                'transfer_amount': _num(p.transfer_amount),
+                'is_dtp': p.is_dtp,
+                'items': PayrollItemSerializer(p.items.all(), many=True).data,
+            })
+        return Response({
+            'period': PayrollPeriodSerializer(period).data,
+            'summary': {k: _num(v) for k, v in totals.items()},
+            'employees': rows,
+        })
 
 
 class PayrollViewSet(viewsets.ReadOnlyModelViewSet):
