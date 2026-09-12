@@ -206,8 +206,11 @@ class SalaryStructureSerializer(serializers.ModelSerializer):
             eff_to = instance.effective_to
         # Prevent overlap with any other structure for the same employee.
         # Intervals [effective_from, effective_to] (None end = open/infinity).
+        # An open-ended structure that starts EARLIER than the new one is not
+        # overlap: perform_create auto-closes it at (new_from - 1 day).
         overlap = qs.filter(
-            Q(effective_to__isnull=True) | Q(effective_to__gte=eff_from),
+            Q(effective_to__isnull=True, effective_from__gte=eff_from)
+            | Q(effective_to__gte=eff_from),
         )
         if eff_to:
             overlap = overlap.filter(effective_from__lte=eff_to)

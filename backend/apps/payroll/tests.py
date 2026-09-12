@@ -127,9 +127,10 @@ class SalaryStructureTests(TestCase):
             'components': [],
         }
         res = self.client.post(reverse('salary-structure-list'), payload, format='json')
-        # Different effective_from with no effective_to on first => overlap.
-        self.assertEqual(res.status_code, 400)
-        self.assertIn('tumpang tindih', str(res.data))
+        # New structure auto-closes the open-ended previous one (H-1).
+        self.assertEqual(res.status_code, 201)
+        first = SalaryStructure.objects.get(effective_from=date(2026, 1, 1))
+        self.assertEqual(first.effective_to, date(2026, 5, 31))
 
     def test_non_overlap_allowed(self):
         ss = SalaryStructure.objects.create(
@@ -1306,6 +1307,112 @@ class SalaryStructureComponentsTests(APITestCase):
             payroll.items.filter(component_code='MAKAN', amount=300000).exists()
         )
 
+
+
+class SalaryStructureLifecycleTests(APITestCase):
+    """Deactivate / auto-close / overlap / delete rules for salary structures."""
+
+    def setUp(self):
+        self.admin = make_user('ADMIN', 'admin@test.com')
+        self.client.force_login(self.admin)
+        self.emp = Employee.objects.create(
+            employee_id='E001', full_name='John', employment_status='ACTIVE',
+        )
+        self.structure = SalaryStructure.objects.create(
+            employee=self.emp, effective_from=date(2026, 1, 1), basic_salary=5000000,
+        )
+
+    def test_deactivate_structure(self):
+        res = self.client.post(reverse('salary-structure-deactivate', args=[self.structure.id]), {})
+        self.assertEqual(res.status_code, 200, res.data)
+        self.structure.refresh_from_db()
+        self.assertIsNotNone(self.structure.effective_to)
+
+    def test_deactivate_effective_to_saved(self):
+        res = self.client.post(
+            reverse('salary-structure-deactivate', args=[self.structure.id]),
+            {'effective_to': '2026-06-30'},
+        )
+        self.assertEqual(res.status_code, 200)
+        self.structure.refresh_from_db()
+        self.assertEqual(self.structure.effective_to, date(2026, 6, 30))
+
+    def test_new_structure_auto_closes_previous(self):
+        res = self.client.post(reverse('salary-structure-list'), {
+            'employee': self.emp.id,
+            'effective_from': '2026-07-01',
+            'basic_salary': '6000000',
+            'components': [],
+        }, format='json')
+        self.assertEqual(res.status_code, 201, res.data)
+        self.structure.refresh_from_db()
+        self.assertEqual(self.structure.effective_to, date(2026, 6, 30))
+        new_ss = SalaryStructure.objects.get(pk=res.data['id'])
+        self.assertIsNone(new_ss.effective_to)
+        self.assertTrue(new_ss.is_active)
+
+    def test_overlap_rejected(self):
+        self.client.post(
+            reverse('salary-structure-deactivate', args=[self.structure.id]),
+            {'effective_to': '2026-06-30'},
+        )
+        res = self.client.post(reverse('salary-structure-list'), {
+            'employee': self.emp.id,
+            'effective_from': '2026-03-01',
+            'basic_salary': '6000000',
+            'components': [],
+        }, format='json')
+        self.assertEqual(res.status_code, 400)
+        self.assertIn('tumpang tindih', str(res.data))
+
+    def test_history_preserved_after_deactivate(self):
+        self.client.post(reverse('salary-structure-deactivate', args=[self.structure.id]), {})
+        res = self.client.get(reverse('salary-structure-history', args=[self.emp.id]))
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(len(res.json()), 1)
+        self.assertEqual(res.json()[0]['id'], self.structure.id)
+
+    def test_payroll_uses_structure_by_effective_date(self):
+        make_tax_config(year=2026)
+        self.client.post(
+            reverse('salary-structure-deactivate', args=[self.structure.id]),
+            {'effective_to': '2026-06-30'},
+        )
+        self.client.post(reverse('salary-structure-list'), {
+            'employee': self.emp.id,
+            'effective_from': '2026-07-01',
+            'basic_salary': '6000000',
+            'components': [],
+        }, format='json')
+        period = make_month_period(6)
+        calculate_period(period)
+        payroll = Payroll.objects.get(period=period, employee=self.emp)
+        self.assertEqual(payroll.basic_salary, 5000000)  # old structure covers June
+        july = make_month_period(7)
+        calculate_period(july)
+        payroll_july = Payroll.objects.get(period=july, employee=self.emp)
+        self.assertEqual(payroll_july.basic_salary, 6000000)  # new structure covers July
+
+    def test_admin_can_delete_unused_structure(self):
+        res = self.client.delete(reverse('salary-structure-detail', args=[self.structure.id]))
+        self.assertEqual(res.status_code, 204)
+        self.assertFalse(SalaryStructure.objects.filter(pk=self.structure.id).exists())
+
+    def test_non_admin_delete_forbidden(self):
+        for key, email in (('HR_STAFF', 'hr@test.com'), ('MANAGEMENT', 'mgr@test.com'), ('EMPLOYEE', 'emp@test.com')):
+            self.client.force_login(make_user(key, email))
+            res = self.client.delete(reverse('salary-structure-detail', args=[self.structure.id]))
+            self.assertEqual(res.status_code, 403)
+        self.assertTrue(SalaryStructure.objects.filter(pk=self.structure.id).exists())
+
+    def test_delete_blocked_when_used_in_payroll(self):
+        make_tax_config(year=2026)
+        period = make_month_period(6)
+        calculate_period(period)
+        self.assertTrue(Payroll.objects.filter(employee=self.emp).exists())
+        res = self.client.delete(reverse('salary-structure-detail', args=[self.structure.id]))
+        self.assertEqual(res.status_code, 400)
+        self.assertTrue(SalaryStructure.objects.filter(pk=self.structure.id).exists())
 
 class PayrollReviewTests(APITestCase):
     """PRD Job 2: review summary + per-employee detail (read-only)."""

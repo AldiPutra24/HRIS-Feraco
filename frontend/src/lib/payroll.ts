@@ -104,6 +104,17 @@ export function activeStructure(): Promise<SalaryStructure | null> {
   return request<SalaryStructure | null>('/salary-structures/active/');
 }
 
+export function deactivateStructure(id: number, effectiveTo?: string): Promise<SalaryStructure> {
+  return request<SalaryStructure>(`/salary-structures/${id}/deactivate/`, {
+    method: 'POST',
+    body: JSON.stringify(effectiveTo ? { effective_to: effectiveTo } : {}),
+  });
+}
+
+export function deleteStructure(id: number): Promise<void> {
+  return request<void>(`/salary-structures/${id}/`, { method: 'DELETE' });
+}
+
 // ---------- Payroll Processing (Tahap 2) ----------
 
 export type PayrollPeriod = {

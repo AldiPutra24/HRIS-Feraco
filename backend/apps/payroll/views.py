@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 
 from rest_framework import status, viewsets
@@ -246,12 +246,62 @@ class SalaryStructureViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         # Only HR can create salary structures.
-        obj = serializer.save()
+        with transaction.atomic():
+            obj = serializer.save()
+            # Auto-close the previous open-ended structure on H-1 (history kept).
+            SalaryStructure.objects.filter(
+                employee=obj.employee,
+                is_active=True,
+                effective_to__isnull=True,
+            ).exclude(pk=obj.pk).update(effective_to=obj.effective_from - timedelta(days=1))
         log_event(self.request, 'create', obj=obj, description=f'Salary structure for employee {obj.employee_id} created')
 
     def perform_update(self, serializer):
         obj = serializer.save()
         log_event(self.request, 'update', obj=obj, description=f'Salary structure for employee {obj.employee_id} updated')
+
+    def destroy(self, request, *args, **kwargs):
+        # Destructive delete: ADMIN only; never touch structures used by payroll.
+        if _role(request.user) != 'ADMIN':
+            return Response({'detail': 'Hanya ADMIN yang dapat menghapus salary structure.'}, status=403)
+        instance = self.get_object()
+        used = Payroll.objects.filter(employee_id=instance.employee_id).exists()
+        if used:
+            return Response(
+                {'detail': 'Salary structure sudah digunakan pada payroll dan tidak dapat dihapus.'},
+                status=400,
+            )
+        log_event(request, 'delete', obj=instance, description=f'Salary structure {instance.pk} for employee {instance.employee_id} deleted')
+        instance.delete()
+        return Response(status=204)
+
+    @action(detail=True, methods=['post'])
+    def deactivate(self, request, pk=None):
+        """End an active structure: set effective_to (default: today - 1 day).
+
+        History is preserved. is_active stays True so the payroll engine can
+        still resolve this structure for past periods by effective date; a
+        structure is "inactive" once effective_to is set.
+        """
+        if _role(request.user) not in PAYROLL_ADMIN_ROLES:
+            return Response({'detail': 'Tidak berwenang.'}, status=403)
+        structure = self.get_object()
+        if structure.effective_to is not None:
+            return Response({'detail': 'Structure sudah tidak aktif.'}, status=400)
+        raw = request.data.get('effective_to')
+        if raw in (None, ''):
+            end = date.today() - timedelta(days=1)
+        else:
+            try:
+                end = date.fromisoformat(str(raw))
+            except ValueError:
+                return Response({'detail': 'Tanggal berakhir tidak valid.'}, status=400)
+        if end < structure.effective_from:
+            return Response({'detail': 'Tanggal berakhir tidak boleh sebelum tanggal mulai.'}, status=400)
+        structure.effective_to = end
+        structure.save(update_fields=['effective_to', 'updated_at'])
+        log_event(request, 'update', obj=structure, description=f'Salary structure {structure.pk} deactivated (effective_to={end.isoformat()})')
+        return Response(SalaryStructureSerializer(structure, context={'request': request}).data)
 
     @action(detail=True, methods=['get'])
     def history(self, request, pk=None):
