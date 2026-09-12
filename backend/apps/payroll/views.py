@@ -348,6 +348,21 @@ class PayrollPeriodViewSet(viewsets.ModelViewSet):
         obj = serializer.save()
         log_event(self.request, 'update', obj=obj, description=f'Payroll period {obj.period_month}/{obj.period_year} updated')
 
+    def destroy(self, request, *args, **kwargs):
+        # HR (ADMIN/HR_STAFF/HR_LEAD) may delete; LOCKED periods are
+        # deletable by ADMIN only.
+        role = _role(request.user)
+        period = self.get_object()
+        if role != 'ADMIN':
+            if period.status == PayrollPeriod.Status.LOCKED:
+                return Response(
+                    {'detail': 'Periode LOCKED hanya dapat dihapus oleh ADMIN.'},
+                    status=403,
+                )
+            if role not in PAYROLL_ADMIN_ROLES:
+                return Response({'detail': 'Tidak berwenang.'}, status=403)
+        return super().destroy(request, *args, **kwargs)
+
     def perform_destroy(self, instance):
         log_event(self.request, 'delete', obj=instance, description=f'Payroll period {instance.period_month}/{instance.period_year} deleted')
         instance.delete()

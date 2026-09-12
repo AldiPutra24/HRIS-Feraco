@@ -1227,6 +1227,8 @@ function PayrollProcessingSection() {
   const [showForm, setShowForm] = useState(false);
   const [selectedPeriod, setSelectedPeriod] = useState<PayrollPeriod | null>(null);
   const [transitionError, setTransitionError] = useState('');
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
 
   async function load() {
     setLoading(true); setError('');
@@ -1338,7 +1340,7 @@ function PayrollProcessingSection() {
                               {actionLabel(nextAction(p)!)}
                             </Button>
                           )}
-                          {!isLocked(p) && (
+                          {(isAdmin || !isLocked(p)) && (
                             <Button variant='ghost' size='sm' className='text-destructive' onClick={() => handleDelete(p)}>
                               <Icons.trash />
                             </Button>
