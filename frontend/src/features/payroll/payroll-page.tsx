@@ -770,7 +770,7 @@ function StructuresSection() {
 
 const fmtRp = (n: number) => `Rp ${Number(n || 0).toLocaleString('id')}`;
 
-function ReviewSection({ period }: { period: PayrollPeriod }) {
+function ReviewSection({ period, refreshKey = 0 }: { period: PayrollPeriod; refreshKey?: number }) {
   const [data, setData] = useState<ReviewData | null>(null);
   const [eligibility, setEligibility] = useState<EligibilityData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -778,18 +778,21 @@ function ReviewSection({ period }: { period: PayrollPeriod }) {
   const [expanded, setExpanded] = useState<number | null>(null);
 
   useEffect(() => {
+    let cancelled = false;
     setLoading(true);
     Promise.all([
       getPeriodReview(period.id),
       getPeriodEligibility(period.id).catch(() => null),
     ])
       .then(([review, elig]) => {
+        if (cancelled) return;
         setData(review);
         setEligibility(elig);
       })
-      .catch((err) => setError(apiError(err)))
-      .finally(() => setLoading(false));
-  }, [period.id]);
+      .catch((err) => { if (!cancelled) setError(apiError(err)); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [period.id, refreshKey]);
 
   if (loading) {
     return (
@@ -1045,28 +1048,31 @@ function PeriodForm({ onClose, onSaved }: { onClose: () => void; onSaved: () => 
   );
 }
 
-function PayrollEmployeeTable({ period }: { period: PayrollPeriod }) {
+function PayrollEmployeeTable({ period, refreshKey = 0, onManualChange }: { period: PayrollPeriod; refreshKey?: number; onManualChange: () => void }) {
   const [payrolls, setPayrolls] = useState<Payroll[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [compItems, setCompItems] = useState<PayrollComponent[]>([]);
 
-  async function load() {
+  useEffect(() => {
+    let cancelled = false;
     setLoading(true); setError('');
-    try {
-      const [p, c] = await Promise.all([listPayrolls(period.id), listComponents()]);
-      setPayrolls(p);
-      setCompItems(c);
-    } catch (err) { setError(apiError(err)); }
-    finally { setLoading(false); }
-  }
-
-  useEffect(() => { load(); }, [period.id]);
+    Promise.all([listPayrolls(period.id), listComponents()])
+      .then(([p, c]) => {
+        if (cancelled) return;
+        setPayrolls(p);
+        setCompItems(c);
+      })
+      .catch((err) => { if (!cancelled) setError(apiError(err)); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [period.id, refreshKey]);
 
   async function handleAddManual(payrollId: number, code: string, amount: string) {
     try {
       const updated = await addManualItem(payrollId, code, amount);
       setPayrolls((prev) => prev.map((pr) => pr.id === payrollId ? updated : pr));
+      onManualChange();
     } catch (err) { setError(apiError(err)); }
   }
 
@@ -1074,6 +1080,7 @@ function PayrollEmployeeTable({ period }: { period: PayrollPeriod }) {
     try {
       const updated = await removeManualItem(payrollId, code);
       setPayrolls((prev) => prev.map((pr) => pr.id === payrollId ? updated : pr));
+      onManualChange();
     } catch (err) { setError(apiError(err)); }
   }
 
@@ -1227,6 +1234,7 @@ function PayrollProcessingSection() {
   const [showForm, setShowForm] = useState(false);
   const [selectedPeriod, setSelectedPeriod] = useState<PayrollPeriod | null>(null);
   const [transitionError, setTransitionError] = useState('');
+  const [reviewKey, setReviewKey] = useState(0);
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin';
 
@@ -1255,6 +1263,8 @@ function PayrollProcessingSection() {
       const updated = await transitionPeriod(p.id, action);
       setPeriods((prev) => prev.map((pp) => pp.id === p.id ? updated : pp));
       if (selectedPeriod?.id === p.id) setSelectedPeriod(updated);
+      // Recalculate/transition changes payroll rows → refetch review + table.
+      setReviewKey((k) => k + 1);
     } catch (err) { setTransitionError(apiError(err)); }
   }
 
@@ -1297,9 +1307,13 @@ function PayrollProcessingSection() {
             </Button>
           </div>
           {selectedPeriod.status !== 'DRAFT' && (
-            <ReviewSection period={selectedPeriod} />
+            <ReviewSection period={selectedPeriod} refreshKey={reviewKey} />
           )}
-          <PayrollEmployeeTable period={selectedPeriod} />
+          <PayrollEmployeeTable
+            period={selectedPeriod}
+            refreshKey={reviewKey}
+            onManualChange={() => setReviewKey((k) => k + 1)}
+          />
         </>
       ) : (
         <Card>
