@@ -24,6 +24,8 @@ import {
   listStructures,
   createStructure,
   historyStructures,
+  deactivateStructure,
+  deleteStructure,
   listPeriods,
   createPeriod,
   deletePeriod,
@@ -44,6 +46,7 @@ import {
   resetTaxProfile,
 } from '@/lib/payroll';
 import { listEmployees, type Employee } from '@/lib/employees';
+import { useAuth } from '@/lib/auth/auth-provider';
 
 const CATEGORY = [
   { value: 'EARNING_FIXED', label: 'Gaji Pokok & Tunjangan Tetap' },
@@ -555,6 +558,8 @@ function StructuresSection() {
   const [empFilter, setEmpFilter] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [history, setHistory] = useState<{ empId: number; empName: string; rows: SalaryStructure[] } | null>(null);
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
 
   async function load() {
     setLoading(true);
@@ -584,6 +589,30 @@ function StructuresSection() {
       const rows = await historyStructures(empId);
       const emp = employees.find((e) => e.id === empId);
       setHistory({ empId, empName: emp?.full_name ?? `#${empId}`, rows });
+    } catch (err) {
+      setError(apiError(err));
+    }
+  }
+
+  async function handleDeactivate(s: SalaryStructure) {
+    const raw = window.prompt(
+      `Nonaktifkan struktur gaji ${s.employee_name} (berlaku ${s.effective_from})?\nTanggal berakhir (YYYY-MM-DD, kosongkan = kemarin):`,
+      '',
+    );
+    if (raw === null) return;
+    try {
+      await deactivateStructure(s.id, raw || undefined);
+      await load();
+    } catch (err) {
+      setError(apiError(err));
+    }
+  }
+
+  async function handleDelete(s: SalaryStructure) {
+    if (!window.confirm(`Hapus permanen struktur gaji ${s.employee_name} (${s.effective_from})? Tindakan ini tidak dapat dibatalkan.`)) return;
+    try {
+      await deleteStructure(s.id);
+      await load();
     } catch (err) {
       setError(apiError(err));
     }
@@ -698,10 +727,24 @@ function StructuresSection() {
                       </Badge>
                     </TableCell>
                     <TableCell className='text-right'>
-                      <Button variant='ghost' size='sm' onClick={() => showHistory(s.employee)}>
-                        <Icons.clock />
-                        Riwayat
-                      </Button>
+                      <div className='flex justify-end gap-1'>
+                        <Button variant='ghost' size='sm' onClick={() => showHistory(s.employee)}>
+                          <Icons.clock />
+                          Riwayat
+                        </Button>
+                        {s.is_active && !s.effective_to && (
+                          <Button variant='ghost' size='sm' onClick={() => handleDeactivate(s)}>
+                            <Icons.close />
+                            Nonaktifkan
+                          </Button>
+                        )}
+                        {isAdmin && (
+                          <Button variant='ghost' size='sm' className='text-destructive' onClick={() => handleDelete(s)}>
+                            <Icons.trash />
+                            Hapus
+                          </Button>
+                        )}
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}
