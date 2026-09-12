@@ -159,6 +159,8 @@ def _annual_taxable_earnings(employee, year, current_period, current_gross,
         for it in payroll.items.all():
             if it.source != PayrollItem.Source.SYSTEM:
                 continue
+            if it.component_code == 'BASIC':
+                continue  # basic_salary already added from the Payroll row
             if it.category not in (
                 PayrollComponent.Category.EARNING_FIXED,
                 PayrollComponent.Category.EARNING_VARIABLE,
@@ -203,6 +205,19 @@ def _summarize(employee, period, structure, config, tax_profile):
 
     basic_full = structure.basic_salary if structure else ZERO
     basic = (basic_full * pro_rata).quantize(Decimal('1'))
+
+    # Gaji Pokok as a SYSTEM line item so review/payslip show it. The amount
+    # mirrors the pro-rated basic_salary; excluded from the annual true-up sum
+    # (basic_salary is added from the Payroll row there).
+    earning_items = []
+    if basic > 0:
+        earning_items.append({
+            'code': 'BASIC', 'name': 'Gaji Pokok',
+            'category': PayrollComponent.Category.EARNING_FIXED,
+            'amount': basic,
+            'source': PayrollItem.Source.SYSTEM,
+            'description': f'Gaji Pokok (pro-rata {pro_rata})' if pro_rata < 1 else 'Gaji Pokok',
+        })
 
     fixed_total = ZERO
     fixed_items = []
@@ -346,8 +361,8 @@ def _summarize(employee, period, structure, config, tax_profile):
         'pph_annual': pph_annual,
         'is_dtp': is_dtp,
         'transfer_amount': transfer_amount,
-        'items': fixed_items + manual_items + reimb_items + unpaid_items
-        + ([pph_item] if pph_item else []),
+        'items': earning_items + fixed_items + manual_items + reimb_items
+        + unpaid_items + ([pph_item] if pph_item else []),
     }
 
 
