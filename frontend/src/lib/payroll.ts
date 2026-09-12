@@ -222,6 +222,40 @@ export function listPayrolls(periodId: number): Promise<Payroll[]> {
   return request<Payroll[]>(`/payrolls/?period=${periodId}`).then(unwrapList);
 }
 
+export type ReviewRow = {
+  payroll_id: number;
+  employee_id: number;
+  employee_name: string;
+  basic_salary: number;
+  total_fixed_earning: number;
+  total_variable_earning: number;
+  reimbursement_total: number;
+  gross_salary: number;
+  pph21: number;
+  total_deduction: number;
+  net_salary: number;
+  transfer_amount: number;
+  is_dtp: boolean;
+  items: PayrollItem[];
+};
+
+export type ReviewData = {
+  period: PayrollPeriod;
+  summary: {
+    employee_count: number;
+    total_gross: number;
+    total_pph21: number;
+    total_deduction: number;
+    total_thp: number;
+    total_transfer: number;
+  };
+  employees: ReviewRow[];
+};
+
+export function getPeriodReview(periodId: number): Promise<ReviewData> {
+  return request<ReviewData>(`/periods/${periodId}/review/`);
+}
+
 export function addManualItem(payrollId: number, componentCode: string, amount: string, description?: string): Promise<Payroll> {
   return request<Payroll>(`/payrolls/${payrollId}/manual_item/`, {
     method: 'POST',

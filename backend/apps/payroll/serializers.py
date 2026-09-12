@@ -140,22 +140,53 @@ class SalaryStructureSerializer(serializers.ModelSerializer):
         read_only_fields = ('id', 'created_at', 'employee_name')
 
     def validate_components(self, value):
-        """components must be a list of {code, name, amount} for fixed earnings."""
+        """components must be a list of {code, name, amount} for fixed earnings.
+
+        PRD: Gaji Pokok lives in basic_salary (never in components); each
+        Payment Type may appear at most once; amount >= 0.
+        """
+        if value in (None, ''):
+            return []
         if not isinstance(value, list):
             raise serializers.ValidationError('Komponen harus berupa daftar.')
-        allowed = set()
-        for comp in PayrollComponent.objects.filter(
-            category=PayrollComponent.Category.EARNING_FIXED,
-            is_active=True,
-        ):
-            allowed.add(comp.code)
+        allowed = {
+            comp.code: comp
+            for comp in PayrollComponent.objects.filter(
+                category=PayrollComponent.Category.EARNING_FIXED,
+                is_active=True,
+            )
+        }
+        seen = set()
         for item in value:
             if not isinstance(item, dict) or 'code' not in item:
                 raise serializers.ValidationError('Setiap komponen harus memiliki code.')
-            if item['code'] not in allowed:
+            code = item['code']
+            if code not in allowed:
                 raise serializers.ValidationError(
-                    f"Komponen '{item.get('code')}' bukan tunjangan tetap aktif."
+                    f"Komponen '{code}' bukan tunjangan tetap aktif."
                 )
+            if code in seen:
+                raise serializers.ValidationError(
+                    f"Komponen '{code}' tidak boleh duplikat."
+                )
+            seen.add(code)
+            try:
+                amount = Decimal(str(item.get('amount') or 0))
+            except Exception:
+                raise serializers.ValidationError(
+                    f"Amount komponen '{code}' tidak valid."
+                )
+            if amount < 0:
+                raise serializers.ValidationError(
+                    f"Amount komponen '{code}' tidak boleh negatif."
+                )
+            item['amount'] = str(amount)
+            item['name'] = allowed[code].name
+        return value
+
+    def validate_basic_salary(self, value):
+        if value is None or value < 0:
+            raise serializers.ValidationError('Gaji Pokok tidak boleh negatif.')
         return value
 
     def validate(self, attrs):
