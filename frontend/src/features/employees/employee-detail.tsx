@@ -56,6 +56,7 @@ function Field({ label, value }: { label: string; value: React.ReactNode }) {
 export function EmployeeDetail({ id }: { id: number }) {
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin';
+  const isManagement = user?.role === 'management';
   const [employee, setEmployee] = useState<Employee | null>(null);
   const [contracts, setContracts] = useState<Contract[]>([]);
   const [history, setHistory] = useState<History[]>([]);
@@ -380,10 +381,12 @@ export function EmployeeDetail({ id }: { id: number }) {
             <Field label='Tanggal Masuk' value={employee.join_date} />
             <Field label='Status Kepegawaian' value={
               <span className='flex items-center gap-2'>
-                <Switch
-                  checked={employee.employment_status === 'ACTIVE'}
-                  onCheckedChange={toggleStatus}
-                />
+                {!isManagement && (
+                  <Switch
+                    checked={employee.employment_status === 'ACTIVE'}
+                    onCheckedChange={toggleStatus}
+                  />
+                )}
                 <Badge variant={employee.employment_status === 'ACTIVE' ? 'default' : 'secondary'}>
                   {employee.employment_status}
                 </Badge>
@@ -433,6 +436,7 @@ export function EmployeeDetail({ id }: { id: number }) {
             );
           })()}
 
+          {!isManagement && (
           <Card>
             <CardHeader>
               <CardTitle>
@@ -518,6 +522,7 @@ export function EmployeeDetail({ id }: { id: number }) {
               </form>
             </CardContent>
           </Card>
+          )}
 
           <Card>
             <CardHeader>
@@ -534,7 +539,7 @@ export function EmployeeDetail({ id }: { id: number }) {
                     <TableHead>Status</TableHead>
                     <TableHead>Probation</TableHead>
                     <TableHead>Dokumen</TableHead>
-                    <TableHead className='text-right'>Aksi</TableHead>
+                    {!isManagement && <TableHead className='text-right'>Aksi</TableHead>}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -562,6 +567,9 @@ export function EmployeeDetail({ id }: { id: number }) {
                           '-'
                         )}
                       </TableCell>
+                      {isManagement ? (
+                        <TableCell className='text-right'>-</TableCell>
+                      ) : (
                       <TableCell className='text-right'>
                         <div className='flex items-center justify-end gap-2'>
                           {c.status === 'DRAFT' && (
@@ -604,6 +612,7 @@ export function EmployeeDetail({ id }: { id: number }) {
                           )}
                         </div>
                       </TableCell>
+                      )}
                     </TableRow>
                   ))}
                 </TableBody>
@@ -646,6 +655,7 @@ export function EmployeeDetail({ id }: { id: number }) {
 
       {tab === 'History' && (
         <div className='space-y-4'>
+          {!isManagement && (
           <Card>
             <CardHeader>
               <CardTitle>Tambah Riwayat</CardTitle>
@@ -667,6 +677,7 @@ export function EmployeeDetail({ id }: { id: number }) {
               </form>
             </CardContent>
           </Card>
+          )}
           <Table>
             <TableHeader>
               <TableRow>
@@ -728,10 +739,12 @@ export function EmployeeDetail({ id }: { id: number }) {
 
       {tab === 'Documents' && (
         <div className='space-y-4'>
-          <label className='inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border border-border bg-background px-2.5 text-sm font-medium hover:bg-muted'>
-            {uploading ? 'Mengunggah...' : 'Unggah Dokumen'}
-            <input type='file' className='hidden' onChange={onUpload} disabled={uploading} />
-          </label>
+          {!isManagement && (
+            <label className='inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border border-border bg-background px-2.5 text-sm font-medium hover:bg-muted'>
+              {uploading ? 'Mengunggah...' : 'Unggah Dokumen'}
+              <input type='file' className='hidden' onChange={onUpload} disabled={uploading} />
+            </label>
+          )}
           <Table>
             <TableHeader>
               <TableRow>
