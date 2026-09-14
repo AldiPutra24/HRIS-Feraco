@@ -616,10 +616,14 @@ class DashboardHrView(APIView):
             }
             for a in announcements
         ]
-        # Recent activities: latest audit log entries across HRIS.
+        # Recent activities: latest audit log entries across HRIS (login/logout excluded).
         from apps.audit.models import AuditLog
 
-        recent_logs = AuditLog.objects.filter(deleted_at__isnull=True).select_related('user', 'content_type')[:8]
+        recent_logs = (
+            AuditLog.objects.filter(deleted_at__isnull=True)
+            .exclude(action__in=['login', 'logout'])
+            .select_related('user', 'content_type')[:8]
+        )
         recent_activities = [
             {
                 'id': log.id,
