@@ -81,7 +81,7 @@ export function ManagementOverview() {
           className='border-border hover:bg-muted flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium transition-colors'
         >
           <Icons.teams className='size-4' />
-          Karyawan (Bawahan)
+          Team
         </Link>
         <Link
           href='/dashboard/reimbursements'
