@@ -616,12 +616,28 @@ class DashboardHrView(APIView):
             }
             for a in announcements
         ]
+        # Recent activities: latest audit log entries across HRIS.
+        from apps.audit.models import AuditLog
+
+        recent_logs = AuditLog.objects.filter(deleted_at__isnull=True).select_related('user', 'content_type')[:8]
+        recent_activities = [
+            {
+                'id': log.id,
+                'action': log.action,
+                'actor': log.user.username if log.user else None,
+                'object_repr': str(log.content_object) if log.content_object else None,
+                'description': log.description,
+                'timestamp': log.created_at,
+            }
+            for log in recent_logs
+        ]
         return Response(
             {
                 'leave_today': leave_today_data,
                 'contracts_ending': contracts_data,
                 'birthdays': birthdays,
                 'announcements': announcements_data,
+                'recent_activities': recent_activities,
             }
         )
 

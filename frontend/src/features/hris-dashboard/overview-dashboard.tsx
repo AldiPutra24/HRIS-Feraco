@@ -18,6 +18,7 @@ import {
   updateAnnouncement,
   type Announcement
 } from '@/lib/announcements';
+import { RecentActivities } from '@/features/hris-dashboard/components/recent-activities';
 
 type Summary = {
   total: number;
@@ -479,7 +480,8 @@ export function OverviewDashboard() {
         </Card>
       </div>
 
-      <Card id='pengumuman'>
+      <div className='grid grid-cols-1 gap-4 lg:grid-cols-3'>
+      <Card id='pengumuman' className='lg:col-span-2'>
         <CardHeader>
           <div className='flex items-center justify-between'>
             <CardTitle className='flex items-center gap-2'>
@@ -616,6 +618,9 @@ export function OverviewDashboard() {
           )}
         </CardContent>
       </Card>
+
+      <RecentActivities activities={dashboard?.recent_activities ?? []} loading={dashLoading} />
+      </div>
 
       <Card>
         <CardHeader>

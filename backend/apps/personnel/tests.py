@@ -824,6 +824,7 @@ class DashboardHrApiTests(TestCase):
         self.assertIn('contracts_ending', res.data)
         self.assertIn('birthdays', res.data)
         self.assertIn('announcements', res.data)
+        self.assertIn('recent_activities', res.data)
         self.assertEqual(len(res.data['birthdays']), 1)
 
     def test_employee_denied(self):

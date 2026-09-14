@@ -62,11 +62,21 @@ export type DashboardAnnouncement = {
   end_date: string | null;
 };
 
+export type DashboardActivity = {
+  id: number;
+  action: string;
+  actor: string | null;
+  object_repr: string | null;
+  description: string;
+  timestamp: string;
+};
+
 export type HrDashboard = {
   leave_today: DashboardLeaveToday[];
   contracts_ending: DashboardContractEnding[];
   birthdays: DashboardBirthday[];
   announcements: DashboardAnnouncement[];
+  recent_activities: DashboardActivity[];
 };
 
 export function getHrDashboard(): Promise<HrDashboard> {
