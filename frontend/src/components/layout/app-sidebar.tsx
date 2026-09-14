@@ -169,7 +169,7 @@ export default function AppSidebar() {
                   <UserAvatarProfile
                     className='h-8 w-8 rounded-lg'
                     showInfo
-                    user={{ name: user.name, email: user.email }}
+                    user={{ name: user.name, email: user.email, photoUrl: user.photoUrl }}
                   />
                 )}
                 <Icons.chevronsDown className='ml-auto size-4' />
@@ -187,7 +187,7 @@ export default function AppSidebar() {
                         <UserAvatarProfile
                           className='h-8 w-8 rounded-lg'
                           showInfo
-                          user={{ name: user.name, email: user.email }}
+                          user={{ name: user.name, email: user.email, photoUrl: user.photoUrl }}
                         />
                       )}
                     </div>

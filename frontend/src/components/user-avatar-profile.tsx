@@ -5,6 +5,7 @@ interface UserAvatarProfileProps {
   showInfo?: boolean;
   user: {
     imageUrl?: string;
+    photoUrl?: string | null;
     name: string;
     email: string;
   } | null;
@@ -22,7 +23,7 @@ export function UserAvatarProfile({ className, showInfo = false, user }: UserAva
   return (
     <div className='flex items-center gap-2'>
       <Avatar className={className}>
-        <AvatarImage src={user?.imageUrl || ''} alt={user?.name || ''} />
+        <AvatarImage src={user?.imageUrl || user?.photoUrl || ''} alt={user?.name || ''} />
         <AvatarFallback className='rounded-lg'>{initials}</AvatarFallback>
       </Avatar>
 
