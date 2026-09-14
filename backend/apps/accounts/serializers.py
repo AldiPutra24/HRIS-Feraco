@@ -10,10 +10,24 @@ from .models import Role, User
 
 class UserSerializer(serializers.ModelSerializer):
     role = serializers.CharField(source='role.key', read_only=True)
+    photo_url = serializers.SerializerMethodField()
 
     class Meta:
         model = User
-        fields = ('id', 'username', 'email', 'first_name', 'last_name', 'role', 'is_staff')
+        fields = ('id', 'username', 'email', 'first_name', 'last_name', 'role', 'is_staff', 'photo_url')
+
+    def get_photo_url(self, obj):
+        employee = getattr(getattr(obj, 'personnel', None), 'employee', None)
+        if not employee or not employee.photo:
+            return None
+        from apps.personnel.storage import is_configured, signed_url
+
+        if not is_configured():
+            return None
+        try:
+            return signed_url('employee-photos', employee.photo, expires_in=3600)
+        except Exception:
+            return None
 
 
 class RoleSerializer(serializers.ModelSerializer):

@@ -5,6 +5,7 @@ export type AuthUser = {
   name: string;
   email: string;
   role: AuthRole | null;
+  photoUrl?: string | null;
 };
 
 export type LoginCredentials = {
