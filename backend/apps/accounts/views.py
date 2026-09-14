@@ -85,32 +85,54 @@ class CurrentEmployeeContractsView(APIView):
 
 
 class CurrentEmployeePhotoView(APIView):
-    """Upload/replace the logged-in employee's profile photo (self-service)."""
+    """Upload/replace/delete the logged-in employee's profile photo (self-service)."""
 
     permission_classes = [IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser]
+    ALLOWED_TYPES = {'image/jpeg', 'image/png', 'image/webp'}
+    MAX_SIZE = 5 * 1024 * 1024
+
+    def _employee(self, request):
+        personnel = getattr(request.user, 'personnel', None)
+        return getattr(personnel, 'employee', None)
 
     def post(self, request):
-        from apps.personnel.models import Employee
         from apps.personnel.storage import delete_object, is_configured, upload_bytes
 
-        personnel = getattr(request.user, 'personnel', None)
-        employee = getattr(personnel, 'employee', None)
+        employee = self._employee(request)
         if employee is None:
             return Response({'detail': 'Akun tidak terhubung ke data karyawan.'}, status=status.HTTP_404_NOT_FOUND)
         f = request.FILES.get('photo')
         if f is None:
             return Response({'detail': 'File foto wajib diunggah.'}, status=status.HTTP_400_BAD_REQUEST)
+        if f.content_type not in self.ALLOWED_TYPES:
+            return Response({'detail': 'Format harus JPG, PNG, atau WebP.'}, status=status.HTTP_400_BAD_REQUEST)
+        if f.size > self.MAX_SIZE:
+            return Response({'detail': 'Ukuran maksimal 5MB.'}, status=status.HTTP_400_BAD_REQUEST)
         if not is_configured():
             return Response({'detail': 'Storage tidak dikonfigurasi.'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
         if employee.photo:
             delete_object('employee-photos', employee.photo)
-        ext = (f.name.split('.')[-1] if '.' in f.name else 'jpg')[:8]
+        ext = {'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp'}[f.content_type]
         path = f'emp_{employee.id}_{int(timezone.now().timestamp())}.{ext}'
-        upload_bytes('employee-photos', path, f.read(), content_type=f.content_type or 'image/jpeg')
+        upload_bytes('employee-photos', path, f.read(), content_type=f.content_type)
         employee.photo = path
         employee.save(update_fields=['photo', 'updated_at'])
+        log_event(request, 'update', obj=employee, description=f'{employee.employee_id} updated own profile photo')
         return Response({'photo': path})
+
+    def delete(self, request):
+        from apps.personnel.storage import delete_object, is_configured
+
+        employee = self._employee(request)
+        if employee is None:
+            return Response({'detail': 'Akun tidak terhubung ke data karyawan.'}, status=status.HTTP_404_NOT_FOUND)
+        if employee.photo:
+            if is_configured():
+                delete_object('employee-photos', employee.photo)
+            employee.photo = ''
+            employee.save(update_fields=['photo', 'updated_at'])
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 class RoleViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = Role.objects.all()

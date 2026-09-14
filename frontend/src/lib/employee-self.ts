@@ -32,3 +32,13 @@ export function getMyEmployee(): Promise<Employee> {
 export function listMyContracts(): Promise<Contract[]> {
   return request<Contract[]>('/auth/me/employee/contracts/');
 }
+
+export function uploadMyPhoto(file: File): Promise<{ photo: string }> {
+  const fd = new FormData();
+  fd.append('photo', file);
+  return request<{ photo: string }>('/auth/me/employee/photo/', { method: 'POST', body: fd });
+}
+
+export function deleteMyPhoto(): Promise<void> {
+  return request<void>('/auth/me/employee/photo/', { method: 'DELETE' });
+}
