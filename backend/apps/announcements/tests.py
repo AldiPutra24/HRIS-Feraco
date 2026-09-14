@@ -69,7 +69,12 @@ class AnnouncementApiTests(TestCase):
 
     def test_create_requires_end_date_when_use_end_date(self):
         self.client.force_login(self.hr)
-        res = self.client.post(self.list_url, {'title': 't', 'body': 'b', 'use_end_date': True}, format='json')
+        # Explicit default end_date removed -> still requires a real end_date.
+        res = self.client.post(
+            self.list_url,
+            {'title': 't', 'body': 'b', 'use_end_date': True, 'end_date': ''},
+            format='json',
+        )
         self.assertEqual(res.status_code, 400)
 
     def test_create_clears_end_date_when_not_used(self):
@@ -91,3 +96,41 @@ class AnnouncementApiTests(TestCase):
         )
         self.assertEqual(res.status_code, 201)
         self.assertEqual(Announcement.objects.get(title='t').status, STATUS_INACTIVE)
+
+
+class AnnouncementDefaultsAndExpiryTests(TestCase):
+    """Defaults on create + auto-inactive past end_date."""
+
+    def setUp(self):
+        self.hr = make_user('HR_STAFF', 'hr@test.com')
+        self.client.force_login(self.hr)
+        self.list_url = reverse('announcement-list')
+
+    def test_create_default_use_end_date_plus_7(self):
+        res = self.client.post(self.list_url, {'title': 't', 'body': 'b'}, format='json')
+        self.assertEqual(res.status_code, 201)
+        a = Announcement.objects.get(title='t')
+        self.assertTrue(a.use_end_date)
+        self.assertEqual(a.end_date, timezone.localdate() + timedelta(days=7))
+
+    def test_create_switch_off_no_end_date(self):
+        res = self.client.post(
+            self.list_url, {'title': 't', 'body': 'b', 'use_end_date': False}, format='json',
+        )
+        self.assertEqual(res.status_code, 201)
+        a = Announcement.objects.get(title='t')
+        self.assertFalse(a.use_end_date)
+        self.assertIsNone(a.end_date)
+
+    def test_expired_auto_inactive_on_list(self):
+        past = timezone.localdate() - timedelta(days=1)
+        a = Announcement.objects.create(title='old', body='b', use_end_date=True, end_date=past)
+        self.client.get(self.list_url)  # any read path triggers sync
+        a.refresh_from_db()
+        self.assertEqual(a.status, STATUS_INACTIVE)
+
+    def test_no_end_date_not_touched(self):
+        a = Announcement.objects.create(title='t', body='b', use_end_date=False)
+        self.client.get(self.list_url)
+        a.refresh_from_db()
+        self.assertEqual(a.status, STATUS_ACTIVE)

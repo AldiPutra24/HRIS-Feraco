@@ -179,9 +179,31 @@ export function OverviewDashboard() {
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
   const [status, setStatus] = useState<'ACTIVE' | 'INACTIVE'>('ACTIVE');
-  const [useEndDate, setUseEndDate] = useState(false);
+  const [useEndDate, setUseEndDate] = useState(true);
   const [endDate, setEndDate] = useState('');
   const [saving, setSaving] = useState(false);
+
+  const defaultEndDate = () => {
+    const d = new Date();
+    d.setDate(d.getDate() + 7);
+    return d.toISOString().slice(0, 10);
+  };
+
+  const resetForm = () => {
+    setEditing(null);
+    setAdding(false);
+    setTitle('');
+    setBody('');
+    setStatus('ACTIVE');
+    setUseEndDate(true);
+    setEndDate('');
+  };
+
+  const startAdd = () => {
+    resetForm();
+    setEndDate(defaultEndDate());
+    setAdding(true);
+  };
 
   useEffect(() => {
     (async () => {
@@ -243,7 +265,7 @@ export function OverviewDashboard() {
       setTitle('');
       setBody('');
       setStatus('ACTIVE');
-      setUseEndDate(false);
+      setUseEndDate(true);
       setEndDate('');
     } finally {
       setSaving(false);
@@ -333,12 +355,12 @@ export function OverviewDashboard() {
         <ListCard
           icon='notification'
           label='Pengumuman'
-          count={announcements.length}
+          count={announcements.filter((a) => a.status === 'ACTIVE').slice(0, 3).length}
           href='#pengumuman'
           loading={dashLoading}
           empty='Belum ada pengumuman'
         >
-          {announcements.map((a) => (
+          {announcements.filter((a) => a.status === 'ACTIVE').slice(0, 3).map((a) => (
             <li key={a.id}>
               <div className='hover:bg-muted flex items-start justify-between gap-2 px-1 py-2'>
                 <div className='min-w-0'>
@@ -467,15 +489,7 @@ export function OverviewDashboard() {
             {!editing && !adding && (
               <button
                 type='button'
-                onClick={() => {
-                  setEditing(null);
-                  setTitle('');
-                  setBody('');
-                  setStatus('ACTIVE');
-                  setUseEndDate(false);
-                  setEndDate('');
-                  setAdding(true);
-                }}
+                onClick={startAdd}
                 className={buttonVariants({ variant: 'outline', size: 'sm' })}
               >
                 <Icons.add className='size-4' />
@@ -536,15 +550,7 @@ export function OverviewDashboard() {
                 </button>
                 <button
                   type='button'
-                  onClick={() => {
-                    setEditing(null);
-                    setAdding(false);
-                    setTitle('');
-                    setBody('');
-                    setStatus('ACTIVE');
-                    setUseEndDate(false);
-                    setEndDate('');
-                  }}
+                  onClick={resetForm}
                   className={buttonVariants({ variant: 'ghost', size: 'sm' })}
                 >
                   Batal
@@ -598,6 +604,14 @@ export function OverviewDashboard() {
                   </div>
                 </div>
               ))}
+              <div className='pt-1'>
+                <a
+                  href='#pengumuman'
+                  className={buttonVariants({ variant: 'outline', size: 'sm' })}
+                >
+                  Lihat Semua
+                </a>
+              </div>
             </div>
           )}
         </CardContent>
