@@ -115,7 +115,10 @@ class CurrentEmployeePhotoView(APIView):
             delete_object('employee-photos', employee.photo)
         ext = {'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp'}[f.content_type]
         path = f'emp_{employee.id}_{int(timezone.now().timestamp())}.{ext}'
-        upload_bytes('employee-photos', path, f.read(), content_type=f.content_type)
+        try:
+            upload_bytes('employee-photos', path, f.read(), content_type=f.content_type)
+        except RuntimeError as exc:
+            return Response({'detail': f'Gagal mengunggah ke storage: {exc}'}, status=status.HTTP_502_BAD_GATEWAY)
         employee.photo = path
         employee.save(update_fields=['photo', 'updated_at'])
         log_event(request, 'update', obj=employee, description=f'{employee.employee_id} updated own profile photo')
