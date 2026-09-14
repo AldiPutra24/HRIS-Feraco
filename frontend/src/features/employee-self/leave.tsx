@@ -20,7 +20,7 @@ function StatusBadge({ status }: { status: string }) {
 }
 
 export function EmployeeLeave() {
-  const { loading: profileLoading, error: profileError } = useMyEmployee();
+  const { employee, loading: profileLoading, error: profileError } = useMyEmployee();
   const [balances, setBalances] = useState<LeaveBalance[]>([]);
   const [requests, setRequests] = useState<LeaveRequest[]>([]);
   const [loading, setLoading] = useState(true);
@@ -28,10 +28,12 @@ export function EmployeeLeave() {
   const load = useCallback(async () => {
     setLoading(true);
     const [b, r] = await Promise.all([listBalances(), listLeaveRequests()]);
-    setBalances(b);
-    setRequests(r);
+    // HR staff sees all data server-side; scope to own employee when linked.
+    const myId = employee?.id ?? null;
+    setBalances(myId ? b.filter((x) => x.employee === myId) : b);
+    setRequests(myId ? r.filter((x) => x.employee === myId) : r);
     setLoading(false);
-  }, []);
+  }, [employee?.id]);
 
   useEffect(() => {
     load();
