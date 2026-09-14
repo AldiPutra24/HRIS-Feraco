@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { getMyEmployee, listMyContracts } from '@/lib/employee-self';
 import type { Contract, Employee } from '@/lib/employees';
 
@@ -10,25 +10,22 @@ export function useMyEmployee() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  useEffect(() => {
-    let active = true;
-    (async () => {
-      try {
-        const [emp, cs] = await Promise.all([getMyEmployee(), listMyContracts()]);
-        if (active) {
-          setEmployee(emp);
-          setContracts(cs);
-        }
-      } catch (err) {
-        if (active) setError(err instanceof Error ? err.message : 'Gagal memuat profil.');
-      } finally {
-        if (active) setLoading(false);
-      }
-    })();
-    return () => {
-      active = false;
-    };
+  const load = useCallback(async () => {
+    try {
+      const [emp, cs] = await Promise.all([getMyEmployee(), listMyContracts()]);
+      setEmployee(emp);
+      setContracts(cs);
+      setError('');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Gagal memuat profil.');
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
-  return { employee, contracts, loading, error };
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  return { employee, contracts, loading, error, refresh: load };
 }

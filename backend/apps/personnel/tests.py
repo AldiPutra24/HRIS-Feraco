@@ -869,6 +869,19 @@ class EmployeePhotoApiTests(TestCase):
         # Storage not configured in tests -> 503 expected, not 500.
         self.assertIn(res.status_code, (200, 503))
 
+    def test_upload_rejects_bad_type(self):
+        f = SimpleUploadedFile('p.gif', b'data', content_type='image/gif')
+        res = self.client.post(reverse('me-employee-photo'), {'photo': f}, format='multipart')
+        self.assertEqual(res.status_code, 400)
+
+    def test_delete_clears_photo(self):
+        self.emp.photo = 'emp_1_x.jpg'
+        self.emp.save()
+        res = self.client.delete(reverse('me-employee-photo'))
+        self.assertEqual(res.status_code, 204)
+        self.emp.refresh_from_db()
+        self.assertEqual(self.emp.photo, '')
+
 
 class DashboardManagementTests(TestCase):
     def setUp(self):
