@@ -2,7 +2,10 @@
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Icons } from '@/components/icons';
+import { useRouter } from 'next/navigation';
 import { useMyEmployee } from './use-my-employee';
 
 function Row({ label, value }: { label: string; value?: string | null }) {
@@ -29,6 +32,7 @@ const EMPLOYMENT_VARIANT: Record<string, 'default' | 'secondary' | 'destructive'
 
 export function EmployeeProfile() {
   const { employee, contracts, loading, error } = useMyEmployee();
+  const router = useRouter();
 
   if (error) {
     return (
@@ -52,8 +56,16 @@ export function EmployeeProfile() {
   return (
     <div className='flex flex-1 flex-col gap-4 p-4 md:p-6'>
       <div>
-        <h2 className='text-2xl font-bold tracking-tight'>Profile</h2>
-        <p className='text-muted-foreground text-sm'>Data profil Anda.</p>
+        <div className='flex items-center justify-between gap-4'>
+          <div>
+            <h2 className='text-2xl font-bold tracking-tight'>Profile</h2>
+            <p className='text-muted-foreground text-sm'>Data profil Anda.</p>
+          </div>
+          <Button variant='outline' onClick={() => router.push('/dashboard/settings/account')}>
+            <Icons.account className='size-4' />
+            Pengaturan Akun
+          </Button>
+        </div>
       </div>
 
       <Card>
