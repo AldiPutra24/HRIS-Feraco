@@ -831,6 +831,21 @@ class DashboardHrApiTests(TestCase):
         res = self.client.get('/api/dashboard/hr/')
         self.assertEqual(res.status_code, 403)
 
+    def test_dashboard_shows_only_3_latest_active(self):
+        from apps.announcements.models import Announcement, STATUS_INACTIVE
+        from django.utils import timezone as tz
+        base = tz.now()
+        for i in range(5):
+            a = Announcement.objects.create(title=f'a{i}', body='b')
+            # Force distinct ordering: a4 newest ... a0 oldest.
+            Announcement.objects.filter(pk=a.pk).update(created_at=base - timedelta(hours=5 - i))
+        Announcement.objects.create(title='inactive', body='b', status=STATUS_INACTIVE)
+        res = self.client.get('/api/dashboard/hr/')
+        titles = [x['title'] for x in res.data['announcements']]
+        self.assertEqual(len(titles), 3)
+        self.assertNotIn('inactive', titles)
+        self.assertEqual(titles, ['a4', 'a3', 'a2'])  # 3 newest by created_at
+
 
 class EmployeePhotoApiTests(TestCase):
     def setUp(self):

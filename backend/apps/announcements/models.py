@@ -31,6 +31,13 @@ class Announcement(models.Model):
     def __str__(self):
         return self.title
 
+    @classmethod
+    def deactivate_expired(cls):
+        """Auto-inactivate ACTIVE announcements past their end date (idempotent)."""
+        cls.objects.filter(
+            status=STATUS_ACTIVE, use_end_date=True, end_date__lt=timezone.localdate(),
+        ).update(status=STATUS_INACTIVE)
+
     @property
     def is_visible(self) -> bool:
         """Visible to employees: ACTIVE and (no end date or not yet expired)."""

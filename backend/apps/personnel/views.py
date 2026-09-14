@@ -601,7 +601,8 @@ class DashboardHrView(APIView):
                         'position_name': e.position.name if e.position else None,
                     }
                 )
-        announcements = [a for a in Announcement.objects.all()[:10] if a.is_visible]
+        Announcement.deactivate_expired()
+        announcements = [a for a in Announcement.objects.all()[:10] if a.is_visible][:3]
         announcements_data = [
             {
                 'id': a.id,

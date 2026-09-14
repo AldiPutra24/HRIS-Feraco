@@ -16,6 +16,8 @@ class AnnouncementViewSet(viewsets.ModelViewSet):
     search_fields = ['title', 'body']
 
     def get_queryset(self):
+        # Expired announcements must not linger as ACTIVE on any read path.
+        Announcement.deactivate_expired()
         qs = Announcement.objects.all()
         # Employees (non-admin) only see currently visible announcements.
         if _role(self.request.user) not in WRITE_ROLES:
