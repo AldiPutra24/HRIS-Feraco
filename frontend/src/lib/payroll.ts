@@ -229,6 +229,10 @@ export function transitionPeriod(id: number, action: string): Promise<PayrollPer
   return request<PayrollPeriod>(`/periods/${id}/${action}/`, { method: 'POST' });
 }
 
+export function recalculatePeriod(id: number): Promise<PayrollPeriod> {
+  return request<PayrollPeriod>(`/periods/${id}/recalculate/`, { method: 'POST' });
+}
+
 export function listPayrolls(periodId: number): Promise<Payroll[]> {
   return request<Payroll[]>(`/payrolls/?period=${periodId}`).then(unwrapList);
 }

@@ -32,7 +32,7 @@ from .serializers import (
     TaxConfigSerializer,
     TerBracketSerializer,
 )
-from .services import ZERO, calculate_period, payroll_eligibility, refresh_payroll_totals
+from .services import ZERO, calculate_period, payroll_eligibility, recalculate_period, refresh_payroll_totals
 from .exports import build_payslip_pdf, build_recap_xlsx
 from .exports import build_payslip_pdf, build_recap_xlsx
 
@@ -406,6 +406,20 @@ class PayrollPeriodViewSet(viewsets.ModelViewSet):
         log_event(
             request, 'payroll_calculate', obj=period,
             description=f'Payroll period {period.period_month}/{period.period_year} calculated ({payrolls.count()} records)',
+        )
+        return Response(self.get_serializer(period).data)
+
+    @action(detail=True, methods=['post'])
+    def recalculate(self, request, pk=None):
+        """Sync recalculation for CALCULATED/REVIEW periods (idempotent)."""
+        period = self.get_object()
+        try:
+            payrolls = recalculate_period(period)
+        except Exception as exc:  # noqa: BLE001
+            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        log_event(
+            request, 'payroll_recalculate', obj=period,
+            description=f'Payroll period {period.period_month}/{period.period_year} recalculated ({payrolls.count()} records)',
         )
         return Response(self.get_serializer(period).data)
 
