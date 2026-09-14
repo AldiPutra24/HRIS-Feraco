@@ -30,6 +30,7 @@ import {
   createPeriod,
   deletePeriod,
   transitionPeriod,
+  recalculatePeriod,
   listPayrolls,
   getPeriodReview,
   getPeriodEligibility,
@@ -1270,6 +1271,19 @@ function PayrollProcessingSection() {
 
   const isLocked = (p: PayrollPeriod) => p.status === 'LOCKED';
   const isPaidUp = (p: PayrollPeriod) => p.status === 'PAID' || p.status === 'LOCKED';
+  const canRecalculate = (p: PayrollPeriod) => p.status === 'CALCULATED' || p.status === 'REVIEW';
+
+  async function handleRecalculate(p: PayrollPeriod) {
+    setTransitionError('');
+    try {
+      const updated = await recalculatePeriod(p.id);
+      setPeriods((prev) => prev.map((pp) => pp.id === p.id ? updated : pp));
+      if (selectedPeriod?.id === p.id) setSelectedPeriod(updated);
+      // New employees may appear → refetch review + table.
+      setReviewKey((k) => k + 1);
+    } catch (err) { setTransitionError(apiError(err)); }
+  }
+
   const nextAction = (p: PayrollPeriod) => {
     const steps: Record<string, string> = {
       DRAFT: 'calculate',
@@ -1348,6 +1362,11 @@ function PayrollProcessingSection() {
                       <TableCell className='text-xs text-slate-500'>{p.created_at?.slice(0, 10)}</TableCell>
                       <TableCell className='text-right'>
                         <div className='flex items-center justify-end gap-1'>
+                          {canRecalculate(p) && (
+                            <Button variant='ghost' size='sm' onClick={() => handleRecalculate(p)}>
+                              <Icons.refresh />Sync
+                            </Button>
+                          )}
                           {nextAction(p) && !isLocked(p) && (
                             <Button variant='ghost' size='sm' onClick={() => handleTransition(p, nextAction(p)!)}>
                               {nextAction(p) === 'calculate' ? <Icons.plusCircle /> : <Icons.check />}

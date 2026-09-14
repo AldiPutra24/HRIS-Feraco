@@ -24,7 +24,7 @@ from .models import (
 )
 from decimal import Decimal
 
-from .services import _annual_taxable_earnings, calculate_period
+from .services import _annual_taxable_earnings, calculate_period, recalculate_period
 
 User = get_user_model()
 
@@ -468,6 +468,98 @@ class PayrollCalculateTests(TestCase):
             Payroll.objects.create(
                 period=self.period, employee=self.emp, basic_salary=0,
             )
+
+
+class PayrollRecalculateTests(TestCase):
+    """Recalculate on CALCULATED/REVIEW: sync eligible employees, keep MANUAL."""
+
+    def setUp(self):
+        self.admin = make_user('ADMIN', 'admin@test.com')
+        self.client.force_login(self.admin)
+        make_tax_config()
+        self.emp1 = Employee.objects.create(
+            employee_id='E001', full_name='John', employment_status='ACTIVE',
+        )
+        self.comp_basic = PayrollComponent.objects.create(
+            code='BASIC', name='Gaji Pokok', category='EARNING_FIXED',
+            calculation_type='FIXED_AMOUNT', default_amount=5000000,
+        )
+        self.comp_var = PayrollComponent.objects.create(
+            code='LEMBUR', name='Lembur', category='EARNING_VARIABLE',
+            calculation_type='VARIABLE',
+        )
+        SalaryStructure.objects.create(
+            employee=self.emp1, effective_from=date(2026, 1, 1), basic_salary=5000000,
+        )
+        self.period = PayrollPeriod.objects.create(
+            period_month=6, period_year=2026,
+            period_start=date(2026, 6, 1), period_end=date(2026, 6, 30),
+        )
+        calculate_period(self.period)
+        # Bypass one-way transition: mark as CALCULATED directly.
+        PayrollPeriod.objects.filter(pk=self.period.pk).update(status='CALCULATED')
+        self.period.refresh_from_db()
+
+    def _add_emp2(self):
+        emp2 = Employee.objects.create(
+            employee_id='E002', full_name='Jane', employment_status='ACTIVE',
+        )
+        SalaryStructure.objects.create(
+            employee=emp2, effective_from=date(2026, 1, 1), basic_salary=4000000,
+        )
+        return emp2
+
+    def test_new_employee_added_after_first_calc(self):
+        self._add_emp2()
+        recalculate_period(self.period)
+        self.assertEqual(Payroll.objects.filter(period=self.period).count(), 2)
+        self.assertTrue(
+            Payroll.objects.filter(period=self.period, employee__employee_id='E002').exists()
+        )
+
+    def test_no_duplicate_existing_payroll(self):
+        p1 = Payroll.objects.get(period=self.period, employee=self.emp1)
+        recalculate_period(self.period)
+        self.assertEqual(Payroll.objects.filter(period=self.period).count(), 1)
+        p1.refresh_from_db()
+        self.assertEqual(Payroll.objects.get(period=self.period, employee=self.emp1).pk, p1.pk)
+
+    def test_manual_item_preserved(self):
+        payroll = Payroll.objects.get(period=self.period, employee=self.emp1)
+        PayrollItem.objects.create(
+            payroll=payroll, payroll_component=self.comp_var,
+            component_name='Lembur', component_code='LEMBUR',
+            category='EARNING_VARIABLE', amount=200000, source='MANUAL',
+        )
+        recalculate_period(self.period)
+        self.assertEqual(
+            PayrollItem.objects.filter(payroll=payroll, source='MANUAL').count(), 1
+        )
+        payroll.refresh_from_db()
+        self.assertEqual(payroll.total_variable_earning, 200000)
+
+    def test_status_unchanged_and_idempotent(self):
+        self._add_emp2()
+        recalculate_period(self.period)
+        recalculate_period(self.period)  # second run converges
+        self.period.refresh_from_db()
+        self.assertEqual(self.period.status, 'CALCULATED')
+        self.assertEqual(Payroll.objects.filter(period=self.period).count(), 2)
+        self.assertEqual(
+            PayrollItem.objects.filter(payroll__period=self.period, source='SYSTEM').count(), 2
+        )  # 2 employees x BASIC (no fixed components in setUp)
+
+    def test_rejected_on_approved(self):
+        PayrollPeriod.objects.filter(pk=self.period.pk).update(status='APPROVED')
+        self.period.refresh_from_db()
+        with self.assertRaises(ValidationError):
+            recalculate_period(self.period)
+
+    def test_api_recalculate_endpoint(self):
+        self._add_emp2()
+        res = self.client.post(reverse('payroll-period-recalculate', args=[self.period.id]))
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(Payroll.objects.filter(period=self.period).count(), 2)
 
 
 class PayrollManualItemApiTests(TestCase):

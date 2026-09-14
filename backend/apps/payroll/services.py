@@ -456,7 +456,32 @@ def calculate_period(period):
     """
     if period.status != PayrollPeriod.Status.DRAFT:
         raise ValidationError('Hanya periode status DRAFT yang dapat dihitung ulang.')
+    return _run_calculation(period)
 
+
+RECALC_ALLOWED_STATUSES = (
+    PayrollPeriod.Status.CALCULATED,
+    PayrollPeriod.Status.REVIEW,
+)
+
+
+def recalculate_period(period):
+    """Sync recalculation for CALCULATED/REVIEW periods.
+
+    Same engine as calculate_period (eligibility, no duplicates, MANUAL items
+    preserved, SYSTEM items rebuilt) but allowed after first calculation so
+    late-joining employees and updated contracts/structures are picked up.
+    Status is unchanged; idempotent — repeated runs converge to the same data.
+    """
+    if period.status not in RECALC_ALLOWED_STATUSES:
+        raise ValidationError(
+            'Recalculate hanya untuk periode CALCULATED atau REVIEW.'
+        )
+    return _run_calculation(period)
+
+
+def _run_calculation(period):
+    """Shared calculation body (no status guard). See calculate_period."""
     try:
         config = tax_mod.get_active_config(period.period_year)
     except tax_mod.TaxConfigError as exc:
