@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { cancelReimbursement, listReimbursements, type Reimbursement } from '@/lib/reimbursements';
+import { getMyEmployee } from '@/lib/employee-self';
 import { toast } from 'react-toastify';
 
 const STATUS_VARIANT: Record<string, 'default' | 'secondary' | 'destructive' | 'outline'> = {
@@ -34,8 +35,9 @@ export function EmployeeReimbursement() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const r = await listReimbursements();
-    setItems(r);
+    const [r, me] = await Promise.all([listReimbursements(), getMyEmployee().catch(() => null)]);
+    // HR staff sees all data server-side; scope to own employee when linked.
+    setItems(me ? r.filter((x) => x.employee === me.id) : r);
     setLoading(false);
   }, []);
 

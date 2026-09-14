@@ -44,11 +44,13 @@ export function EmployeeOverview() {
   const load = useCallback(async () => {
     setLoading(true);
     const [b, r, a] = await Promise.all([listBalances(), listLeaveRequests(), listAnnouncements()]);
-    setBalances(b);
-    setRequests(r);
+    // HR staff sees all data server-side; scope to own employee when linked.
+    const myId = employee?.id ?? null;
+    setBalances(myId ? b.filter((x) => x.employee === myId) : b);
+    setRequests(myId ? r.filter((x) => x.employee === myId) : r);
     setAnnouncements(a.slice(0, 3));
     setLoading(false);
-  }, []);
+  }, [employee?.id]);
 
   useEffect(() => {
     load();

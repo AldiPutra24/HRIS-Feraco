@@ -1,6 +1,7 @@
 'use client';
 
 import { useAuth } from '@/lib/auth/auth-provider';
+import { readMode } from '@/lib/auth/dashboard-mode';
 import { usePathname, useRouter } from 'next/navigation';
 import { useCallback, useEffect } from 'react';
 
@@ -19,6 +20,11 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
     // Route guard by role: employees live under /dashboard/employee only.
     if (user?.role === 'employee' && !pathname.startsWith('/dashboard/employee')) {
       router.replace('/dashboard/employee');
+      return;
+    }
+    // HR staff in employee mode may browse /dashboard/employee/*.
+    if (user?.role === 'hr_staff' && pathname.startsWith('/dashboard/employee')) {
+      if (readMode() !== 'employee') router.replace('/dashboard/pilih');
       return;
     }
     if (user && user.role !== 'employee' && pathname.startsWith('/dashboard/employee')) {

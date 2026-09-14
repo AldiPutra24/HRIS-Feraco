@@ -28,6 +28,7 @@ import { UserAvatarProfile } from '@/components/user-avatar-profile';
 import { employeeNavGroups, managementNavGroups, navGroups } from '@/config/nav-config';
 import { useMediaQuery } from '@/hooks/use-media-query';
 import { useAuth } from '@/lib/auth/auth-provider';
+import { readMode, writeMode } from '@/lib/auth/dashboard-mode';
 import { useFilteredNavGroups } from '@/hooks/use-nav';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
@@ -41,8 +42,38 @@ export default function AppSidebar() {
   const router = useRouter();
   const isEmployee = user?.role === 'employee';
   const isManagement = user?.role === 'management';
-  const groups = isEmployee ? employeeNavGroups : isManagement ? managementNavGroups : navGroups;
+  const isHrStaff = user?.role === 'hr_staff';
+  const [hrMode, setHrMode] = React.useState<'hris' | 'employee' | null>(null);
+
+  React.useEffect(() => {
+    if (isHrStaff) setHrMode(readMode());
+  }, [isHrStaff, pathname]);
+
+  const inEmployeeMode = isHrStaff && hrMode === 'employee';
+  const groups = isEmployee
+    ? employeeNavGroups
+    : isManagement
+      ? managementNavGroups
+      : inEmployeeMode
+        ? employeeNavGroups
+        : navGroups;
   const filteredGroups = useFilteredNavGroups(groups);
+  const homeHref = isEmployee
+    ? '/dashboard/employee'
+    : isManagement
+      ? '/dashboard/management/overview'
+      : inEmployeeMode
+        ? '/dashboard/employee'
+        : '/dashboard/overview';
+  const brandLabel = isEmployee || inEmployeeMode ? 'FERACO People' : 'FERACO HRIS';
+
+  function switchMode() {
+    if (!isHrStaff) return;
+    const next = hrMode === 'employee' ? 'hris' : 'employee';
+    writeMode(next);
+    setHrMode(next);
+    router.push(next === 'hris' ? '/dashboard/overview' : '/dashboard/employee');
+  }
 
   React.useEffect(() => {
     // Side effects based on sidebar state changes
@@ -52,7 +83,7 @@ export default function AppSidebar() {
     <Sidebar collapsible='icon'>
       <SidebarHeader className='group-data-[collapsible=icon]:pt-4'>
         <Link
-          href={isEmployee ? '/dashboard/employee' : isManagement ? '/dashboard/management/overview' : '/dashboard/overview'}
+          href={homeHref}
           className='flex items-center gap-2 px-2 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0'
         >
           <div className='flex aspect-square size-8 shrink-0 items-center justify-center overflow-hidden rounded-lg'>
@@ -60,7 +91,7 @@ export default function AppSidebar() {
             <img src='/logo.webp' alt='Logo HRIS' className='size-8 object-contain' />
           </div>
           <span className='truncate font-semibold group-data-[collapsible=icon]:hidden'>
-            {isEmployee ? 'FERACO People' : 'FERACO HRIS'}
+            {brandLabel}
           </span>
         </Link>
       </SidebarHeader>
@@ -168,6 +199,12 @@ export default function AppSidebar() {
                     <Icons.user className='mr-2 h-4 w-4' />
                     Role: {user?.role}
                   </DropdownMenuItem>
+                  {isHrStaff && (
+                    <DropdownMenuItem onClick={switchMode}>
+                      <Icons.refresh className='mr-2 h-4 w-4' />
+                      {inEmployeeMode ? 'Ganti ke Dashboard HRIS' : 'Ganti ke Dashboard Karyawan'}
+                    </DropdownMenuItem>
+                  )}
                   <DropdownMenuItem onClick={() => router.push('/dashboard/settings/account')}>
                     <Icons.account className='mr-2 h-4 w-4' />
                     Account
