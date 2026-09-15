@@ -37,6 +37,7 @@ import {
   deleteSkill,
   deleteSkillCategory,
   getFreelancer,
+  getFreelancerDocumentDownload,
   listEvents,
   listFreelancers,
   listSkillCategories,
@@ -1071,6 +1072,7 @@ function FreelancerDetailView({
   onEdit: () => void;
   onAssignmentChanged: () => void | Promise<void>;
 }) {
+  const [addingSkill, setAddingSkill] = useState(false);
   const [newSkill, setNewSkill] = useState('');
   const [docUrl, setDocUrl] = useState('');
   const [docName, setDocName] = useState('');
@@ -1141,7 +1143,14 @@ function FreelancerDetailView({
                 {s.name}
                 <button
                   className='hover:text-destructive'
-                  onClick={() => onSkillRemoved(s.id)}
+                  onClick={async () => {
+                    if (!window.confirm(`Hapus skill "${s.name}"?`)) return;
+                    try {
+                      await onSkillRemoved(s.id);
+                    } catch (err) {
+                      toast.error(err instanceof Error ? err.message : 'Gagal hapus skill.');
+                    }
+                  }}
                   aria-label={`Hapus ${s.name}`}
                 >
                   <Icons.close size={12} />
@@ -1163,14 +1172,21 @@ function FreelancerDetailView({
             </select>
             <Button
               size='sm'
-              disabled={!newSkill}
+              disabled={!newSkill || addingSkill}
               onClick={async () => {
-                if (!newSkill) return;
-                await onSkillAdded(Number(newSkill), '');
-                setNewSkill('');
+                if (!newSkill || addingSkill) return;
+                setAddingSkill(true);
+                try {
+                  await onSkillAdded(Number(newSkill), '');
+                  setNewSkill('');
+                } catch (err) {
+                  toast.error(err instanceof Error ? err.message : 'Gagal tambah skill.');
+                } finally {
+                  setAddingSkill(false);
+                }
               }}
             >
-              <Icons.add size={16} />
+              {addingSkill ? <Icons.spinner className='animate-spin' size={16} /> : <Icons.add size={16} />}
             </Button>
           </div>
         </section>
@@ -1182,19 +1198,28 @@ function FreelancerDetailView({
               <li key={d.id} className='flex items-center justify-between rounded-md border px-2 py-1'>
                 <span className='flex items-center gap-2'>
                   <Icons.page size={14} />
-                  {d.url ? (
-                    <a href={d.url} target='_blank' rel='noreferrer' className='text-primary hover:underline'>{d.name}</a>
-                  ) : d.download_url ? (
-                    <a href={d.download_url} target='_blank' rel='noreferrer' className='text-primary hover:underline'>{d.name}</a>
-                  ) : (
-                    <span>{d.name}</span>
-                  )}
+                  <button
+                    type='button'
+                    className='text-primary hover:underline'
+                    onClick={async () => {
+                      try {
+                        const res = await getFreelancerDocumentDownload(freelancer.id, d.id);
+                        if (!res.url) throw new Error('URL dokumen tidak tersedia.');
+                        window.open(res.url, '_blank', 'noopener,noreferrer');
+                      } catch (err) {
+                        toast.error(err instanceof Error ? err.message : 'Gagal membuka dokumen.');
+                      }
+                    }}
+                  >
+                    {d.name}
+                  </button>
                 </span>
                 <button
                   className='text-muted-foreground hover:text-destructive'
                   aria-label={`Hapus ${d.name}`}
                   disabled={deletingDocId === d.id}
                   onClick={async () => {
+                    if (!window.confirm(`Hapus dokumen "${d.name}"?`)) return;
                     setDeletingDocId(d.id);
                     try {
                       await deleteFreelancerDocument(freelancer.id, d.id);
@@ -1227,6 +1252,7 @@ function FreelancerDetailView({
               size='sm'
               disabled={savingDoc || (!docUrl && !docFile)}
               onClick={async () => {
+                if (savingDoc) return;
                 setSavingDoc(true);
                 try {
                   await uploadFreelancerDocument(freelancer.id, {

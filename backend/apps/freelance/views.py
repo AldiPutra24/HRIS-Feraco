@@ -91,6 +91,8 @@ class FreelancerViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         qs = super().get_queryset()
+        if self.action != 'list':
+            return qs
         params = self.request.query_params
         skill = params.get('skill')
         if skill:

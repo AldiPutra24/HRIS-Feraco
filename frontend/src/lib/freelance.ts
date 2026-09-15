@@ -236,6 +236,12 @@ export function deleteFreelancerDocument(id: number, docId: number): Promise<voi
   return request<void>(`/freelancers/${id}/documents/${docId}/`, { method: 'DELETE' });
 }
 
+export type DocumentDownload = { url: string; name: string };
+
+export function getFreelancerDocumentDownload(id: number, docId: number): Promise<DocumentDownload> {
+  return request<DocumentDownload>(`/freelancers/${id}/documents/${docId}/download/`);
+}
+
 export function listSkills(params: Record<string, string> = {}): Promise<Skill[]> {
   const qs = new URLSearchParams(params).toString();
   return request<Skill[] | Page<Skill>>(`/skills/${qs ? `?${qs}` : ''}`).then(unwrapList);
