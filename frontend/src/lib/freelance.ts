@@ -288,6 +288,14 @@ export function createAssignment(input: AssignmentInput): Promise<EventAssignmen
   return request<EventAssignment>('/assignments/', { method: 'POST', body: JSON.stringify(input) });
 }
 
+export function updateAssignment(id: number, input: Partial<AssignmentInput>): Promise<EventAssignment> {
+  return request<EventAssignment>(`/assignments/${id}/`, { method: 'PUT', body: JSON.stringify(input) });
+}
+
+export function deleteAssignment(id: number): Promise<void> {
+  return request<void>(`/assignments/${id}/`, { method: 'DELETE' });
+}
+
 export type PerformanceInput = {
   rating?: number | null;
   recommendation?: Recommendation | '';
