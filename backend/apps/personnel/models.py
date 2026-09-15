@@ -335,5 +335,22 @@ class EmployeeDocument(models.Model):
 
 
 class Freelancer(Personnel):
+    """External freelance/talent-pool worker. No login/account at this stage."""
+
+    RATE_TYPE_CHOICES = [
+        ('PER_DAY', 'Per Hari'),
+        ('PER_EVENT', 'Per Event'),
+    ]
+
     contact_person = models.CharField(max_length=255, blank=True)
+    whatsapp = models.CharField(max_length=32, blank=True)
+    domicile = models.CharField(max_length=255, blank=True)
     rate = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    rate_type = models.CharField(max_length=16, choices=RATE_TYPE_CHOICES, blank=True)
+    rate_min = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    rate_max = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    is_blacklisted = models.BooleanField(default=False)
+    blacklist_reason = models.TextField(blank=True)
+
+    class Meta:
+        ordering = ['full_name']

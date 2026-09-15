@@ -74,6 +74,12 @@ Catatan: filtering menu di frontend (`use-nav.ts`) hanya UI; otorisasi di backen
 
 ## Last Progress
 
+**Freelance & Talent Pool Module (Fitur 1B)** — last updated 2026-09-15
+
+- **Backend (`apps.freelance`)** — module terpisah dari Employee/Inhouse. Models: `SkillCategory`, `Skill`, `FreelancerSkill` (through), `FreelancerDocument` (upload ke bucket Supabase `recruitment-cvs` — reuse, tidak buat bucket baru), `Event`, `EventAssignment`, `FreelancerPerformance` (rating 1–5 + recommendation RECOMMENDED/RECOMMENDED_NOTES/NOT_RECOMMENDED). `Freelancer` diperluas di `apps.personnel` (whatsapp, domicile, rate/rate_type/rate_min/rate_max, is_blacklisted + reason). RBAC `IsFreelanceManager` = ADMIN/HR_STAFF/HR_LEAD/MANAGEMENT/EMPLOYEE (freelancer TIDAK punya login). ViewSets: freelancers (list+filter skill/rating/recommendation/blacklist, detail nested, skills add/remove, documents upload/url/download/delete), skills, skill-categories, events, assignments (+ performance create/update). 9 tests pass.
+- **Frontend** — `src/lib/freelance.ts` (types + API client: csrf, paginated unwrap, semua endpoint). `src/app/dashboard/freelance/page.tsx`: list table (search nama/HP/email/domisili, filter status/skill/rating/recommendation/blacklist, star rating, badges), Quick Add modal, detail drawer (Sheet) dengan skill add/remove, CV/portfolio upload (file + URL), riwayat event + performa, dan Skill & Kategori management modal. `tsc` clean; oxlint hanya `set-state-in-effect` (pattern konvensi existing, sama dgn payroll/management).
+- **Deferred (sesuai scope)** — magic link, task & progress, reminder, WhatsApp integration, eskalasi otomatis, freelancer login.
+
 **Payroll Module — Tax Config UI (Phase 3d)** — last updated 2026-09-10
 
 - **Konfigurasi Pajak tab (`frontend/src/features/payroll/payroll-page.tsx`)** — pure-frontend UI over the existing Tahap 3a/3b APIs (no new endpoints): edit `dtp_threshold` + `is_active` toggle, annual layer limits (empty = statutory 60jt/250jt/500jt/5M), TER bracket bulk editor (category A/B/C, bruto bounds, rate), annual Pasal 17 override editor (layers 1–5, empty = reset to statutory 5/15/25/30/35%), and per-employee tax profiles (PTKP select + TER category display + NORMAL/GROSS_UP scheme, with missing-profile filter). Backend: `TaxConfigSerializer` now exposes `ter_brackets` (read-only nested) so the TER editor loads existing rows. `tsc` clean, `next build` passes, 78 payroll tests pass; docs in `docs/payroll.md`.
