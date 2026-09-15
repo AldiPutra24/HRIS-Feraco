@@ -41,6 +41,7 @@ INSTALLED_APPS = [
     'apps.leaves',
     'apps.reimbursement',
     'apps.recruitment',
+    'apps.freelance',
     'apps.payroll',
     'apps.onboarding',
     'apps.announcements',
