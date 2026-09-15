@@ -1079,11 +1079,12 @@ function FreelancerDetailView({
   const [docFile, setDocFile] = useState<File | null>(null);
   const [savingDoc, setSavingDoc] = useState(false);
   const [deletingDocId, setDeletingDocId] = useState<number | null>(null);
+  const [viewingDocId, setViewingDocId] = useState<number | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyEdit, setHistoryEdit] = useState<EventAssignment | null>(null);
   const [historyDeletingId, setHistoryDeletingId] = useState<number | null>(null);
 
-  const assignedSkillIds = new Set(freelancer.skills.map((s) => s.id));
+  const assignedSkillIds = new Set(freelancer.skills.map((s) => s.skill));
 
   return (
     <div className='flex h-full flex-col'>
@@ -1140,18 +1141,20 @@ function FreelancerDetailView({
           <div className='flex flex-wrap gap-1'>
             {freelancer.skills.map((s) => (
               <Badge key={s.id} variant='outline' className='gap-1'>
-                {s.name}
+                {s.skill_name}
                 <button
+                  type='button'
                   className='hover:text-destructive'
-                  onClick={async () => {
-                    if (!window.confirm(`Hapus skill "${s.name}"?`)) return;
+                  onClick={async (e) => {
+                    e.stopPropagation();
+                    if (!window.confirm(`Hapus skill "${s.skill_name}"?`)) return;
                     try {
-                      await onSkillRemoved(s.id);
+                      await onSkillRemoved(s.skill);
                     } catch (err) {
                       toast.error(err instanceof Error ? err.message : 'Gagal hapus skill.');
                     }
                   }}
-                  aria-label={`Hapus ${s.name}`}
+                  aria-label={`Hapus ${s.skill_name}`}
                 >
                   <Icons.close size={12} />
                 </button>
@@ -1200,17 +1203,23 @@ function FreelancerDetailView({
                   <Icons.page size={14} />
                   <button
                     type='button'
-                    className='text-primary hover:underline'
-                    onClick={async () => {
+                    className='text-primary hover:underline disabled:opacity-50'
+                    disabled={viewingDocId === d.id}
+                    onClick={async (e) => {
+                      e.preventDefault();
+                      setViewingDocId(d.id);
                       try {
                         const res = await getFreelancerDocumentDownload(freelancer.id, d.id);
                         if (!res.url) throw new Error('URL dokumen tidak tersedia.');
                         window.open(res.url, '_blank', 'noopener,noreferrer');
                       } catch (err) {
                         toast.error(err instanceof Error ? err.message : 'Gagal membuka dokumen.');
+                      } finally {
+                        setViewingDocId(null);
                       }
                     }}
                   >
+                    {viewingDocId === d.id ? <Icons.spinner className='mr-1 inline animate-spin' size={14} /> : null}
                     {d.name}
                   </button>
                 </span>
