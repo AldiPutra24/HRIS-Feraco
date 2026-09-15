@@ -116,10 +116,18 @@ class SkillTests(TestCase):
         # duplicate rejected
         dup = self.client.post(f'/api/freelance/freelancers/{f.id}/skills/', {'skill': skill.id}, content_type='application/json')
         self.assertEqual(dup.status_code, 400)
+        # remove skill relation (master Skill untouched)
+        rem = self.client.delete(f'/api/freelance/freelancers/{f.id}/skills/?skill={skill.id}')
+        self.assertEqual(rem.status_code, 204)
+        self.assertFalse(FreelancerSkill.objects.filter(freelancer=f, skill=skill).exists())
+        self.assertTrue(Skill.objects.filter(id=skill.id).exists())
+        # remove again -> 404
+        rem2 = self.client.delete(f'/api/freelance/freelancers/{f.id}/skills/?skill={skill.id}')
+        self.assertEqual(rem2.status_code, 404)
         # filter by skill
         flt = self.client.get('/api/freelance/freelancers/?skill=Usher')
         self.assertEqual(flt.status_code, 200)
-        self.assertEqual(len(flt.json()['results']), 1)
+        self.assertEqual(len(flt.json()['results']), 0)
 
 
 class EventAssignmentPerformanceTests(TestCase):
@@ -183,6 +191,19 @@ class DocumentTests(TestCase):
         resp = self.client.delete(f'/api/freelance/freelancers/{self.f.id}/documents/{doc_id}/')
         self.assertEqual(resp.status_code, 204)
         self.assertFalse(FreelancerDocument.objects.filter(id=doc_id).exists())
+
+    def test_document_download_returns_url_json(self):
+        doc = self.client.post(f'/api/freelance/freelancers/{self.f.id}/documents/', {
+            'doc_type': 'PORTFOLIO', 'name': 'Behance', 'url': 'https://behance.net/x',
+        }, content_type='application/json')
+        doc_id = doc.json()['id']
+        resp = self.client.get(f'/api/freelance/freelancers/{self.f.id}/documents/{doc_id}/download/')
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertEqual(data['url'], 'https://behance.net/x')
+        self.assertEqual(data['name'], 'Behance')
+        # not the API endpoint itself
+        self.assertNotIn('/download/', data['url'])
 
 class EditBlacklistTests(TestCase):
     def setUp(self):
