@@ -23,7 +23,7 @@ function extractError(data: unknown): string | null {
   return null;
 }
 
-async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+export async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
   if (init.body && !(init.body instanceof FormData)) headers.set('Content-Type', 'application/json');
   const csrf = getCookie('csrftoken');
@@ -312,4 +312,82 @@ export type PerformanceInput = {
 
 export function savePerformance(assignmentId: number, input: PerformanceInput): Promise<FreelancerPerformance> {
   return request<FreelancerPerformance>(`/assignments/${assignmentId}/performance/`, { method: 'POST', body: JSON.stringify(input) });
+}
+
+export type TaskStatus = 'BELUM_MULAI' | 'SEDANG_DIKERJAKAN' | 'SELESAI' | 'TERKENDALA';
+
+export const TASK_STATUS_LABELS: Record<TaskStatus, string> = {
+  BELUM_MULAI: 'Belum Mulai',
+  SEDANG_DIKERJAKAN: 'Sedang Dikerjakan',
+  SELESAI: 'Selesai',
+  TERKENDALA: 'Terkendala',
+};
+
+export type TaskUpdate = {
+  id: number;
+  status: TaskStatus;
+  note: string;
+  created_by_name: string | null;
+  created_at: string;
+};
+
+export type FreelanceTask = {
+  id: number;
+  event: number;
+  event_name: string;
+  freelancer: number;
+  freelancer_name: string;
+  title: string;
+  description: string;
+  deadline: string | null;
+  status: TaskStatus;
+  pic: number | null;
+  pic_name: string | null;
+  last_update: TaskUpdate | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type TaskInput = {
+  event: number;
+  freelancer: number;
+  title: string;
+  description?: string;
+  deadline?: string | null;
+  status?: TaskStatus;
+  pic?: string;
+};
+
+export type EventTaskProgress = {
+  total: number;
+  BELUM_MULAI: number;
+  SEDANG_DIKERJAKAN: number;
+  SELESAI: number;
+  TERKENDALA: number;
+  percentage: number;
+};
+
+export function listTasks(params: Record<string, string> = {}): Promise<FreelanceTask[]> {
+  const qs = new URLSearchParams(params).toString();
+  return request<FreelanceTask[] | Page<FreelanceTask>>(`/tasks/${qs ? `?${qs}` : ''}`).then(unwrapList);
+}
+
+export function createTask(input: TaskInput): Promise<FreelanceTask> {
+  return request<FreelanceTask>('/tasks/', { method: 'POST', body: JSON.stringify(input) });
+}
+
+export function updateTask(id: number, input: Partial<TaskInput>): Promise<FreelanceTask> {
+  return request<FreelanceTask>(`/tasks/${id}/`, { method: 'PATCH', body: JSON.stringify(input) });
+}
+
+export function deleteTask(id: number): Promise<void> {
+  return request<void>(`/tasks/${id}/`, { method: 'DELETE' });
+}
+
+export function addTaskUpdate(id: number, input: { status?: TaskStatus; note?: string }): Promise<TaskUpdate> {
+  return request<TaskUpdate>(`/tasks/${id}/updates/`, { method: 'POST', body: JSON.stringify(input) });
+}
+
+export function getEventTaskProgress(eventId: number): Promise<EventTaskProgress> {
+  return request<EventTaskProgress>(`/events/${eventId}/task-progress/`);
 }

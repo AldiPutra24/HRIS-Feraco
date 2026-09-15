@@ -10,6 +10,8 @@ from apps.personnel.models import Freelancer
 from .models import (
     Event,
     EventAssignment,
+    FreelanceTask,
+    FreelanceTaskUpdate,
     FreelancerDocument,
     FreelancerPerformance,
     FreelancerSkill,
@@ -20,6 +22,8 @@ from .permissions import IsFreelanceManager
 from .serializers import (
     EventAssignmentSerializer,
     EventSerializer,
+    FreelanceTaskSerializer,
+    FreelanceTaskUpdateSerializer,
     FreelancerDetailSerializer,
     FreelancerDocumentSerializer,
     FreelancerListSerializer,
@@ -240,6 +244,20 @@ class EventViewSet(viewsets.ModelViewSet):
         instance.delete()
         log_event(self.request, 'delete', obj=None, description=f'Event "{name}" deleted')
 
+    @action(detail=True, methods=['get'], url_path='task-progress')
+    def task_progress(self, request, pk=None):
+        event = self.get_object()
+        tasks = event.tasks.all()
+        counts = {key: 0 for key, _ in FreelanceTask.STATUS_CHOICES}
+        for t in tasks:
+            counts[t.status] = counts.get(t.status, 0) + 1
+        total = tasks.count()
+        return Response({
+            'total': total,
+            **counts,
+            'percentage': round(counts['SELESAI'] / total * 100) if total else 0,
+        })
+
 
 class EventAssignmentViewSet(viewsets.ModelViewSet):
     queryset = EventAssignment.objects.select_related('freelancer', 'event').all()
@@ -285,3 +303,67 @@ class EventAssignmentViewSet(viewsets.ModelViewSet):
         serializer.save()
         log_event(request, 'update', obj=assignment, description='Performance updated')
         return Response(serializer.data)
+
+class FreelanceTaskViewSet(viewsets.ModelViewSet):
+    queryset = FreelanceTask.objects.select_related('event', 'freelancer').all()
+    serializer_class = FreelanceTaskSerializer
+    permission_classes = [IsFreelanceManager]
+    filterset_fields = ['event', 'freelancer', 'status']
+    search_fields = ['title', 'description', 'pic']
+    ordering_fields = ['deadline', 'created_at', 'updated_at']
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        params = self.request.query_params
+        if params.get('deadline_before'):
+            qs = qs.filter(deadline__lte=params['deadline_before'])
+        if params.get('deadline_after'):
+            qs = qs.filter(deadline__gte=params['deadline_after'])
+        return qs
+
+    def perform_create(self, serializer):
+        obj = serializer.save(
+            created_by=self.request.user if self.request.user.is_authenticated else None
+        )
+        log_event(self.request, 'create', obj=obj, description=f'Task "{obj.title}" created')
+
+    def perform_update(self, serializer):
+        old_status = self.get_object().status
+        obj = serializer.save()
+        if obj.status != old_status:
+            FreelanceTaskUpdate.objects.create(
+                task=obj,
+                status=obj.status,
+                note=(serializer.validated_data.get('description') or ''),
+                created_by=self.request.user if self.request.user.is_authenticated else None,
+            )
+        log_event(self.request, 'update', obj=obj, description=f'Task "{obj.title}" updated')
+
+    def perform_destroy(self, instance):
+        name = str(instance)
+        instance.delete()
+        log_event(self.request, 'delete', obj=None, description=f'Task {name} deleted')
+
+    @action(detail=True, methods=['get'])
+    def updates(self, request, pk=None):
+        task = self.get_object()
+        serializer = FreelanceTaskUpdateSerializer(task.updates.all(), many=True)
+        return Response(serializer.data)
+
+    @action(detail=True, methods=['post'], url_path='updates')
+    def add_update(self, request, pk=None):
+        task = self.get_object()
+        new_status = request.data.get('status') or task.status
+        if new_status not in dict(FreelanceTask.STATUS_CHOICES):
+            return Response({'status': ['Status tidak valid.']}, status=status.HTTP_400_BAD_REQUEST)
+        update = FreelanceTaskUpdate.objects.create(
+            task=task,
+            status=new_status,
+            note=request.data.get('note', ''),
+            created_by=request.user if request.user.is_authenticated else None,
+        )
+        if new_status != task.status:
+            task.status = new_status
+            task.save(update_fields=['status', 'updated_at'])
+        log_event(request, 'create', obj=task, description=f'Task "{task.title}" update added')
+        return Response(FreelanceTaskUpdateSerializer(update).data, status=status.HTTP_201_CREATED)

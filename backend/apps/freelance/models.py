@@ -168,3 +168,63 @@ class FreelancerPerformance(models.Model):
 
     def __str__(self):
         return f'Perf {self.assignment_id}: {self.recommendation}'
+
+class FreelanceTask(models.Model):
+    """Deliverable assigned to a freelancer within an event."""
+
+    STATUS_CHOICES = [
+        ('BELUM_MULAI', 'Belum Mulai'),
+        ('SEDANG_DIKERJAKAN', 'Sedang Dikerjakan'),
+        ('SELESAI', 'Selesai'),
+        ('TERKENDALA', 'Terkendala'),
+    ]
+
+    event = models.ForeignKey(
+        Event, on_delete=models.CASCADE, related_name='tasks'
+    )
+    freelancer = models.ForeignKey(
+        Freelancer, on_delete=models.CASCADE, related_name='tasks'
+    )
+    title = models.CharField(max_length=255)
+    description = models.TextField(blank=True)
+    deadline = models.DateField(null=True, blank=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='BELUM_MULAI')
+    pic = models.CharField(max_length=255, blank=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='created_freelance_tasks',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['deadline', '-created_at']
+
+    def __str__(self):
+        return f'{self.title} ({self.freelancer.full_name} @ {self.event.name})'
+
+class FreelanceTaskUpdate(models.Model):
+    """Progress update history for a task."""
+
+    task = models.ForeignKey(
+        FreelanceTask, on_delete=models.CASCADE, related_name='updates'
+    )
+    status = models.CharField(max_length=20, choices=FreelanceTask.STATUS_CHOICES)
+    note = models.TextField(blank=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='freelance_task_updates',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'{self.task_id}: {self.status}'

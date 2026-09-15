@@ -11,6 +11,8 @@ from apps.personnel.models import Freelancer
 from .models import (
     Event,
     EventAssignment,
+    FreelanceTask,
+    FreelanceTaskUpdate,
     FreelancerDocument,
     FreelancerPerformance,
     FreelancerSkill,
@@ -280,3 +282,86 @@ class AuthorizationTests(TestCase):
     def test_unauthenticated_blocked(self):
         resp = self.client.get('/api/freelance/freelancers/')
         self.assertEqual(resp.status_code, 403)
+
+class TaskTests(TestCase):
+    def setUp(self):
+        self.admin = make_user('ADMIN', 'admin@test.com')
+        self.client.force_login(self.admin)
+        self.freelancer = make_freelancer()
+        self.event = Event.objects.create(name='Event A', created_by=self.admin)
+
+    def _payload(self, **kw):
+        data = {
+            'event': self.event.id,
+            'freelancer': self.freelancer.id,
+            'title': 'Setup booth',
+            'description': 'Siapkan booth utama',
+            'deadline': '2025-12-01',
+            'status': 'BELUM_MULAI',
+            'pic': '',
+        }
+        data.update(kw)
+        return data
+
+    def test_create_task(self):
+        resp = self.client.post('/api/freelance/tasks/', self._payload(), content_type='application/json')
+        self.assertEqual(resp.status_code, 201)
+        data = resp.json()
+        self.assertEqual(data['title'], 'Setup booth')
+        self.assertEqual(data['status'], 'BELUM_MULAI')
+        self.assertTrue(AuditLog.objects.filter(action='create', object_id=str(data['id'])).exists())
+
+    def test_create_task_requires_title(self):
+        resp = self.client.post('/api/freelance/tasks/', self._payload(title='  '), content_type='application/json')
+        self.assertEqual(resp.status_code, 400)
+
+    def test_create_task_invalid_status(self):
+        resp = self.client.post('/api/freelance/tasks/', self._payload(status='SALAH'), content_type='application/json')
+        self.assertEqual(resp.status_code, 400)
+
+    def test_update_status_creates_history(self):
+        task = FreelanceTask.objects.create(event=self.event, freelancer=self.freelancer, title='T1')
+        resp = self.client.patch(f'/api/freelance/tasks/{task.id}/', {'status': 'SEDANG_DIKERJAKAN'}, content_type='application/json')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(task.updates.count(), 1)
+        self.assertEqual(task.updates.first().status, 'SEDANG_DIKERJAKAN')
+
+    def test_add_update_with_note(self):
+        task = FreelanceTask.objects.create(event=self.event, freelancer=self.freelancer, title='T1')
+        resp = self.client.post(f'/api/freelance/tasks/{task.id}/updates/', {'status': 'TERKENDALA', 'note': 'Menunggu alat'}, content_type='application/json')
+        self.assertEqual(resp.status_code, 201)
+        task.refresh_from_db()
+        self.assertEqual(task.status, 'TERKENDALA')
+        self.assertEqual(task.updates.count(), 1)
+
+    def test_filters(self):
+        FreelanceTask.objects.create(event=self.event, freelancer=self.freelancer, title='Alpha', status='SELESAI')
+        FreelanceTask.objects.create(event=self.event, freelancer=self.freelancer, title='Beta', status='BELUM_MULAI')
+        resp = self.client.get('/api/freelance/tasks/?status=SELESAI')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(len(resp.json()['results']), 1)
+        resp = self.client.get('/api/freelance/tasks/?search=Alpha')
+        self.assertEqual(len(resp.json()['results']), 1)
+        resp = self.client.get(f'/api/freelance/tasks/?event={self.event.id}')
+        self.assertEqual(len(resp.json()['results']), 2)
+
+    def test_delete_task(self):
+        task = FreelanceTask.objects.create(event=self.event, freelancer=self.freelancer, title='T1')
+        resp = self.client.delete(f'/api/freelance/tasks/{task.id}/')
+        self.assertEqual(resp.status_code, 204)
+        self.assertFalse(FreelanceTask.objects.filter(id=task.id).exists())
+
+    def test_event_task_progress(self):
+        FreelanceTask.objects.create(event=self.event, freelancer=self.freelancer, title='A', status='SELESAI')
+        FreelanceTask.objects.create(event=self.event, freelancer=self.freelancer, title='B', status='BELUM_MULAI')
+        resp = self.client.get(f'/api/freelance/events/{self.event.id}/task-progress/')
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertEqual(data['total'], 2)
+        self.assertEqual(data['SELESAI'], 1)
+        self.assertEqual(data['percentage'], 50)
+
+    def test_unauthenticated_denied(self):
+        self.client.logout()
+        resp = self.client.get('/api/freelance/tasks/')
+        self.assertIn(resp.status_code, (401, 403))

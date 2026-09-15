@@ -60,6 +60,10 @@ Starts PostgreSQL, Django (migrate + seed + gunicorn on :8000), Next.js on :3000
 - Backend: `manage.py check` + `manage.py test`
 - Frontend: `npx tsc --noEmit`, `npx oxlint`, `npx next build`
 
+## Demo login
+
+- Email: `admin@feraco.id` / Password: `password`
+
 ## Roles
 
 | Role | Keterangan |
@@ -74,6 +78,7 @@ Catatan: filtering menu di frontend (`use-nav.ts`) hanya UI; otorisasi di backen
 
 ## Last Progress
 
+**Production Environment & Core Modules Summary** — last updated 2026-08-28
 **Freelance & Talent Pool Module (Fitur 1B)** — last updated 2026-09-15
 
 - **Backend (`apps.freelance`)** — module terpisah dari Employee/Inhouse. Models: `SkillCategory`, `Skill`, `FreelancerSkill` (through), `FreelancerDocument` (upload ke bucket Supabase `recruitment-cvs` — reuse, tidak buat bucket baru), `Event`, `EventAssignment`, `FreelancerPerformance` (rating 1–5 + recommendation RECOMMENDED/RECOMMENDED_NOTES/NOT_RECOMMENDED). `Freelancer` diperluas di `apps.personnel` (whatsapp, domicile, rate/rate_type/rate_min/rate_max, is_blacklisted + reason). RBAC `IsFreelanceManager` = ADMIN/HR_STAFF/HR_LEAD/MANAGEMENT/EMPLOYEE (freelancer TIDAK punya login). ViewSets: freelancers (list+filter skill/rating/recommendation/blacklist, detail nested, skills add/remove, documents upload/url/download/delete), skills, skill-categories, events, assignments (+ performance create/update). 9 tests pass.
@@ -129,7 +134,10 @@ Catatan: filtering menu di frontend (`use-nav.ts`) hanya UI; otorisasi di backen
 - **Centralized auth session expiry** — 401/403 from `/api/auth/me/` or any API call triggers session clear + redirect to `/login` with return URL preserved. Implemented centrally in `auth-client.ts`, `api-client.ts`, `AuthProvider`, and `ProtectedRoute`. No per-page logic needed. See `src/lib/session-events.ts`.
 - **Employee & Contract Lifecycle** — Employee CRUD, Department & Position masters, contract management (PKWT/PKWTT, system-managed status DRAFT/ACTIVE/EXPIRED/TERMINATED/RENEWED), employment history, and employee documents stored in Supabase Storage (signed download URLs).
 - **Leave Module (`apps.leaves`)** — Configurable `LeaveType`, annual `LeaveBalance` tracking, `LeaveRequest` workflow (DRAFT/PENDING/APPROVED/REJECTED/CANCELLED with idempotent quota deduction and attachment support).
+- **Employee Self-Service (`/dashboard/employee`)** — Role-restricted employee portal for viewing profile, submitting/tracking leave requests, and reviewing active contracts.
 - **Employee Self-Service (`/dashboard/employee`)** — Role-restricted employee portal for viewing profile, submitting/tracking leave & reimbursement requests, and reviewing active contracts.
 - **Extended Audit Log (`apps.audit`)** — Granular audit tracking (CREATE/UPDATE/DELETE/APPROVE/REJECT/ACTIVATE/TERMINATE/RENEW/UPLOAD/DOWNLOAD) with before/after diffs, sensitive field redaction (NIK/NPWP/BPJS/bank), and audit trail UI at `/dashboard/settings/audit-log`.
+- **Production & Server Optimization** — Live on VPS under `https://hris.agentlab.my.id` with Nginx reverse proxy & Let's Encrypt SSL; connected to Supabase PostgreSQL (SG region).
+- **Validation** — Backend `check` & 66 unit tests pass; Frontend `tsc`, `oxlint`, and `next build` clean.
 - **Production & Server Optimization** — Live on VPS (`43.154.128.239`) under `https://hris.feraco.co.id` (with redirect from `hris.agentlab.my.id`) with Nginx reverse proxy & Let's Encrypt SSL; connected to Supabase PostgreSQL (SG region). Server RAM optimized by removing unused legacy containers (~500 MB RAM / ~400 MB Swap freed). Full operational guide documented in `production.md`.
 - **Validation** — Backend `check` & 34 recruitment tests pass; Frontend `tsc`, `oxlint`, and `next build` clean.
