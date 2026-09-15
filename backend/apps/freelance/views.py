@@ -78,7 +78,7 @@ class SkillViewSet(viewsets.ModelViewSet):
 class FreelancerViewSet(viewsets.ModelViewSet):
     queryset = Freelancer.objects.all()
     permission_classes = [IsFreelanceManager]
-    search_fields = ['full_name', 'email', 'whatsapp', 'domicile']
+    search_fields = ['full_name', 'personal_email', 'whatsapp', 'domicile']
     ordering_fields = ['full_name', 'created_at', 'updated_at']
     filterset_fields = ['status', 'is_blacklisted']
 
