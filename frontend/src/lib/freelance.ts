@@ -124,10 +124,11 @@ export type Freelancer = {
   updated_at: string;
 };
 
-export type FreelancerDetail = Freelancer & {
+export type FreelancerDetail = Omit<Freelancer, 'skills'> & {
   phone: string;
   address: string;
   contact_person: string;
+  skills: FreelancerSkill[];
   documents: FreelancerDocument[];
   assignments: EventAssignment[];
 };
