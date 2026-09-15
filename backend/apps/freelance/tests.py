@@ -71,6 +71,28 @@ class FreelancerTests(TestCase):
         self.assertIn('Black', names)
         self.assertNotIn('Clean', names)
 
+    def test_search_by_name(self):
+        make_freelancer(full_name='Budi Santoso', domicile='Jakarta')
+        make_freelancer(full_name='Siti Aminah', domicile='Bandung')
+        resp = self.client.get('/api/freelance/freelancers/?search=Budi')
+        self.assertEqual(resp.status_code, 200)
+        names = [f['full_name'] for f in resp.json()['results']]
+        self.assertEqual(names, ['Budi Santoso'])
+
+    def test_search_by_email(self):
+        make_freelancer(full_name='Budi', personal_email='budi@x.com')
+        make_freelancer(full_name='Siti', personal_email='siti@x.com')
+        resp = self.client.get('/api/freelance/freelancers/?search=budi@x.com')
+        self.assertEqual(resp.status_code, 200)
+        names = [f['full_name'] for f in resp.json()['results']]
+        self.assertEqual(names, ['Budi'])
+
+    def test_search_empty_query(self):
+        make_freelancer(full_name='Budi')
+        resp = self.client.get('/api/freelance/freelancers/?search=')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(len(resp.json()['results']), 1)
+
 
 class SkillTests(TestCase):
     def setUp(self):
