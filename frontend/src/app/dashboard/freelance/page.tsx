@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { Fragment, useCallback, useEffect, useState } from 'react';
 import { toast } from 'react-toastify';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -8,13 +8,6 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from '@/components/ui/sheet';
 import {
   TableBody,
   TableCell,
@@ -461,6 +454,7 @@ export default function FreelancePage() {
   const [categories, setCategories] = useState<SkillCategory[]>([]);
 
   const [quickAddOpen, setQuickAddOpen] = useState(false);
+  const [detailId, setDetailId] = useState<number | null>(null);
   const [detail, setDetail] = useState<FreelancerDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
 
@@ -499,6 +493,12 @@ export default function FreelancePage() {
   }, []);
 
   async function openDetail(id: number) {
+    if (detailId === id) {
+      setDetailId(null);
+      setDetail(null);
+      return;
+    }
+    setDetailId(id);
     setDetailLoading(true);
     setDetail(null);
     try {
@@ -506,6 +506,7 @@ export default function FreelancePage() {
       setDetail(d);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Gagal memuat detail.');
+      setDetailId(null);
     } finally {
       setDetailLoading(false);
     }
@@ -654,7 +655,8 @@ export default function FreelancePage() {
                 </TableHeader>
                 <TableBody>
                   {items.map((f) => (
-                    <TableRow key={f.id}>
+                    <Fragment key={f.id}>
+                    <TableRow>
                       <TableCell className='font-medium'>
                         <button
                           className='text-left hover:underline'
@@ -719,6 +721,53 @@ export default function FreelancePage() {
                         </div>
                       </TableCell>
                     </TableRow>
+                    {detailId === f.id && (
+                      <TableRow className='hover:bg-transparent'>
+                        <TableCell colSpan={8} className='p-0'>
+                          <div className='border-t bg-muted/30 p-4 md:p-6'>
+                            {detailLoading && detail?.id !== f.id ? (
+                              <div className='space-y-3'>
+                                <Skeleton className='h-8 w-1/2' />
+                                <Skeleton className='h-40 w-full' />
+                              </div>
+                            ) : detail?.id === f.id ? (
+                              <FreelancerDetailView
+                                freelancer={detail}
+                                skills={skills}
+                                events={events}
+                                onClose={() => { setDetailId(null); setDetail(null); }}
+                                onChanged={async () => {
+                                  const d = await getFreelancer(detail.id);
+                                  setDetail(d);
+                                  await load();
+                                }}
+                                onSkillAdded={async (skillId, note) => {
+                                  await addFreelancerSkill(detail.id, skillId, note);
+                                  const d = await getFreelancer(detail.id);
+                                  setDetail(d);
+                                }}
+                                onSkillRemoved={async (skillId) => {
+                                  await removeFreelancerSkill(detail.id, skillId);
+                                  const d = await getFreelancer(detail.id);
+                                  setDetail(d);
+                                }}
+                                onDocDeleted={async () => {
+                                  const d = await getFreelancer(detail.id);
+                                  setDetail(d);
+                                }}
+                                onEdit={() => setEditOpen(true)}
+                                onAssignmentChanged={async () => {
+                                  const d = await getFreelancer(detail.id);
+                                  setDetail(d);
+                                  await load();
+                                }}
+                              />
+                            ) : null}
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    )}
+                    </Fragment>
                   ))}
                 </TableBody>
               </table>
@@ -762,48 +811,6 @@ export default function FreelancePage() {
           }}
         />
       )}
-
-      <Sheet open={detail !== null || detailLoading} onOpenChange={(o) => { if (!o) setDetail(null); }}>
-        <SheetContent side='right' className='w-full sm:max-w-2xl'>
-          {detailLoading && !detail ? (
-            <div className='space-y-3 p-6'>
-              <Skeleton className='h-8 w-1/2' />
-              <Skeleton className='h-40 w-full' />
-            </div>
-          ) : detail ? (
-            <FreelancerDetailView
-              freelancer={detail}
-              skills={skills}
-              events={events}
-              onChanged={async () => {
-                const d = await getFreelancer(detail.id);
-                setDetail(d);
-                await load();
-              }}
-              onSkillAdded={async (skillId, note) => {
-                await addFreelancerSkill(detail.id, skillId, note);
-                const d = await getFreelancer(detail.id);
-                setDetail(d);
-              }}
-              onSkillRemoved={async (skillId) => {
-                await removeFreelancerSkill(detail.id, skillId);
-                const d = await getFreelancer(detail.id);
-                setDetail(d);
-              }}
-              onDocDeleted={async () => {
-                const d = await getFreelancer(detail.id);
-                setDetail(d);
-              }}
-              onEdit={() => setEditOpen(true)}
-              onAssignmentChanged={async () => {
-                const d = await getFreelancer(detail.id);
-                setDetail(d);
-                await load();
-              }}
-            />
-          ) : null}
-        </SheetContent>
-      </Sheet>
     </div>
   );
 }
@@ -1060,6 +1067,7 @@ function FreelancerDetailView({
   onSkillRemoved,
   onDocDeleted,
   onEdit,
+  onClose,
   onAssignmentChanged,
 }: {
   freelancer: FreelancerDetail;
@@ -1070,6 +1078,7 @@ function FreelancerDetailView({
   onSkillRemoved: (skillId: number) => void | Promise<void>;
   onDocDeleted: () => void | Promise<void>;
   onEdit: () => void;
+  onClose: () => void;
   onAssignmentChanged: () => void | Promise<void>;
 }) {
   const [addingSkill, setAddingSkill] = useState(false);
@@ -1091,31 +1100,34 @@ function FreelancerDetailView({
     : null;
 
   return (
-    <div className='flex h-full flex-col'>
-      <SheetHeader className='border-b pr-12'>
-        <div className='flex items-start justify-between gap-3'>
-          <div className='min-w-0'>
-            <SheetTitle className='truncate text-lg font-semibold tracking-tight'>{freelancer.full_name}</SheetTitle>
-            <SheetDescription className='mt-1.5 flex flex-wrap items-center gap-1.5'>
-              {freelancer.is_blacklisted ? (
-                <Badge variant='destructive'>Blacklist</Badge>
-              ) : (
-                <Badge variant={statusVariant(freelancer.status)}>{STATUS_LABELS[freelancer.status] ?? freelancer.status}</Badge>
-              )}
-              {freelancer.recommendation && (
-                <Badge variant={RECOMMENDATION_VARIANT[freelancer.recommendation]}>
-                  {RECOMMENDATION_LABELS[freelancer.recommendation]}
-                </Badge>
-              )}
-            </SheetDescription>
+    <div className='space-y-4'>
+      <div className='flex flex-wrap items-start justify-between gap-3'>
+        <div className='min-w-0'>
+          <h3 className='truncate text-lg font-semibold tracking-tight'>{freelancer.full_name}</h3>
+          <div className='mt-1.5 flex flex-wrap items-center gap-1.5'>
+            {freelancer.is_blacklisted ? (
+              <Badge variant='destructive'>Blacklist</Badge>
+            ) : (
+              <Badge variant={statusVariant(freelancer.status)}>{STATUS_LABELS[freelancer.status] ?? freelancer.status}</Badge>
+            )}
+            {freelancer.recommendation && (
+              <Badge variant={RECOMMENDATION_VARIANT[freelancer.recommendation]}>
+                {RECOMMENDATION_LABELS[freelancer.recommendation]}
+              </Badge>
+            )}
           </div>
-          <Button variant='outline' size='sm' className='shrink-0' onClick={onEdit}>
+        </div>
+        <div className='flex shrink-0 gap-2'>
+          <Button variant='outline' size='sm' onClick={onEdit}>
             <Icons.edit size={14} /> Edit
           </Button>
+          <Button variant='ghost' size='sm' onClick={onClose}>
+            <Icons.close size={14} /> Tutup
+          </Button>
         </div>
-      </SheetHeader>
+      </div>
 
-      <div className='flex-1 space-y-4 overflow-y-auto px-4 pb-6 pt-4'>
+      <div className='space-y-4'>
         <section className='rounded-xl border p-4'>
           <h4 className='mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground'>Informasi Kontak</h4>
           <div className='grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2'>
