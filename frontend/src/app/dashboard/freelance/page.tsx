@@ -282,9 +282,7 @@ function EditFreelancerModal({
   const [whatsapp, setWhatsapp] = useState(freelancer.whatsapp);
   const [personalEmail, setPersonalEmail] = useState(freelancer.personal_email);
   const [phone, setPhone] = useState(freelancer.phone ?? '');
-  const [address, setAddress] = useState(freelancer.address ?? '');
   const [domicile, setDomicile] = useState(freelancer.domicile ?? '');
-  const [contactPerson, setContactPerson] = useState(freelancer.contact_person ?? '');
   const [rate, setRate] = useState(freelancer.rate != null ? String(freelancer.rate) : '');
   const [rateType, setRateType] = useState<RateType | ''>(freelancer.rate_type ?? '');
   const [status, setStatus] = useState<FreelancerStatus>(freelancer.status);
@@ -298,9 +296,7 @@ function EditFreelancerModal({
       setWhatsapp(freelancer.whatsapp);
       setPersonalEmail(freelancer.personal_email);
       setPhone(freelancer.phone ?? '');
-      setAddress(freelancer.address ?? '');
       setDomicile(freelancer.domicile ?? '');
-      setContactPerson(freelancer.contact_person ?? '');
       setRate(freelancer.rate != null ? String(freelancer.rate) : '');
       setRateType(freelancer.rate_type ?? '');
       setStatus(freelancer.status);
@@ -327,9 +323,7 @@ function EditFreelancerModal({
         whatsapp: whatsapp || undefined,
         personal_email: personalEmail || undefined,
         phone: phone || undefined,
-        address: address || undefined,
         domicile: domicile || undefined,
-        contact_person: contactPerson || undefined,
         rate: rate ? String(rate) : null,
         rate_type: rateType || undefined,
         status,
@@ -349,11 +343,21 @@ function EditFreelancerModal({
     <button
       type='button'
       aria-label='Tutup'
-      className='fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4'
+      className='fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm'
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
-      <div role='dialog' className='w-full max-w-lg rounded-2xl border bg-background p-5 shadow-sm'>
-        <h3 className='mb-4 text-base font-semibold'>Edit Freelancer</h3>
+      <div role='dialog' aria-modal='true' className='w-full max-w-lg rounded-2xl border bg-background p-5 shadow-lg'>
+        <div className='mb-4 flex items-center justify-between'>
+          <h3 className='text-base font-semibold'>Edit Freelancer</h3>
+          <button
+            type='button'
+            aria-label='Tutup'
+            className='text-muted-foreground hover:text-foreground'
+            onClick={onClose}
+          >
+            <Icons.close size={18} />
+          </button>
+        </div>
         <div className='max-h-[70vh] space-y-3 overflow-y-auto pr-1'>
           <div>
             <label className='mb-1 block text-sm font-medium'>Nama Lengkap *</label>
@@ -361,31 +365,23 @@ function EditFreelancerModal({
           </div>
           <div className='grid grid-cols-2 gap-3'>
             <div>
-              <label className='mb-1 block text-sm font-medium'>WhatsApp</label>
-              <Input value={whatsapp} onChange={(e) => setWhatsapp(e.target.value)} />
+              <label className='mb-1 block text-sm font-medium'>WhatsApp / HP</label>
+              <Input value={whatsapp} onChange={(e) => setWhatsapp(e.target.value)} placeholder='WhatsApp' />
             </div>
             <div>
               <label className='mb-1 block text-sm font-medium'>Email</label>
-              <Input value={personalEmail} onChange={(e) => setPersonalEmail(e.target.value)} />
+              <Input value={personalEmail} onChange={(e) => setPersonalEmail(e.target.value)} placeholder='Email' />
             </div>
           </div>
           <div className='grid grid-cols-2 gap-3'>
             <div>
-              <label className='mb-1 block text-sm font-medium'>Phone</label>
-              <Input value={phone} onChange={(e) => setPhone(e.target.value)} />
-            </div>
-            <div>
               <label className='mb-1 block text-sm font-medium'>Domisili</label>
               <Input value={domicile} onChange={(e) => setDomicile(e.target.value)} />
             </div>
-          </div>
-          <div>
-            <label className='mb-1 block text-sm font-medium'>Alamat</label>
-            <Input value={address} onChange={(e) => setAddress(e.target.value)} />
-          </div>
-          <div>
-            <label className='mb-1 block text-sm font-medium'>Contact Person</label>
-            <Input value={contactPerson} onChange={(e) => setContactPerson(e.target.value)} />
+            <div>
+              <label className='mb-1 block text-sm font-medium'>Phone</label>
+              <Input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder='Phone' />
+            </div>
           </div>
           <div className='grid grid-cols-3 gap-3'>
             <div>
@@ -400,10 +396,8 @@ function EditFreelancerModal({
                 onChange={(e) => setRateType(e.target.value as RateType | '')}
               >
                 <option value=''>—</option>
-                <option value='HOURLY'>Hourly</option>
-                <option value='DAILY'>Daily</option>
-                <option value='MONTHLY'>Monthly</option>
-                <option value='PROJECT'>Project</option>
+                <option value='PER_DAY'>Per Hari</option>
+                <option value='PER_EVENT'>Per Event</option>
               </select>
             </div>
             <div>
