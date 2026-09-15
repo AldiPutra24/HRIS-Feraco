@@ -764,7 +764,7 @@ export default function FreelancePage() {
       )}
 
       <Sheet open={detail !== null || detailLoading} onOpenChange={(o) => { if (!o) setDetail(null); }}>
-        <SheetContent side='right' showCloseButton={false} className='w-full sm:max-w-2xl'>
+        <SheetContent side='right' className='w-full sm:max-w-2xl'>
           {detailLoading && !detail ? (
             <div className='space-y-3 p-6'>
               <Skeleton className='h-8 w-1/2' />
@@ -795,7 +795,6 @@ export default function FreelancePage() {
                 setDetail(d);
               }}
               onEdit={() => setEditOpen(true)}
-              onClose={() => setDetail(null)}
               onAssignmentChanged={async () => {
                 const d = await getFreelancer(detail.id);
                 setDetail(d);
@@ -813,7 +812,7 @@ function Field({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div className='min-w-0'>
       <p className='text-muted-foreground text-xs'>{label}</p>
-      <p className='break-words text-sm font-medium'>{value || '-'}</p>
+      <p className='text-sm font-medium break-words'>{value || '-'}</p>
     </div>
   );
 }
@@ -1061,7 +1060,6 @@ function FreelancerDetailView({
   onSkillRemoved,
   onDocDeleted,
   onEdit,
-  onClose,
   onAssignmentChanged,
 }: {
   freelancer: FreelancerDetail;
@@ -1072,7 +1070,6 @@ function FreelancerDetailView({
   onSkillRemoved: (skillId: number) => void | Promise<void>;
   onDocDeleted: () => void | Promise<void>;
   onEdit: () => void;
-  onClose: () => void;
   onAssignmentChanged: () => void | Promise<void>;
 }) {
   const [addingSkill, setAddingSkill] = useState(false);
@@ -1091,7 +1088,7 @@ function FreelancerDetailView({
 
   return (
     <div className='flex h-full flex-col'>
-      <SheetHeader>
+      <SheetHeader className='border-b pr-12'>
         <div className='flex items-start justify-between gap-3'>
           <div className='min-w-0'>
             <SheetTitle className='truncate'>{freelancer.full_name}</SheetTitle>
@@ -1108,19 +1105,14 @@ function FreelancerDetailView({
               )}
             </SheetDescription>
           </div>
-          <div className='flex shrink-0 items-center gap-2'>
-            <Button variant='outline' size='sm' onClick={onEdit}>
-              <Icons.edit size={14} /> Edit
-            </Button>
-            <Button variant='ghost' size='icon-sm' onClick={onClose} aria-label='Tutup'>
-              <Icons.close size={16} />
-            </Button>
-          </div>
+          <Button variant='outline' size='sm' className='shrink-0' onClick={onEdit}>
+            <Icons.edit size={14} /> Edit
+          </Button>
         </div>
       </SheetHeader>
 
-      <div className='flex-1 space-y-5 overflow-y-auto px-4 pb-4'>
-        <section className='grid grid-cols-2 gap-x-3 gap-y-4 md:grid-cols-3'>
+      <div className='flex-1 space-y-6 overflow-y-auto px-4 pb-6'>
+        <section className='grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2 lg:grid-cols-3'>
           <Field label='WhatsApp' value={freelancer.whatsapp} />
           <Field label='Email' value={freelancer.personal_email} />
           <Field label='Domisili' value={freelancer.domicile} />
@@ -1150,11 +1142,11 @@ function FreelancerDetailView({
           <h4 className='mb-2 text-sm font-semibold'>Skill</h4>
           <div className='flex flex-wrap gap-1'>
             {freelancer.skills.map((s) => (
-              <Badge key={s.id} variant='outline' className='gap-1'>
-                {s.skill_name}
+              <Badge key={s.id} variant='outline' className='max-w-full gap-1'>
+                <span className='truncate'>{s.skill_name}</span>
                 <button
                   type='button'
-                  className='hover:text-destructive'
+                  className='shrink-0 hover:text-destructive'
                   onClick={async (e) => {
                     e.stopPropagation();
                     if (!window.confirm(`Hapus skill "${s.skill_name}"?`)) return;
@@ -1174,7 +1166,7 @@ function FreelancerDetailView({
           </div>
           <div className='mt-2 flex gap-2'>
             <select
-              className='border-input h-9 w-full rounded-lg border bg-transparent px-2.5 text-sm'
+              className='border-input h-9 min-w-0 flex-1 rounded-lg border bg-transparent px-2.5 text-sm'
               value={newSkill}
               onChange={(e) => setNewSkill(e.target.value)}
             >
@@ -1185,6 +1177,7 @@ function FreelancerDetailView({
             </select>
             <Button
               size='sm'
+              className='shrink-0'
               disabled={!newSkill || addingSkill}
               onClick={async () => {
                 if (!newSkill || addingSkill) return;
@@ -1209,11 +1202,11 @@ function FreelancerDetailView({
           <ul className='space-y-1 text-sm'>
             {freelancer.documents.map((d) => (
               <li key={d.id} className='flex items-center justify-between gap-2 rounded-md border px-2 py-1'>
-                <span className='flex min-w-0 items-center gap-2'>
+                <span className='flex min-w-0 flex-1 items-center gap-2'>
                   <Icons.page size={14} className='shrink-0' />
                   <button
                     type='button'
-                    className='truncate text-primary hover:underline disabled:opacity-50'
+                    className='truncate text-left text-primary hover:underline disabled:opacity-50'
                     disabled={viewingDocId === d.id}
                     onClick={async (e) => {
                       e.preventDefault();
@@ -1234,6 +1227,7 @@ function FreelancerDetailView({
                   </button>
                 </span>
                 <button
+                  type='button'
                   className='shrink-0 text-muted-foreground hover:text-destructive'
                   aria-label={`Hapus ${d.name}`}
                   disabled={deletingDocId === d.id}
@@ -1257,11 +1251,11 @@ function FreelancerDetailView({
             ))}
             {freelancer.documents.length === 0 && <li className='text-muted-foreground'>-</li>}
           </ul>
-          <div className='mt-2 grid grid-cols-1 gap-2 md:grid-cols-2'>
+          <div className='mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2'>
             <Input value={docName} onChange={(e) => setDocName(e.target.value)} placeholder='Nama dokumen' />
-            <Input type='file' onChange={(e) => setDocFile(e.target.files?.[0] ?? null)} />
+            <Input type='file' className='min-w-0' onChange={(e) => setDocFile(e.target.files?.[0] ?? null)} />
           </div>
-          <div className='mt-2 flex items-center gap-2'>
+          <div className='mt-2 flex gap-2'>
             <Input
               className='min-w-0 flex-1'
               value={docUrl}
@@ -1301,9 +1295,9 @@ function FreelancerDetailView({
         </section>
 
         <section>
-          <div className='mb-2 flex items-center justify-between'>
+          <div className='mb-3 flex items-center justify-between gap-2'>
             <h4 className='text-sm font-semibold'>Riwayat Event &amp; Performa</h4>
-            <Button variant='outline' size='sm' onClick={() => { setHistoryEdit(null); setHistoryOpen(true); }}>
+            <Button variant='outline' size='sm' className='shrink-0' onClick={() => { setHistoryEdit(null); setHistoryOpen(true); }}>
               <Icons.add size={14} /> Tambah
             </Button>
           </div>
@@ -1313,9 +1307,9 @@ function FreelancerDetailView({
             <div className='space-y-2'>
               {freelancer.assignments.map((a) => (
                 <div key={a.id} className='rounded-lg border p-3'>
-                  <div className='flex items-center justify-between'>
-                    <p className='text-sm font-medium'>{a.event_name}</p>
-                    <div className='flex items-center gap-2'>
+                  <div className='flex items-center justify-between gap-2'>
+                    <p className='min-w-0 truncate text-sm font-medium'>{a.event_name}</p>
+                    <div className='flex shrink-0 items-center gap-2'>
                       <span className='text-muted-foreground text-xs'>{a.role || '-'}</span>
                       <button
                         className='text-muted-foreground hover:text-primary'
