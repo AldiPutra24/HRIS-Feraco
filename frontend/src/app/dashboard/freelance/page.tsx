@@ -1086,13 +1086,17 @@ function FreelancerDetailView({
 
   const assignedSkillIds = new Set(freelancer.skills.map((s) => s.skill));
 
+  const rateText = freelancer.rate
+    ? `Rp${Number(freelancer.rate).toLocaleString('id-ID')}${freelancer.rate_type ? ` / ${RATE_TYPE_LABELS[freelancer.rate_type as keyof typeof RATE_TYPE_LABELS]}` : ''}`
+    : null;
+
   return (
     <div className='flex h-full flex-col'>
       <SheetHeader className='border-b pr-12'>
         <div className='flex items-start justify-between gap-3'>
           <div className='min-w-0'>
-            <SheetTitle className='truncate'>{freelancer.full_name}</SheetTitle>
-            <SheetDescription className='mt-1 flex flex-wrap items-center gap-1.5'>
+            <SheetTitle className='truncate text-lg font-semibold tracking-tight'>{freelancer.full_name}</SheetTitle>
+            <SheetDescription className='mt-1.5 flex flex-wrap items-center gap-1.5'>
               {freelancer.is_blacklisted ? (
                 <Badge variant='destructive'>Blacklist</Badge>
               ) : (
@@ -1111,38 +1115,49 @@ function FreelancerDetailView({
         </div>
       </SheetHeader>
 
-      <div className='flex-1 space-y-6 overflow-y-auto px-4 pb-6'>
-        <section className='grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2 lg:grid-cols-3'>
-          <Field label='WhatsApp' value={freelancer.whatsapp} />
-          <Field label='Email' value={freelancer.personal_email} />
-          <Field label='Domisili' value={freelancer.domicile} />
-          <Field label='Phone' value={freelancer.phone} />
-          <Field label='Contact Person' value={freelancer.contact_person} />
-          <Field
-            label='Rate'
-            value={
-              freelancer.rate
-                ? `Rp${Number(freelancer.rate).toLocaleString('id-ID')}${freelancer.rate_type ? ` / ${RATE_TYPE_LABELS[freelancer.rate_type as keyof typeof RATE_TYPE_LABELS]}` : ''}`
-                : '-'
-            }
-          />
-          {freelancer.rate_min != null && <Field label='Rate Min' value={Number(freelancer.rate_min).toLocaleString('id-ID')} />}
-          {freelancer.rate_max != null && <Field label='Rate Max' value={Number(freelancer.rate_max).toLocaleString('id-ID')} />}
-          <Field label='Avg Rating' value={<Stars value={freelancer.avg_rating} />} />
+      <div className='flex-1 space-y-4 overflow-y-auto px-4 pb-6 pt-4'>
+        <section className='rounded-xl border p-4'>
+          <h4 className='mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground'>Informasi Kontak</h4>
+          <div className='grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2'>
+            <Field label='WhatsApp / HP' value={freelancer.whatsapp || freelancer.phone} />
+            <Field label='Email' value={freelancer.personal_email} />
+            <Field label='Domisili' value={freelancer.domicile} />
+            <Field label='Contact Person' value={freelancer.contact_person} />
+          </div>
         </section>
 
-        {freelancer.is_blacklisted && (
-          <section className='rounded-lg border border-destructive/40 bg-destructive/5 p-3'>
-            <p className='text-xs font-medium text-destructive'>Blacklist</p>
-            <p className='text-sm'>{freelancer.blacklist_reason || '-'}</p>
-          </section>
-        )}
+        <section className='rounded-xl border p-4'>
+          <h4 className='mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground'>Rate &amp; Rating</h4>
+          <div className='flex flex-wrap items-end justify-between gap-4'>
+            <div className='min-w-0'>
+              <p className='text-muted-foreground text-xs'>Rate</p>
+              <p className='text-xl font-semibold tracking-tight'>{rateText ?? '-'}</p>
+              {(freelancer.rate_min != null || freelancer.rate_max != null) && (
+                <p className='text-muted-foreground mt-0.5 text-xs'>
+                  Rentang: {freelancer.rate_min != null ? `Rp${Number(freelancer.rate_min).toLocaleString('id-ID')}` : '-'}
+                  {' – '}
+                  {freelancer.rate_max != null ? `Rp${Number(freelancer.rate_max).toLocaleString('id-ID')}` : '-'}
+                </p>
+              )}
+            </div>
+            <div>
+              <p className='text-muted-foreground text-xs'>Avg Rating</p>
+              <div className='mt-1'><Stars value={freelancer.avg_rating} /></div>
+            </div>
+          </div>
+          {freelancer.is_blacklisted && (
+            <div className='mt-3 rounded-lg border border-destructive/40 bg-destructive/5 p-2.5'>
+              <p className='text-xs font-medium text-destructive'>Blacklist</p>
+              <p className='text-sm'>{freelancer.blacklist_reason || '-'}</p>
+            </div>
+          )}
+        </section>
 
-        <section>
-          <h4 className='mb-2 text-sm font-semibold'>Skill</h4>
-          <div className='flex flex-wrap gap-1'>
+        <section className='rounded-xl border p-4'>
+          <h4 className='mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground'>Skill</h4>
+          <div className='flex flex-wrap gap-1.5'>
             {freelancer.skills.map((s) => (
-              <Badge key={s.id} variant='outline' className='max-w-full gap-1'>
+              <Badge key={s.id} variant='outline' className='max-w-full gap-1 py-1'>
                 <span className='truncate'>{s.skill_name}</span>
                 <button
                   type='button'
@@ -1162,9 +1177,9 @@ function FreelancerDetailView({
                 </button>
               </Badge>
             ))}
-            {freelancer.skills.length === 0 && <span className='text-muted-foreground text-sm'>-</span>}
+            {freelancer.skills.length === 0 && <span className='text-muted-foreground text-sm'>Belum ada skill.</span>}
           </div>
-          <div className='mt-2 flex gap-2'>
+          <div className='mt-3 flex max-w-sm gap-2'>
             <select
               className='border-input h-9 min-w-0 flex-1 rounded-lg border bg-transparent px-2.5 text-sm'
               value={newSkill}
@@ -1197,121 +1212,158 @@ function FreelancerDetailView({
           </div>
         </section>
 
-        <section>
-          <h4 className='mb-2 text-sm font-semibold'>CV / Portfolio</h4>
-          <ul className='space-y-1 text-sm'>
-            {freelancer.documents.map((d) => (
-              <li key={d.id} className='flex items-center justify-between gap-2 rounded-md border px-2 py-1'>
-                <span className='flex min-w-0 flex-1 items-center gap-2'>
-                  <Icons.page size={14} className='shrink-0' />
-                  <button
-                    type='button'
-                    className='truncate text-left text-primary hover:underline disabled:opacity-50'
-                    disabled={viewingDocId === d.id}
-                    onClick={async (e) => {
-                      e.preventDefault();
-                      setViewingDocId(d.id);
-                      try {
-                        const res = await getFreelancerDocumentDownload(freelancer.id, d.id);
-                        if (!res.url) throw new Error('URL dokumen tidak tersedia.');
-                        window.open(res.url, '_blank', 'noopener,noreferrer');
-                      } catch (err) {
-                        toast.error(err instanceof Error ? err.message : 'Gagal membuka dokumen.');
-                      } finally {
-                        setViewingDocId(null);
-                      }
-                    }}
-                  >
-                    {viewingDocId === d.id ? <Icons.spinner className='mr-1 inline animate-spin' size={14} /> : null}
-                    {d.name}
-                  </button>
-                </span>
-                <button
-                  type='button'
-                  className='shrink-0 text-muted-foreground hover:text-destructive'
-                  aria-label={`Hapus ${d.name}`}
-                  disabled={deletingDocId === d.id}
-                  onClick={async () => {
-                    if (!window.confirm(`Hapus dokumen "${d.name}"?`)) return;
-                    setDeletingDocId(d.id);
-                    try {
-                      await deleteFreelancerDocument(freelancer.id, d.id);
-                      await onDocDeleted();
-                      toast.success('Dokumen dihapus.');
-                    } catch (err) {
-                      toast.error(err instanceof Error ? err.message : 'Gagal hapus.');
-                    } finally {
-                      setDeletingDocId(null);
-                    }
-                  }}
-                >
-                  {deletingDocId === d.id ? <Icons.spinner className='animate-spin' size={14} /> : <Icons.trash size={14} />}
-                </button>
-              </li>
-            ))}
-            {freelancer.documents.length === 0 && <li className='text-muted-foreground'>-</li>}
-          </ul>
-          <div className='mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2'>
-            <Input value={docName} onChange={(e) => setDocName(e.target.value)} placeholder='Nama dokumen' />
-            <Input type='file' className='min-w-0' onChange={(e) => setDocFile(e.target.files?.[0] ?? null)} />
-          </div>
-          <div className='mt-2 flex gap-2'>
-            <Input
-              className='min-w-0 flex-1'
-              value={docUrl}
-              onChange={(e) => setDocUrl(e.target.value)}
-              placeholder='Atau URL portfolio (https://...)'
-            />
-            <Button
-              size='sm'
-              className='shrink-0'
-              disabled={savingDoc || (!docUrl && !docFile)}
-              onClick={async () => {
-                if (savingDoc) return;
-                setSavingDoc(true);
-                try {
-                  await uploadFreelancerDocument(freelancer.id, {
-                    doc_type: 'PORTFOLIO',
-                    name: docName || docFile?.name || 'Document',
-                    url: docUrl || undefined,
-                    file: docFile || undefined,
-                  });
-                  setDocUrl('');
-                  setDocName('');
-                  setDocFile(null);
-                  await onChanged();
-                  toast.success('Dokumen ditambahkan.');
-                } catch (err) {
-                  toast.error(err instanceof Error ? err.message : 'Gagal upload.');
-                } finally {
-                  setSavingDoc(false);
-                }
-              }}
-            >
-              {savingDoc ? <Icons.spinner className='mr-1 animate-spin' size={16} /> : null}
-              Upload
-            </Button>
+        <section className='rounded-xl border p-4'>
+          <h4 className='mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground'>CV / Portfolio</h4>
+          {freelancer.documents.length === 0 ? (
+            <p className='text-muted-foreground text-sm'>Belum ada dokumen.</p>
+          ) : (
+            <ul className='space-y-1.5'>
+              {freelancer.documents.map((d) => (
+                <li key={d.id} className='flex items-center justify-between gap-2 rounded-lg border px-3 py-2'>
+                  <span className='flex min-w-0 flex-1 items-center gap-2'>
+                    <Icons.page size={14} className='shrink-0 text-muted-foreground' />
+                    <button
+                      type='button'
+                      className='truncate text-left text-sm text-primary hover:underline disabled:opacity-50'
+                      disabled={viewingDocId === d.id}
+                      onClick={async (e) => {
+                        e.preventDefault();
+                        setViewingDocId(d.id);
+                        try {
+                          const res = await getFreelancerDocumentDownload(freelancer.id, d.id);
+                          if (!res.url) throw new Error('URL dokumen tidak tersedia.');
+                          window.open(res.url, '_blank', 'noopener,noreferrer');
+                        } catch (err) {
+                          toast.error(err instanceof Error ? err.message : 'Gagal membuka dokumen.');
+                        } finally {
+                          setViewingDocId(null);
+                        }
+                      }}
+                    >
+                      {viewingDocId === d.id ? <Icons.spinner className='mr-1 inline animate-spin' size={14} /> : null}
+                      {d.name}
+                    </button>
+                  </span>
+                  <span className='flex shrink-0 items-center gap-1'>
+                    <button
+                      type='button'
+                      className='text-muted-foreground hover:text-primary'
+                      aria-label={`Buka ${d.name}`}
+                      disabled={viewingDocId === d.id}
+                      onClick={async () => {
+                        setViewingDocId(d.id);
+                        try {
+                          const res = await getFreelancerDocumentDownload(freelancer.id, d.id);
+                          if (!res.url) throw new Error('URL dokumen tidak tersedia.');
+                          window.open(res.url, '_blank', 'noopener,noreferrer');
+                        } catch (err) {
+                          toast.error(err instanceof Error ? err.message : 'Gagal membuka dokumen.');
+                        } finally {
+                          setViewingDocId(null);
+                        }
+                      }}
+                    >
+                      {viewingDocId === d.id ? <Icons.spinner className='animate-spin' size={14} /> : <Icons.externalLink size={14} />}
+                    </button>
+                    <button
+                      type='button'
+                      className='text-muted-foreground hover:text-destructive'
+                      aria-label={`Hapus ${d.name}`}
+                      disabled={deletingDocId === d.id}
+                      onClick={async () => {
+                        if (!window.confirm(`Hapus dokumen "${d.name}"?`)) return;
+                        setDeletingDocId(d.id);
+                        try {
+                          await deleteFreelancerDocument(freelancer.id, d.id);
+                          await onDocDeleted();
+                          toast.success('Dokumen dihapus.');
+                        } catch (err) {
+                          toast.error(err instanceof Error ? err.message : 'Gagal hapus.');
+                        } finally {
+                          setDeletingDocId(null);
+                        }
+                      }}
+                    >
+                      {deletingDocId === d.id ? <Icons.spinner className='animate-spin' size={14} /> : <Icons.trash size={14} />}
+                    </button>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+          <div className='mt-3 rounded-lg border border-dashed p-3'>
+            <p className='text-muted-foreground mb-2 text-xs font-medium'>Tambah dokumen</p>
+            <div className='grid grid-cols-1 gap-2 sm:grid-cols-2'>
+              <Input value={docName} onChange={(e) => setDocName(e.target.value)} placeholder='Nama dokumen' />
+              <Input type='file' className='min-w-0' onChange={(e) => setDocFile(e.target.files?.[0] ?? null)} />
+            </div>
+            <div className='mt-2 flex gap-2'>
+              <Input
+                className='min-w-0 flex-1'
+                value={docUrl}
+                onChange={(e) => setDocUrl(e.target.value)}
+                placeholder='Atau URL portfolio (https://...)'
+              />
+              <Button
+                size='sm'
+                className='shrink-0'
+                disabled={savingDoc || (!docUrl && !docFile)}
+                onClick={async () => {
+                  if (savingDoc) return;
+                  setSavingDoc(true);
+                  try {
+                    await uploadFreelancerDocument(freelancer.id, {
+                      doc_type: 'PORTFOLIO',
+                      name: docName || docFile?.name || 'Document',
+                      url: docUrl || undefined,
+                      file: docFile || undefined,
+                    });
+                    setDocUrl('');
+                    setDocName('');
+                    setDocFile(null);
+                    await onChanged();
+                    toast.success('Dokumen ditambahkan.');
+                  } catch (err) {
+                    toast.error(err instanceof Error ? err.message : 'Gagal upload.');
+                  } finally {
+                    setSavingDoc(false);
+                  }
+                }}
+              >
+                {savingDoc ? <Icons.spinner className='mr-1 animate-spin' size={16} /> : null}
+                Upload
+              </Button>
+            </div>
           </div>
         </section>
 
-        <section>
+        <section className='rounded-xl border p-4'>
           <div className='mb-3 flex items-center justify-between gap-2'>
-            <h4 className='text-sm font-semibold'>Riwayat Event &amp; Performa</h4>
+            <h4 className='text-xs font-semibold uppercase tracking-wide text-muted-foreground'>Riwayat Event &amp; Performa</h4>
             <Button variant='outline' size='sm' className='shrink-0' onClick={() => { setHistoryEdit(null); setHistoryOpen(true); }}>
               <Icons.add size={14} /> Tambah
             </Button>
           </div>
           {freelancer.assignments.length === 0 ? (
-            <p className='text-muted-foreground text-sm'>-</p>
+            <div className='flex flex-col items-center gap-1 rounded-lg border border-dashed py-6 text-center'>
+              <Icons.calendar size={20} className='text-muted-foreground' />
+              <p className='text-sm font-medium'>Belum ada riwayat event</p>
+              <p className='text-muted-foreground text-xs'>Freelancer ini belum ditugaskan ke event mana pun.</p>
+            </div>
           ) : (
             <div className='space-y-2'>
               {freelancer.assignments.map((a) => (
                 <div key={a.id} className='rounded-lg border p-3'>
-                  <div className='flex items-center justify-between gap-2'>
-                    <p className='min-w-0 truncate text-sm font-medium'>{a.event_name}</p>
-                    <div className='flex shrink-0 items-center gap-2'>
-                      <span className='text-muted-foreground text-xs'>{a.role || '-'}</span>
+                  <div className='flex items-start justify-between gap-2'>
+                    <div className='min-w-0'>
+                      <p className='truncate text-sm font-medium'>{a.event_name}</p>
+                      <p className='text-muted-foreground mt-0.5 text-xs'>
+                        {a.role || '-'}{a.assigned_at ? ` · ${a.assigned_at}` : ''}
+                      </p>
+                    </div>
+                    <div className='flex shrink-0 items-center gap-1'>
                       <button
+                        type='button'
                         className='text-muted-foreground hover:text-primary'
                         aria-label='Edit riwayat'
                         onClick={() => { setHistoryEdit(a); setHistoryOpen(true); }}
@@ -1319,6 +1371,7 @@ function FreelancerDetailView({
                         <Icons.edit size={14} />
                       </button>
                       <button
+                        type='button'
                         className='text-muted-foreground hover:text-destructive'
                         aria-label='Hapus riwayat'
                         disabled={historyDeletingId === a.id}
@@ -1339,19 +1392,19 @@ function FreelancerDetailView({
                       </button>
                     </div>
                   </div>
-                  <p className='text-muted-foreground text-xs'>PIC: {a.pic || '-'} {a.assigned_at ? `· ${a.assigned_at}` : ''}</p>
+                  {a.pic && <p className='text-muted-foreground mt-1 text-xs'>PIC: {a.pic}</p>}
                   {a.performance && (
-                    <div className='mt-1 flex flex-wrap items-center gap-2'>
+                    <div className='mt-2 flex flex-wrap items-center gap-2 border-t pt-2'>
                       <Stars value={a.performance.rating} />
                       {a.performance.recommendation && (
                         <Badge variant={RECOMMENDATION_VARIANT[a.performance.recommendation]}>
                           {RECOMMENDATION_LABELS[a.performance.recommendation]}
                         </Badge>
                       )}
-                      {a.performance.notes && (
-                        <span className='text-muted-foreground text-xs'>{a.performance.notes}</span>
-                      )}
                     </div>
+                  )}
+                  {a.performance?.notes && (
+                    <p className='text-muted-foreground mt-1.5 text-xs'>{a.performance.notes}</p>
                   )}
                 </div>
               ))}
