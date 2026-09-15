@@ -174,3 +174,88 @@ class DocumentTests(TestCase):
         self.assertEqual(resp.status_code, 201)
         self.assertEqual(resp.json()['url'], 'https://behance.net/x')
         self.assertTrue(FreelancerDocument.objects.filter(freelancer=self.f).exists())
+
+    def test_document_delete(self):
+        doc = self.client.post(f'/api/freelance/freelancers/{self.f.id}/documents/', {
+            'doc_type': 'PORTFOLIO', 'name': 'Behance', 'url': 'https://behance.net/x',
+        }, content_type='application/json')
+        doc_id = doc.json()['id']
+        resp = self.client.delete(f'/api/freelance/freelancers/{self.f.id}/documents/{doc_id}/')
+        self.assertEqual(resp.status_code, 204)
+        self.assertFalse(FreelancerDocument.objects.filter(id=doc_id).exists())
+
+class EditBlacklistTests(TestCase):
+    def setUp(self):
+        self.admin = make_user('ADMIN', 'admin@test.com')
+        self.client.force_login(self.admin)
+
+    def test_edit_freelancer(self):
+        f = make_freelancer(full_name='Old Name', domicile='Jakarta')
+        resp = self.client.put(f'/api/freelance/freelancers/{f.id}/', {
+            'full_name': 'New Name', 'domicile': 'Bandung', 'status': 'INACTIVE',
+        }, content_type='application/json')
+        self.assertEqual(resp.status_code, 200)
+        f.refresh_from_db()
+        self.assertEqual(f.full_name, 'New Name')
+        self.assertEqual(f.domicile, 'Bandung')
+        self.assertEqual(f.status, 'INACTIVE')
+
+    def test_blacklist_requires_reason(self):
+        f = make_freelancer()
+        resp = self.client.put(f'/api/freelance/freelancers/{f.id}/', {
+            'full_name': f.full_name, 'is_blacklisted': True, 'blacklist_reason': '',
+        }, content_type='application/json')
+        self.assertEqual(resp.status_code, 400)
+        f.refresh_from_db()
+        self.assertFalse(f.is_blacklisted)
+
+    def test_blacklist_with_reason(self):
+        f = make_freelancer()
+        resp = self.client.put(f'/api/freelance/freelancers/{f.id}/', {
+            'full_name': f.full_name, 'is_blacklisted': True, 'blacklist_reason': 'No show',
+        }, content_type='application/json')
+        self.assertEqual(resp.status_code, 200)
+        f.refresh_from_db()
+        self.assertTrue(f.is_blacklisted)
+        self.assertEqual(f.blacklist_reason, 'No show')
+
+class EventHistoryEditDeleteTests(TestCase):
+    def setUp(self):
+        self.admin = make_user('ADMIN', 'admin@test.com')
+        self.client.force_login(self.admin)
+        self.f = make_freelancer(full_name='Agus')
+        self.event = Event.objects.create(name='Launch', event_date=date(2026, 1, 1))
+
+    def test_edit_and_delete_assignment(self):
+        a = self.client.post('/api/freelance/assignments/', {
+            'freelancer': self.f.id, 'event': self.event.id, 'role': 'MC',
+        }, content_type='application/json')
+        aid = a.json()['id']
+        upd = self.client.put(f'/api/freelance/assignments/{aid}/', {
+            'freelancer': self.f.id, 'event': self.event.id, 'role': 'Host',
+        }, content_type='application/json')
+        self.assertEqual(upd.status_code, 200)
+        self.assertEqual(upd.json()['role'], 'Host')
+        # performance update
+        perf = self.client.post(f'/api/freelance/assignments/{aid}/performance/', {
+            'rating': 4, 'recommendation': 'RECOMMENDED_NOTES', 'notes': 'Good',
+        }, content_type='application/json')
+        self.assertEqual(perf.status_code, 201)
+        # delete
+        d = self.client.delete(f'/api/freelance/assignments/{aid}/')
+        self.assertEqual(d.status_code, 204)
+        self.assertFalse(EventAssignment.objects.filter(id=aid).exists())
+
+    def test_no_duplicate_assignment(self):
+        self.client.post('/api/freelance/assignments/', {
+            'freelancer': self.f.id, 'event': self.event.id,
+        }, content_type='application/json')
+        dup = self.client.post('/api/freelance/assignments/', {
+            'freelancer': self.f.id, 'event': self.event.id,
+        }, content_type='application/json')
+        self.assertEqual(dup.status_code, 400)
+
+class AuthorizationTests(TestCase):
+    def test_unauthenticated_blocked(self):
+        resp = self.client.get('/api/freelance/freelancers/')
+        self.assertEqual(resp.status_code, 403)

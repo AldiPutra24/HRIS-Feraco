@@ -215,3 +215,8 @@ class FreelancerWriteSerializer(serializers.ModelSerializer):
         if value and value not in dict(Freelancer._meta.get_field('rate_type').choices):
             raise serializers.ValidationError('rate_type tidak valid.')
         return value
+
+    def validate(self, attrs):
+        if attrs.get('is_blacklisted') and not (attrs.get('blacklist_reason') or '').strip():
+            raise serializers.ValidationError({'blacklist_reason': 'Alasan blacklist wajib diisi.'})
+        return attrs

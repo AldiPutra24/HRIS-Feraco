@@ -26,21 +26,35 @@ import { Icons } from '@/components/icons';
 import {
   RECOMMENDATION_LABELS,
   RATE_TYPE_LABELS,
+  createAssignment,
+  createEvent,
   createFreelancer,
   createSkill,
   createSkillCategory,
+  deleteAssignment,
   deleteFreelancer,
+  deleteFreelancerDocument,
   deleteSkill,
   deleteSkillCategory,
   getFreelancer,
+  listEvents,
   listFreelancers,
   listSkillCategories,
   listSkills,
   removeFreelancerSkill,
   addFreelancerSkill,
+  savePerformance,
+  updateAssignment,
+  updateFreelancer,
   uploadFreelancerDocument,
+  type AssignmentInput,
+  type EventAssignment,
   type Freelancer,
   type FreelancerDetail,
+  type FreelancerStatus,
+  type FreelanceEvent,
+  type PerformanceInput,
+  type RateType,
   type Recommendation,
   type Skill,
   type SkillCategory,
@@ -64,18 +78,377 @@ function statusVariant(status: string): 'default' | 'secondary' | 'outline' {
   return 'outline';
 }
 
-function Stars({ value }: { value: number | null }) {
-  if (value == null) return <span className='text-muted-foreground'>-</span>;
+function Stars({ value, editable, onChange }: { value: number | null; editable?: boolean; onChange?: (v: number) => void }) {
+  if (value == null && !editable) return <span className='text-muted-foreground'>-</span>;
+  const v = value ?? 0;
   return (
-    <span className='inline-flex' aria-label={`${value} / 5`}>
+    <span className='inline-flex' aria-label={`${v} / 5`}>
       {Array.from({ length: 5 }).map((_, i) => (
-        <Icons.exclusive
+        <button
           key={i}
-          className={i < value ? 'text-amber-500' : 'text-muted-foreground/30'}
-          size={14}
-        />
+          type='button'
+          disabled={!editable}
+          aria-label={`${i + 1} bintang`}
+          onClick={() => editable && onChange?.(i + 1)}
+          className={editable ? 'cursor-pointer' : 'cursor-default'}
+        >
+          <Icons.exclusive
+            className={i < v ? 'text-amber-500' : 'text-muted-foreground/30'}
+            size={14}
+          />
+        </button>
       ))}
     </span>
+  );
+}
+
+function EventHistoryModal({
+  open,
+  onClose,
+  freelancerId,
+  events,
+  edit,
+  onSaved,
+}: {
+  open: boolean;
+  onClose: () => void;
+  freelancerId: number;
+  events: FreelanceEvent[];
+  edit: EventAssignment | null;
+  onSaved: () => void;
+}) {
+  const [eventId, setEventId] = useState<number | ''>(edit?.event ?? '');
+  const [newEventName, setNewEventName] = useState('');
+  const [assignedAt, setAssignedAt] = useState(edit?.assigned_at ?? '');
+  const [role, setRole] = useState(edit?.role ?? '');
+  const [pic, setPic] = useState(edit?.pic ?? '');
+  const [rating, setRating] = useState(edit?.performance?.rating ?? 0);
+  const [recommendation, setRecommendation] = useState<Recommendation | ''>(edit?.performance?.recommendation ?? '');
+  const [notes, setNotes] = useState(edit?.performance?.notes ?? '');
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (open) {
+      setEventId(edit?.event ?? '');
+      setNewEventName('');
+      setAssignedAt(edit?.assigned_at ?? '');
+      setRole(edit?.role ?? '');
+      setPic(edit?.pic ?? '');
+      setRating(edit?.performance?.rating ?? 0);
+      setRecommendation(edit?.performance?.recommendation ?? '');
+      setNotes(edit?.performance?.notes ?? '');
+    }
+  }, [open, edit]);
+
+  if (!open) return null;
+
+  const submit = async () => {
+    if (!eventId && !newEventName.trim()) {
+      toast.error('Pilih event atau buat event baru.');
+      return;
+    }
+    setSaving(true);
+    try {
+      let evId = eventId;
+      if (!evId && newEventName.trim()) {
+        const ev = await createEvent({ name: newEventName.trim(), event_date: assignedAt || undefined });
+        evId = ev.id;
+      }
+      const perf: PerformanceInput = {
+        rating,
+        recommendation: recommendation || undefined,
+        notes: notes || undefined,
+      };
+      if (edit) {
+        await updateAssignment(edit.id, {
+          event: evId as number,
+          assigned_at: assignedAt || undefined,
+          role: role || undefined,
+          pic: pic || undefined,
+        });
+        await savePerformance(edit.id, perf);
+      } else {
+        const created = await createAssignment({
+          freelancer: freelancerId,
+          event: evId as number,
+          assigned_at: assignedAt || undefined,
+          role: role || undefined,
+          pic: pic || undefined,
+        });
+        await savePerformance(created.id, perf);
+      }
+      toast.success('Riwayat disimpan.');
+      onSaved();
+      onClose();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Gagal simpan.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <button
+      type='button'
+      aria-label='Tutup'
+      className='fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4'
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div role='dialog' className='w-full max-w-md rounded-2xl border bg-background p-5 shadow-sm'>
+        <h3 className='mb-4 text-base font-semibold'>{edit ? 'Edit Riwayat Event' : 'Tambah Riwayat Event'}</h3>
+        <div className='space-y-3'>
+          <div>
+            <label className='mb-1 block text-sm font-medium'>Event</label>
+            <select
+              className='w-full rounded-xl border bg-background px-3 py-2 text-sm'
+              value={eventId}
+              onChange={(e) => setEventId(e.target.value ? Number(e.target.value) : '')}
+            >
+              <option value=''>— Pilih event —</option>
+              {events.map((ev) => (
+                <option key={ev.id} value={ev.id}>{ev.name}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className='mb-1 block text-sm font-medium'>Atau buat event baru</label>
+            <Input value={newEventName} onChange={(e) => setNewEventName(e.target.value)} placeholder='Nama event baru' />
+          </div>
+          <div>
+            <label className='mb-1 block text-sm font-medium'>Tanggal</label>
+            <Input type='date' value={assignedAt} onChange={(e) => setAssignedAt(e.target.value)} />
+          </div>
+          <div className='grid grid-cols-2 gap-3'>
+            <div>
+              <label className='mb-1 block text-sm font-medium'>Role</label>
+              <Input value={role} onChange={(e) => setRole(e.target.value)} placeholder='Role' />
+            </div>
+            <div>
+              <label className='mb-1 block text-sm font-medium'>PIC / Evaluator</label>
+              <Input value={pic} onChange={(e) => setPic(e.target.value)} placeholder='PIC' />
+            </div>
+          </div>
+          <div>
+            <label className='mb-1 block text-sm font-medium'>Rating</label>
+            <Stars value={rating} editable onChange={setRating} />
+          </div>
+          <div>
+            <label className='mb-1 block text-sm font-medium'>Rekomendasi</label>
+            <select
+              className='w-full rounded-xl border bg-background px-3 py-2 text-sm'
+              value={recommendation}
+              onChange={(e) => setRecommendation(e.target.value as Recommendation | '')}
+            >
+              <option value=''>— Pilih —</option>
+              <option value='RECOMMENDED'>Recommended</option>
+              <option value='RECOMMENDED_NOTES'>Recommended with notes</option>
+              <option value='NOT_RECOMMENDED'>Not recommended</option>
+            </select>
+          </div>
+          <div>
+            <label className='mb-1 block text-sm font-medium'>Catatan Performa</label>
+            <textarea
+              className='w-full rounded-xl border bg-background px-3 py-2 text-sm'
+              rows={3}
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+            />
+          </div>
+        </div>
+        <div className='mt-5 flex justify-end gap-2'>
+          <Button variant='ghost' onClick={onClose}>Batal</Button>
+          <Button onClick={submit} disabled={saving}>
+            {saving ? <Icons.spinner className='mr-1 animate-spin' size={16} /> : null}
+            Simpan
+          </Button>
+        </div>
+      </div>
+    </button>
+  );
+}
+
+function EditFreelancerModal({
+  open,
+  onClose,
+  freelancer,
+  onSaved,
+}: {
+  open: boolean;
+  onClose: () => void;
+  freelancer: FreelancerDetail;
+  onSaved: () => void;
+}) {
+  const [fullName, setFullName] = useState(freelancer.full_name);
+  const [whatsapp, setWhatsapp] = useState(freelancer.whatsapp);
+  const [personalEmail, setPersonalEmail] = useState(freelancer.personal_email);
+  const [phone, setPhone] = useState(freelancer.phone ?? '');
+  const [address, setAddress] = useState(freelancer.address ?? '');
+  const [domicile, setDomicile] = useState(freelancer.domicile ?? '');
+  const [contactPerson, setContactPerson] = useState(freelancer.contact_person ?? '');
+  const [rate, setRate] = useState(freelancer.rate != null ? String(freelancer.rate) : '');
+  const [rateType, setRateType] = useState<RateType | ''>(freelancer.rate_type ?? '');
+  const [status, setStatus] = useState<FreelancerStatus>(freelancer.status);
+  const [isBlacklisted, setIsBlacklisted] = useState(freelancer.is_blacklisted);
+  const [blacklistReason, setBlacklistReason] = useState(freelancer.blacklist_reason ?? '');
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (open) {
+      setFullName(freelancer.full_name);
+      setWhatsapp(freelancer.whatsapp);
+      setPersonalEmail(freelancer.personal_email);
+      setPhone(freelancer.phone ?? '');
+      setAddress(freelancer.address ?? '');
+      setDomicile(freelancer.domicile ?? '');
+      setContactPerson(freelancer.contact_person ?? '');
+      setRate(freelancer.rate != null ? String(freelancer.rate) : '');
+      setRateType(freelancer.rate_type ?? '');
+      setStatus(freelancer.status);
+      setIsBlacklisted(freelancer.is_blacklisted);
+      setBlacklistReason(freelancer.blacklist_reason ?? '');
+    }
+  }, [open, freelancer]);
+
+  if (!open) return null;
+
+  const submit = async () => {
+    if (!fullName.trim()) {
+      toast.error('Nama wajib diisi.');
+      return;
+    }
+    if (isBlacklisted && !blacklistReason.trim()) {
+      toast.error('Alasan blacklist wajib diisi.');
+      return;
+    }
+    setSaving(true);
+    try {
+      await updateFreelancer(freelancer.id, {
+        full_name: fullName.trim(),
+        whatsapp: whatsapp || undefined,
+        personal_email: personalEmail || undefined,
+        phone: phone || undefined,
+        address: address || undefined,
+        domicile: domicile || undefined,
+        contact_person: contactPerson || undefined,
+        rate: rate ? String(rate) : null,
+        rate_type: rateType || undefined,
+        status,
+        is_blacklisted: isBlacklisted,
+        blacklist_reason: isBlacklisted ? blacklistReason.trim() : '',
+      });
+      toast.success('Data freelancer diperbarui.');
+      onSaved();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Gagal simpan.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <button
+      type='button'
+      aria-label='Tutup'
+      className='fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4'
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div role='dialog' className='w-full max-w-lg rounded-2xl border bg-background p-5 shadow-sm'>
+        <h3 className='mb-4 text-base font-semibold'>Edit Freelancer</h3>
+        <div className='max-h-[70vh] space-y-3 overflow-y-auto pr-1'>
+          <div>
+            <label className='mb-1 block text-sm font-medium'>Nama Lengkap *</label>
+            <Input value={fullName} onChange={(e) => setFullName(e.target.value)} />
+          </div>
+          <div className='grid grid-cols-2 gap-3'>
+            <div>
+              <label className='mb-1 block text-sm font-medium'>WhatsApp</label>
+              <Input value={whatsapp} onChange={(e) => setWhatsapp(e.target.value)} />
+            </div>
+            <div>
+              <label className='mb-1 block text-sm font-medium'>Email</label>
+              <Input value={personalEmail} onChange={(e) => setPersonalEmail(e.target.value)} />
+            </div>
+          </div>
+          <div className='grid grid-cols-2 gap-3'>
+            <div>
+              <label className='mb-1 block text-sm font-medium'>Phone</label>
+              <Input value={phone} onChange={(e) => setPhone(e.target.value)} />
+            </div>
+            <div>
+              <label className='mb-1 block text-sm font-medium'>Domisili</label>
+              <Input value={domicile} onChange={(e) => setDomicile(e.target.value)} />
+            </div>
+          </div>
+          <div>
+            <label className='mb-1 block text-sm font-medium'>Alamat</label>
+            <Input value={address} onChange={(e) => setAddress(e.target.value)} />
+          </div>
+          <div>
+            <label className='mb-1 block text-sm font-medium'>Contact Person</label>
+            <Input value={contactPerson} onChange={(e) => setContactPerson(e.target.value)} />
+          </div>
+          <div className='grid grid-cols-3 gap-3'>
+            <div>
+              <label className='mb-1 block text-sm font-medium'>Rate</label>
+              <Input value={rate} onChange={(e) => setRate(e.target.value)} placeholder='0' inputMode='numeric' />
+            </div>
+            <div>
+              <label className='mb-1 block text-sm font-medium'>Tipe Rate</label>
+              <select
+                className='w-full rounded-xl border bg-background px-3 py-2 text-sm'
+                value={rateType}
+                onChange={(e) => setRateType(e.target.value as RateType | '')}
+              >
+                <option value=''>—</option>
+                <option value='HOURLY'>Hourly</option>
+                <option value='DAILY'>Daily</option>
+                <option value='MONTHLY'>Monthly</option>
+                <option value='PROJECT'>Project</option>
+              </select>
+            </div>
+            <div>
+              <label className='mb-1 block text-sm font-medium'>Status</label>
+              <select
+                className='w-full rounded-xl border bg-background px-3 py-2 text-sm'
+                value={status}
+                onChange={(e) => setStatus(e.target.value as FreelancerStatus)}
+              >
+                <option value='ACTIVE'>Active</option>
+                <option value='INACTIVE'>Inactive</option>
+                <option value='TERMINATED'>Terminated</option>
+              </select>
+            </div>
+          </div>
+          <div className='flex items-center gap-2'>
+            <input
+              type='checkbox'
+              id='edit-blacklist'
+              checked={isBlacklisted}
+              onChange={(e) => setIsBlacklisted(e.target.checked)}
+            />
+            <label htmlFor='edit-blacklist' className='text-sm font-medium'>Blacklist</label>
+          </div>
+          {isBlacklisted && (
+            <div>
+              <label className='mb-1 block text-sm font-medium'>Alasan Blacklist *</label>
+              <textarea
+                className='w-full rounded-xl border bg-background px-3 py-2 text-sm'
+                rows={2}
+                value={blacklistReason}
+                onChange={(e) => setBlacklistReason(e.target.value)}
+              />
+            </div>
+          )}
+        </div>
+        <div className='mt-5 flex justify-end gap-2'>
+          <Button variant='ghost' onClick={onClose}>Batal</Button>
+          <Button onClick={submit} disabled={saving}>
+            {saving ? <Icons.spinner className='mr-1 animate-spin' size={16} /> : null}
+            Simpan
+          </Button>
+        </div>
+      </div>
+    </button>
   );
 }
 
@@ -97,6 +470,8 @@ export default function FreelancePage() {
   const [detailLoading, setDetailLoading] = useState(false);
 
   const [skillModalOpen, setSkillModalOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const [events, setEvents] = useState<FreelanceEvent[]>([]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -125,6 +500,7 @@ export default function FreelancePage() {
   useEffect(() => {
     listSkills().then(setSkills).catch(() => {});
     listSkillCategories().then(setCategories).catch(() => {});
+    listEvents().then(setEvents).catch(() => {});
   }, []);
 
   async function openDetail(id: number) {
@@ -378,6 +754,20 @@ export default function FreelancePage() {
         }}
       />
 
+      {detail && (
+        <EditFreelancerModal
+          open={editOpen}
+          onClose={() => setEditOpen(false)}
+          freelancer={detail}
+          onSaved={async () => {
+            setEditOpen(false);
+            const d = await getFreelancer(detail.id);
+            setDetail(d);
+            await load();
+          }}
+        />
+      )}
+
       <Sheet open={detail !== null || detailLoading} onOpenChange={(o) => { if (!o) setDetail(null); }}>
         <SheetContent side='right' className='w-full sm:max-w-2xl'>
           {detailLoading && !detail ? (
@@ -389,6 +779,7 @@ export default function FreelancePage() {
             <FreelancerDetailView
               freelancer={detail}
               skills={skills}
+              events={events}
               onChanged={async () => {
                 const d = await getFreelancer(detail.id);
                 setDetail(d);
@@ -403,6 +794,16 @@ export default function FreelancePage() {
                 await removeFreelancerSkill(detail.id, skillId);
                 const d = await getFreelancer(detail.id);
                 setDetail(d);
+              }}
+              onDocDeleted={async () => {
+                const d = await getFreelancer(detail.id);
+                setDetail(d);
+              }}
+              onEdit={() => setEditOpen(true)}
+              onAssignmentChanged={async () => {
+                const d = await getFreelancer(detail.id);
+                setDetail(d);
+                await load();
               }}
             />
           ) : null}
@@ -658,28 +1059,45 @@ function SkillCategoryModal({
 function FreelancerDetailView({
   freelancer,
   skills,
+  events,
   onChanged,
   onSkillAdded,
   onSkillRemoved,
+  onDocDeleted,
+  onEdit,
+  onAssignmentChanged,
 }: {
   freelancer: FreelancerDetail;
   skills: Skill[];
+  events: FreelanceEvent[];
   onChanged: () => void | Promise<void>;
   onSkillAdded: (skillId: number, note: string) => void | Promise<void>;
   onSkillRemoved: (skillId: number) => void | Promise<void>;
+  onDocDeleted: () => void | Promise<void>;
+  onEdit: () => void;
+  onAssignmentChanged: () => void | Promise<void>;
 }) {
   const [newSkill, setNewSkill] = useState('');
   const [docUrl, setDocUrl] = useState('');
   const [docName, setDocName] = useState('');
   const [docFile, setDocFile] = useState<File | null>(null);
   const [savingDoc, setSavingDoc] = useState(false);
+  const [deletingDocId, setDeletingDocId] = useState<number | null>(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyEdit, setHistoryEdit] = useState<EventAssignment | null>(null);
+  const [historyDeletingId, setHistoryDeletingId] = useState<number | null>(null);
 
   const assignedSkillIds = new Set(freelancer.skills.map((s) => s.id));
 
   return (
     <div className='flex h-full flex-col'>
       <SheetHeader>
-        <SheetTitle>{freelancer.full_name}</SheetTitle>
+        <div className='flex items-center justify-between gap-2'>
+          <SheetTitle>{freelancer.full_name}</SheetTitle>
+          <Button variant='outline' size='sm' onClick={onEdit}>
+            <Icons.edit size={14} /> Edit
+          </Button>
+        </div>
         <SheetDescription>
           {freelancer.is_blacklisted ? (
             <Badge variant='destructive'>Blacklist</Badge>
@@ -778,6 +1196,25 @@ function FreelancerDetailView({
                     <span>{d.name}</span>
                   )}
                 </span>
+                <button
+                  className='text-muted-foreground hover:text-destructive'
+                  aria-label={`Hapus ${d.name}`}
+                  disabled={deletingDocId === d.id}
+                  onClick={async () => {
+                    setDeletingDocId(d.id);
+                    try {
+                      await deleteFreelancerDocument(freelancer.id, d.id);
+                      await onDocDeleted();
+                      toast.success('Dokumen dihapus.');
+                    } catch (err) {
+                      toast.error(err instanceof Error ? err.message : 'Gagal hapus.');
+                    } finally {
+                      setDeletingDocId(null);
+                    }
+                  }}
+                >
+                  {deletingDocId === d.id ? <Icons.spinner className='animate-spin' size={14} /> : <Icons.trash size={14} />}
+                </button>
               </li>
             ))}
             {freelancer.documents.length === 0 && <li className='text-muted-foreground'>-</li>}
@@ -823,7 +1260,12 @@ function FreelancerDetailView({
         </section>
 
         <section>
-          <h4 className='mb-2 text-sm font-semibold'>Riwayat Event &amp; Performa</h4>
+          <div className='mb-2 flex items-center justify-between'>
+            <h4 className='text-sm font-semibold'>Riwayat Event &amp; Performa</h4>
+            <Button variant='outline' size='sm' onClick={() => { setHistoryEdit(null); setHistoryOpen(true); }}>
+              <Icons.add size={14} /> Tambah
+            </Button>
+          </div>
           {freelancer.assignments.length === 0 ? (
             <p className='text-muted-foreground text-sm'>-</p>
           ) : (
@@ -832,7 +1274,35 @@ function FreelancerDetailView({
                 <div key={a.id} className='rounded-lg border p-3'>
                   <div className='flex items-center justify-between'>
                     <p className='text-sm font-medium'>{a.event_name}</p>
-                    <span className='text-muted-foreground text-xs'>{a.role || '-'}</span>
+                    <div className='flex items-center gap-2'>
+                      <span className='text-muted-foreground text-xs'>{a.role || '-'}</span>
+                      <button
+                        className='text-muted-foreground hover:text-primary'
+                        aria-label='Edit riwayat'
+                        onClick={() => { setHistoryEdit(a); setHistoryOpen(true); }}
+                      >
+                        <Icons.edit size={14} />
+                      </button>
+                      <button
+                        className='text-muted-foreground hover:text-destructive'
+                        aria-label='Hapus riwayat'
+                        disabled={historyDeletingId === a.id}
+                        onClick={async () => {
+                          setHistoryDeletingId(a.id);
+                          try {
+                            await deleteAssignment(a.id);
+                            await onAssignmentChanged();
+                            toast.success('Riwayat dihapus.');
+                          } catch (err) {
+                            toast.error(err instanceof Error ? err.message : 'Gagal hapus.');
+                          } finally {
+                            setHistoryDeletingId(null);
+                          }
+                        }}
+                      >
+                        {historyDeletingId === a.id ? <Icons.spinner className='animate-spin' size={14} /> : <Icons.trash size={14} />}
+                      </button>
+                    </div>
                   </div>
                   <p className='text-muted-foreground text-xs'>PIC: {a.pic || '-'} {a.assigned_at ? `· ${a.assigned_at}` : ''}</p>
                   {a.performance && (
@@ -854,6 +1324,15 @@ function FreelancerDetailView({
           )}
         </section>
       </div>
+
+      <EventHistoryModal
+        open={historyOpen}
+        onClose={() => setHistoryOpen(false)}
+        freelancerId={freelancer.id}
+        events={events}
+        edit={historyEdit}
+        onSaved={onAssignmentChanged}
+      />
     </div>
   );
 }
