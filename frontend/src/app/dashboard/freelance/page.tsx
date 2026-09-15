@@ -764,7 +764,7 @@ export default function FreelancePage() {
       )}
 
       <Sheet open={detail !== null || detailLoading} onOpenChange={(o) => { if (!o) setDetail(null); }}>
-        <SheetContent side='right' className='w-full sm:max-w-2xl'>
+        <SheetContent side='right' showCloseButton={false} className='w-full sm:max-w-2xl'>
           {detailLoading && !detail ? (
             <div className='space-y-3 p-6'>
               <Skeleton className='h-8 w-1/2' />
@@ -795,6 +795,7 @@ export default function FreelancePage() {
                 setDetail(d);
               }}
               onEdit={() => setEditOpen(true)}
+              onClose={() => setDetail(null)}
               onAssignmentChanged={async () => {
                 const d = await getFreelancer(detail.id);
                 setDetail(d);
@@ -810,9 +811,9 @@ export default function FreelancePage() {
 
 function Field({ label, value }: { label: string; value: React.ReactNode }) {
   return (
-    <div>
+    <div className='min-w-0'>
       <p className='text-muted-foreground text-xs'>{label}</p>
-      <p className='text-sm font-medium'>{value || '-'}</p>
+      <p className='break-words text-sm font-medium'>{value || '-'}</p>
     </div>
   );
 }
@@ -1060,6 +1061,7 @@ function FreelancerDetailView({
   onSkillRemoved,
   onDocDeleted,
   onEdit,
+  onClose,
   onAssignmentChanged,
 }: {
   freelancer: FreelancerDetail;
@@ -1070,6 +1072,7 @@ function FreelancerDetailView({
   onSkillRemoved: (skillId: number) => void | Promise<void>;
   onDocDeleted: () => void | Promise<void>;
   onEdit: () => void;
+  onClose: () => void;
   onAssignmentChanged: () => void | Promise<void>;
 }) {
   const [addingSkill, setAddingSkill] = useState(false);
@@ -1089,28 +1092,35 @@ function FreelancerDetailView({
   return (
     <div className='flex h-full flex-col'>
       <SheetHeader>
-        <div className='flex items-center justify-between gap-2'>
-          <SheetTitle>{freelancer.full_name}</SheetTitle>
-          <Button variant='outline' size='sm' onClick={onEdit}>
-            <Icons.edit size={14} /> Edit
-          </Button>
+        <div className='flex items-start justify-between gap-3'>
+          <div className='min-w-0'>
+            <SheetTitle className='truncate'>{freelancer.full_name}</SheetTitle>
+            <SheetDescription className='mt-1 flex flex-wrap items-center gap-1.5'>
+              {freelancer.is_blacklisted ? (
+                <Badge variant='destructive'>Blacklist</Badge>
+              ) : (
+                <Badge variant={statusVariant(freelancer.status)}>{STATUS_LABELS[freelancer.status] ?? freelancer.status}</Badge>
+              )}
+              {freelancer.recommendation && (
+                <Badge variant={RECOMMENDATION_VARIANT[freelancer.recommendation]}>
+                  {RECOMMENDATION_LABELS[freelancer.recommendation]}
+                </Badge>
+              )}
+            </SheetDescription>
+          </div>
+          <div className='flex shrink-0 items-center gap-2'>
+            <Button variant='outline' size='sm' onClick={onEdit}>
+              <Icons.edit size={14} /> Edit
+            </Button>
+            <Button variant='ghost' size='icon-sm' onClick={onClose} aria-label='Tutup'>
+              <Icons.close size={16} />
+            </Button>
+          </div>
         </div>
-        <SheetDescription>
-          {freelancer.is_blacklisted ? (
-            <Badge variant='destructive'>Blacklist</Badge>
-          ) : (
-            <Badge variant={statusVariant(freelancer.status)}>{STATUS_LABELS[freelancer.status] ?? freelancer.status}</Badge>
-          )}
-          {freelancer.recommendation && (
-            <Badge variant={RECOMMENDATION_VARIANT[freelancer.recommendation]}>
-              {RECOMMENDATION_LABELS[freelancer.recommendation]}
-            </Badge>
-          )}
-        </SheetDescription>
       </SheetHeader>
 
       <div className='flex-1 space-y-5 overflow-y-auto px-4 pb-4'>
-        <section className='grid grid-cols-2 gap-3 md:grid-cols-3'>
+        <section className='grid grid-cols-2 gap-x-3 gap-y-4 md:grid-cols-3'>
           <Field label='WhatsApp' value={freelancer.whatsapp} />
           <Field label='Email' value={freelancer.personal_email} />
           <Field label='Domisili' value={freelancer.domicile} />
@@ -1120,7 +1130,7 @@ function FreelancerDetailView({
             label='Rate'
             value={
               freelancer.rate
-                ? `${Number(freelancer.rate).toLocaleString('id-ID')}${freelancer.rate_type ? ` / ${RATE_TYPE_LABELS[freelancer.rate_type as keyof typeof RATE_TYPE_LABELS]}` : ''}`
+                ? `Rp${Number(freelancer.rate).toLocaleString('id-ID')}${freelancer.rate_type ? ` / ${RATE_TYPE_LABELS[freelancer.rate_type as keyof typeof RATE_TYPE_LABELS]}` : ''}`
                 : '-'
             }
           />
@@ -1198,12 +1208,12 @@ function FreelancerDetailView({
           <h4 className='mb-2 text-sm font-semibold'>CV / Portfolio</h4>
           <ul className='space-y-1 text-sm'>
             {freelancer.documents.map((d) => (
-              <li key={d.id} className='flex items-center justify-between rounded-md border px-2 py-1'>
-                <span className='flex items-center gap-2'>
-                  <Icons.page size={14} />
+              <li key={d.id} className='flex items-center justify-between gap-2 rounded-md border px-2 py-1'>
+                <span className='flex min-w-0 items-center gap-2'>
+                  <Icons.page size={14} className='shrink-0' />
                   <button
                     type='button'
-                    className='text-primary hover:underline disabled:opacity-50'
+                    className='truncate text-primary hover:underline disabled:opacity-50'
                     disabled={viewingDocId === d.id}
                     onClick={async (e) => {
                       e.preventDefault();
@@ -1224,7 +1234,7 @@ function FreelancerDetailView({
                   </button>
                 </span>
                 <button
-                  className='text-muted-foreground hover:text-destructive'
+                  className='shrink-0 text-muted-foreground hover:text-destructive'
                   aria-label={`Hapus ${d.name}`}
                   disabled={deletingDocId === d.id}
                   onClick={async () => {
@@ -1251,14 +1261,16 @@ function FreelancerDetailView({
             <Input value={docName} onChange={(e) => setDocName(e.target.value)} placeholder='Nama dokumen' />
             <Input type='file' onChange={(e) => setDocFile(e.target.files?.[0] ?? null)} />
           </div>
-          <div className='mt-2 flex gap-2'>
+          <div className='mt-2 flex items-center gap-2'>
             <Input
+              className='min-w-0 flex-1'
               value={docUrl}
               onChange={(e) => setDocUrl(e.target.value)}
               placeholder='Atau URL portfolio (https://...)'
             />
             <Button
               size='sm'
+              className='shrink-0'
               disabled={savingDoc || (!docUrl && !docFile)}
               onClick={async () => {
                 if (savingDoc) return;
