@@ -5,6 +5,8 @@ from apps.personnel.models import Freelancer
 from .models import (
     Event,
     EventAssignment,
+    FreelanceTask,
+    FreelanceTaskUpdate,
     FreelancerDocument,
     FreelancerPerformance,
     FreelancerSkill,
@@ -85,6 +87,50 @@ class EventSerializer(serializers.ModelSerializer):
 
     def get_assignment_count(self, obj):
         return obj.assignments.count()
+
+class FreelanceTaskUpdateSerializer(serializers.ModelSerializer):
+    created_by_name = serializers.CharField(source='created_by.username', read_only=True, default=None)
+
+    class Meta:
+        model = FreelanceTaskUpdate
+        fields = ('id', 'status', 'note', 'created_by_name', 'created_at')
+        read_only_fields = ('id', 'created_by_name', 'created_at')
+
+class FreelanceTaskSerializer(serializers.ModelSerializer):
+    event_name = serializers.CharField(source='event.name', read_only=True)
+    freelancer_name = serializers.CharField(source='freelancer.full_name', read_only=True)
+    pic_name = serializers.CharField(source='pic', read_only=True)
+    last_update = serializers.SerializerMethodField()
+
+    class Meta:
+        model = FreelanceTask
+        fields = (
+            'id', 'event', 'event_name', 'freelancer', 'freelancer_name',
+            'title', 'description', 'deadline', 'status', 'pic', 'pic_name',
+            'last_update', 'created_at', 'updated_at',
+        )
+        read_only_fields = ('id', 'event_name', 'freelancer_name', 'pic_name', 'last_update', 'created_at', 'updated_at')
+
+    def get_last_update(self, obj):
+        u = obj.updates.first()
+        return FreelanceTaskUpdateSerializer(u).data if u else None
+
+    def validate_title(self, value):
+        if not value or not value.strip():
+            raise serializers.ValidationError('Judul task wajib diisi.')
+        return value.strip()
+
+    def validate_status(self, value):
+        if value not in dict(FreelanceTask._meta.get_field('status').choices):
+            raise serializers.ValidationError('Status tidak valid.')
+        return value
+
+    def validate(self, attrs):
+        event = attrs.get('event') or (self.instance.event if self.instance else None)
+        freelancer = attrs.get('freelancer') or (self.instance.freelancer if self.instance else None)
+        if not event or not freelancer:
+            raise serializers.ValidationError('Event dan freelancer wajib diisi.')
+        return attrs
 
 
 class FreelancerPerformanceSerializer(serializers.ModelSerializer):
