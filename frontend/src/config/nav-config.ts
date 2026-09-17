@@ -300,6 +300,13 @@ export const navGroups: NavGroup[] = [
             icon: 'clock',
             isActive: false,
             items: []
+          },
+          {
+            title: 'Notification & Email',
+            url: '/dashboard/settings/notification',
+            icon: 'notification',
+            isActive: false,
+            items: []
           }
         ]
       }

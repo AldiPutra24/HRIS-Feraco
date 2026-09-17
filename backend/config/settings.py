@@ -45,6 +45,7 @@ INSTALLED_APPS = [
     'apps.payroll',
     'apps.onboarding',
     'apps.announcements',
+    'apps.notifications',
 ]
 
 MIDDLEWARE = [

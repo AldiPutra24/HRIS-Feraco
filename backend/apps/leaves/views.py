@@ -117,6 +117,10 @@ class LeaveRequestViewSet(viewsets.ModelViewSet):
             request_obj,
             f'Pengajuan {request_obj.leave_type.name} dari {employee.full_name} menunggu persetujuan.',
         )
+        # Notification system: in-app + email ke Reporting To (best-effort).
+        from apps.notifications.services import notify_leave_submitted
+
+        notify_leave_submitted(request_obj)
         log_event(self.request, 'create', obj=request_obj, description=f'Leave request {request_obj.id} submitted')
 
     def _load_request(self, request, pk):
@@ -181,6 +185,10 @@ class LeaveRequestViewSet(viewsets.ModelViewSet):
         for recipient in hr_users:
             notify(recipient, leave, f'Pengajuan {leave.leave_type.name} {leave.employee.full_name} disetujui.')
         notify(getattr(leave.employee, 'user', None), leave, f'Pengajuan {leave.leave_type.name} Anda disetujui.')
+        # Notification system: in-app + email ke employee (best-effort).
+        from apps.notifications.services import notify_leave_status
+
+        notify_leave_status(leave, 'APPROVED')
         log_event(request, 'approve', obj=leave, description=f'Leave request {leave.id} approved')
         return Response(LeaveRequestSerializer(leave, context={'request': request}).data)
 
@@ -206,6 +214,10 @@ class LeaveRequestViewSet(viewsets.ModelViewSet):
         for recipient in self._hr_users():
             notify(recipient, leave, f'Pengajuan {leave.leave_type.name} {leave.employee.full_name} ditolak.')
         notify(getattr(leave.employee, 'user', None), leave, f'Pengajuan {leave.leave_type.name} Anda ditolak.')
+        # Notification system: in-app + email ke employee + alasan penolakan (best-effort).
+        from apps.notifications.services import notify_leave_status
+
+        notify_leave_status(leave, 'REJECTED')
         log_event(request, 'reject', obj=leave, description=f'Leave request {leave.id} rejected')
         return Response(LeaveRequestSerializer(leave, context={'request': request}).data)
 
