@@ -182,11 +182,8 @@ function EventHistoryModal({
   };
 
   return (
-    <button
-      type='button'
-      aria-label='Tutup'
+    <div
       className='fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4'
-      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
       <div role='dialog' className='w-full max-w-md rounded-2xl border bg-background p-5 shadow-sm'>
         <h3 className='mb-4 text-base font-semibold'>{edit ? 'Edit Riwayat Event' : 'Tambah Riwayat Event'}</h3>
@@ -257,7 +254,7 @@ function EventHistoryModal({
           </Button>
         </div>
       </div>
-    </button>
+    </div>
   );
 }
 
@@ -333,13 +330,7 @@ function EditFreelancerModal({
     }
   };
 
-  return (
-    <button
-      type='button'
-      aria-label='Tutup'
-      className='fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm'
-      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
-    >
+  return (    <div className='fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm'>
       <div role='dialog' aria-modal='true' className='w-full max-w-lg rounded-2xl border bg-background p-5 shadow-lg'>
         <div className='mb-4 flex items-center justify-between'>
           <h3 className='text-base font-semibold'>Edit Freelancer</h3>
@@ -436,7 +427,7 @@ function EditFreelancerModal({
           </Button>
         </div>
       </div>
-    </button>
+    </div>
   );
 }
 
@@ -878,7 +869,7 @@ function QuickAddModal({
   if (!open) return null;
 
   return (
-    <button type='button' aria-label='Tutup' className='fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4' onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+    <div className='fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4'>
       <div role='dialog' aria-modal='true' className='bg-popover w-full max-w-md rounded-2xl border p-5 shadow-lg'>
         <h3 className='mb-3 text-lg font-semibold'>Quick Add Freelancer</h3>
         <div className='space-y-3'>
@@ -927,7 +918,7 @@ function QuickAddModal({
           </Button>
         </div>
       </div>
-    </button>
+    </div>
   );
 }
 
@@ -951,7 +942,7 @@ function SkillCategoryModal({
   if (!open) return null;
 
   return (
-    <button type='button' aria-label='Tutup' className='fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4' onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+    <div className='fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4'>
       <div role='dialog' aria-modal='true' className='bg-popover w-full max-w-lg rounded-2xl border p-5 shadow-lg'>
         <h3 className='mb-3 text-lg font-semibold'>Skill &amp; Kategori</h3>
         <div className='grid grid-cols-1 gap-4 md:grid-cols-2'>
@@ -1054,7 +1045,7 @@ function SkillCategoryModal({
           <Button variant='ghost' onClick={onClose}>Tutup</Button>
         </div>
       </div>
-    </button>
+    </div>
   );
 }
 

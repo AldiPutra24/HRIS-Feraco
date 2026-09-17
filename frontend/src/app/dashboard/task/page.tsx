@@ -141,11 +141,8 @@ function TaskFormModal({
   };
 
   return (
-    <button
-      type='button'
-      aria-label='Tutup'
+    <div
       className='fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm'
-      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
       <div role='dialog' aria-modal='true' className='w-full max-w-lg rounded-2xl border bg-background p-5 shadow-lg'>
         <div className='mb-4 flex items-center justify-between'>
@@ -236,7 +233,7 @@ function TaskFormModal({
           </Button>
         </div>
       </div>
-    </button>
+    </div>
   );
 }
 
