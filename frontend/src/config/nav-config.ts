@@ -307,6 +307,13 @@ export const navGroups: NavGroup[] = [
             icon: 'notification',
             isActive: false,
             items: []
+          },
+          {
+            title: 'Riwayat Delivery',
+            url: '/dashboard/settings/delivery-logs',
+            icon: 'send',
+            isActive: false,
+            items: []
           }
         ]
       }

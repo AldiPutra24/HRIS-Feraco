@@ -6,8 +6,14 @@ from apps.accounts.models import User
 from apps.audit.services import log_event
 from apps.personnel.permissions import WRITE_ROLES, _role
 
-from .models import Notification, NotificationEventConfig, NotificationSetting
+from .models import (
+    Notification,
+    NotificationDeliveryLog,
+    NotificationEventConfig,
+    NotificationSetting,
+)
 from .serializers import (
+    NotificationDeliveryLogSerializer,
     NotificationEventConfigSerializer,
     NotificationSerializer,
     NotificationSettingSerializer,
@@ -96,6 +102,43 @@ class NotificationSettingViewSet(viewsets.ModelViewSet):
             {'id': u.id, 'username': u.username, 'email': u.email, 'role': getattr(u.role, 'key', '')}
             for u in users
         ])
+
+
+class NotificationDeliveryLogViewSet(viewsets.ReadOnlyModelViewSet):
+    """Delivery history (HR/Admin): email + in-app delivery outcomes.
+
+    Read-only ledger written by services._send_email/_deliver_inapp; the UI
+    can filter by channel/status/event/recipient and date range.
+    """
+
+    queryset = NotificationDeliveryLog.objects.select_related('recipient').all()
+    serializer_class = NotificationDeliveryLogSerializer
+    permission_classes = [IsHRAdmin]
+    filterset_fields = ['channel', 'status', 'event']
+    search_fields = ['recipient_email', 'subject', 'key']
+    ordering_fields = ['created_at']
+    ordering = ['-created_at']
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        date_from = self.request.query_params.get('date_from')
+        if date_from:
+            qs = qs.filter(created_at__date__gte=date_from)
+        date_to = self.request.query_params.get('date_to')
+        if date_to:
+            qs = qs.filter(created_at__date__lte=date_to)
+        return qs
+
+    @action(detail=False, methods=['get'])
+    def summary(self, request):
+        """Per-status counts, optionally scoped to the same filters."""
+        qs = self.get_queryset()
+        return Response({
+            'total': qs.count(),
+            'sent': qs.filter(status='SENT').count(),
+            'failed': qs.filter(status='FAILED').count(),
+            'skipped': qs.filter(status='SKIPPED').count(),
+        })
 
 
 class NotificationEventConfigViewSet(viewsets.ModelViewSet):

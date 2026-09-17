@@ -25,6 +25,7 @@ User = get_user_model()
 SETTINGS_URL = '/api/notifications/notification-settings/'
 EVENTS_URL = '/api/notifications/notification-events/'
 NOTIF_URL = '/api/notifications/notifications/'
+DELIVERY_URL = '/api/notifications/delivery-logs/'
 
 HR_DEFAULT_EMAIL = 'hrgaferaco@gmail.com'
 
@@ -405,6 +406,80 @@ class NotificationSettingsApiTests(TestCase):
         cfg = NotificationEventConfig.objects.get(event='LEAVE_REJECTED')
         self.assertEqual(cfg.subject, 'Subj khusus')
         self.assertFalse(cfg.enabled)
+
+
+class DeliveryLogApiTests(TestCase):
+    def setUp(self):
+        self.client = Client()
+        self.hr = make_user('HR_STAFF', 'hrlog@test.com')
+        self.emp = make_user('EMPLOYEE', 'emplog@test.com')
+
+    def login_hr(self):
+        self.client.force_login(self.hr)
+
+    def test_hr_sees_logs_employee_forbidden(self):
+        NotificationDeliveryLog.objects.create(
+            key='leave-status:9:APPROVED:email:john@gmail.com', channel='EMAIL',
+            event='LEAVE_APPROVED', recipient_email='john@gmail.com',
+            subject='Subj', status='SENT',
+        )
+        NotificationDeliveryLog.objects.create(
+            key='leave-status:9:APPROVED:inapp:9', channel='IN_APP',
+            event='LEAVE_APPROVED', recipient=self.emp,
+            subject='Subj', status='SENT',
+        )
+        self.login_hr()
+        res = self.client.get(DELIVERY_URL)
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.data['count'], 2)
+        row = res.data['results'][0]
+        self.assertIn('recipient_username', row)
+        self.assertIn('detail', row)
+        self.client.force_login(self.emp)
+        res = self.client.get(DELIVERY_URL)
+        self.assertEqual(res.status_code, 403)
+
+    def test_filter_by_status_and_channel(self):
+        NotificationDeliveryLog.objects.create(
+            key='k1', channel='EMAIL', event='CONTRACT',
+            recipient_email='a@x.com', status='SENT',
+        )
+        NotificationDeliveryLog.objects.create(
+            key='k2', channel='EMAIL', event='CONTRACT',
+            recipient_email='b@x.com', status='FAILED', detail='SMTP down',
+        )
+        NotificationDeliveryLog.objects.create(
+            key='k3', channel='IN_APP', event='BIRTHDAY', recipient=self.emp,
+            status='SENT',
+        )
+        self.login_hr()
+        res = self.client.get(DELIVERY_URL, {'status': 'FAILED'})
+        self.assertEqual(res.data['count'], 1)
+        self.assertEqual(res.data['results'][0]['recipient_email'], 'b@x.com')
+        self.assertIn('SMTP down', res.data['results'][0]['detail'])
+        res = self.client.get(DELIVERY_URL, {'channel': 'IN_APP'})
+        self.assertEqual(res.data['count'], 1)
+        res = self.client.get(DELIVERY_URL, {'event': 'CONTRACT'})
+        self.assertEqual(res.data['count'], 2)
+        res = self.client.get(DELIVERY_URL, {'search': 'a@x.com'})
+        self.assertEqual(res.data['count'], 1)
+        res = self.client.get(DELIVERY_URL, {'date_from': '2100-01-01'})
+        self.assertEqual(res.data['count'], 0)
+        res = self.client.get(DELIVERY_URL, {'date_to': '2100-01-01'})
+        self.assertEqual(res.data['count'], 3)
+
+    def test_summary_counts(self):
+        NotificationDeliveryLog.objects.create(
+            key='s1', channel='EMAIL', event='CONTRACT',
+            recipient_email='a@x.com', status='SENT',
+        )
+        NotificationDeliveryLog.log_failed(
+            key='s2', event='CONTRACT', recipient_email='b@x.com', subject='S', detail='boom'
+        )
+        self.login_hr()
+        res = self.client.get(f'{DELIVERY_URL}summary/')
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.data, {'total': 2, 'sent': 1, 'failed': 1, 'skipped': 0})
 
 
 class CommandTests(TestCase):

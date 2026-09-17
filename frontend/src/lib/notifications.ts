@@ -141,3 +141,77 @@ export function updateEventConfig(id: number, input: Partial<Pick<EventConfig, '
     body: JSON.stringify(input),
   });
 }
+
+export type DeliveryChannel = 'EMAIL' | 'IN_APP';
+export type DeliveryStatus = 'SENT' | 'FAILED' | 'SKIPPED';
+export type DeliveryEvent =
+  | 'LEAVE_SUBMITTED'
+  | 'LEAVE_APPROVED'
+  | 'LEAVE_REJECTED'
+  | 'CONTRACT'
+  | 'BIRTHDAY';
+
+export type DeliveryLog = {
+  id: number;
+  key: string;
+  channel: DeliveryChannel;
+  event: DeliveryEvent;
+  recipient_email: string;
+  recipient_username: string | null;
+  subject: string;
+  status: DeliveryStatus;
+  detail: string;
+  created_at: string;
+};
+
+export type DeliveryLogPage = { count: number; next: string | null; previous: string | null; results: DeliveryLog[] };
+
+export type DeliveryLogFilters = {
+  channel?: string;
+  status?: string;
+  event?: string;
+  search?: string;
+  date_from?: string;
+  date_to?: string;
+  page?: number;
+};
+
+export type DeliverySummary = {
+  total: number;
+  sent: number;
+  failed: number;
+  skipped: number;
+};
+
+export const DELIVERY_STATUS_LABELS: Record<DeliveryStatus, string> = {
+  SENT: 'Terkirim',
+  FAILED: 'Gagal',
+  SKIPPED: 'Dilewati',
+};
+
+export const DELIVERY_CHANNEL_LABELS: Record<DeliveryChannel, string> = {
+  EMAIL: 'Email',
+  IN_APP: 'In-app',
+};
+
+export const DELIVERY_EVENT_LABELS: Record<string, string> = {
+  LEAVE_SUBMITTED: 'Izin/Cuti — Pengajuan Baru',
+  LEAVE_APPROVED: 'Izin/Cuti — Disetujui',
+  LEAVE_REJECTED: 'Izin/Cuti — Ditolak',
+  CONTRACT: 'End of Contract',
+  BIRTHDAY: 'Birthday',
+};
+
+export function listDeliveryLogs(params: DeliveryLogFilters = {}): Promise<DeliveryLogPage> {
+  const q = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) if (v) q.set(String(k), String(v));
+  const suffix = q.toString();
+  return request<DeliveryLogPage>(`/delivery-logs/${suffix ? `?${suffix}` : ''}`);
+}
+
+export function getDeliverySummary(params: DeliveryLogFilters = {}): Promise<DeliverySummary> {
+  const q = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) if (v) q.set(String(k), String(v));
+  const suffix = q.toString();
+  return request<DeliverySummary>(`/delivery-logs/summary/${suffix ? `?${suffix}` : ''}`);
+}

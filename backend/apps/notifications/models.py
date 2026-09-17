@@ -172,5 +172,17 @@ class NotificationDeliveryLog(models.Model):
     class Meta:
         ordering = ['-created_at']
 
+    @classmethod
+    def log_failed(cls, key: str, event: str, recipient_email: str = '',
+                   subject: str = '', detail: str = ''):
+        """Persist one FAILED delivery row (best-effort, never raises)."""
+        try:
+            return cls.objects.create(
+                key=key, channel='EMAIL', event=event, recipient_email=recipient_email,
+                subject=subject[:255], status='FAILED', detail=(detail or '')[:2000],
+            )
+        except Exception:
+            return None
+
     def __str__(self):
         return f'{self.key}: {self.status}'
