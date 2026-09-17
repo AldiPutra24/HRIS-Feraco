@@ -14,4 +14,5 @@ urlpatterns = [
     path('api/announcements/', include('apps.announcements.urls')),
     path('api/audit/', include('apps.audit.urls')),
     path('api/notifications/', include('apps.notifications.urls')),
+    path('api/kms/', include('apps.kms.urls')),
 ]
