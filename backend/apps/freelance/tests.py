@@ -1,7 +1,8 @@
-from datetime import date
+from datetime import date, timedelta
 
 from django.contrib.auth import get_user_model
-from django.test import TestCase
+from django.core import mail
+from django.test import TestCase, override_settings
 from django.urls import reverse
 
 from apps.accounts.models import Role
@@ -18,6 +19,8 @@ from .models import (
     FreelancerSkill,
     Skill,
     SkillCategory,
+    TaskEscalationPolicy,
+    TaskReminderLog,
 )
 
 User = get_user_model()
@@ -365,3 +368,229 @@ class TaskTests(TestCase):
         self.client.logout()
         resp = self.client.get('/api/freelance/tasks/')
         self.assertIn(resp.status_code, (401, 403))
+
+
+class SchedulerSettingsApiTests(TestCase):
+    def setUp(self):
+        self.admin = make_user('ADMIN', 'admin@test.com')
+        self.client.force_login(self.admin)
+
+    def test_get_default_policy(self):
+        resp = self.client.get('/api/freelance/task-scheduler/')
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertTrue(data['enabled'])
+        self.assertEqual(data['reminder_offsets'], '3,1,0')
+        self.assertEqual(data['reminder_offset_list'], [3, 1, 0])
+        self.assertEqual(data['escalate_after_days'], 1)
+        self.assertEqual(data['max_escalations'], 3)
+
+    def test_patch_policy_and_singleton(self):
+        resp = self.client.patch('/api/freelance/task-scheduler/1/', {
+            'reminder_offsets': '7, 2', 'escalate_after_days': 2, 'max_escalations': 5,
+        }, content_type='application/json')
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertEqual(data['reminder_offsets'], '7,2')  # normalized
+        self.assertEqual(data['escalate_after_days'], 2)
+        self.assertEqual(data['updated_by'], self.admin.id)
+        # Still a singleton — second object never created.
+        self.assertEqual(TaskEscalationPolicy.objects.count(), 1)
+
+    def test_patch_invalid_offsets_rejected(self):
+        for bad in ('abc', '3,,1', '1;2', '99'):
+            resp = self.client.patch(
+                '/api/freelance/task-scheduler/1/',
+                {'reminder_offsets': bad},
+                content_type='application/json',
+            )
+            self.assertEqual(resp.status_code, 400, bad)
+
+    def test_patch_invalid_cc_email_rejected(self):
+        resp = self.client.patch('/api/freelance/task-scheduler/1/', {
+            'escalation_cc_emails': 'hr@feraco.id, bukan-email',
+        }, content_type='application/json')
+        self.assertEqual(resp.status_code, 400)
+
+    def test_cc_emails_normalized(self):
+        resp = self.client.patch('/api/freelance/task-scheduler/1/', {
+            'escalation_cc_emails': 'a@x.com; b@y.com ,c@z.com',
+        }, content_type='application/json')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json()['escalation_cc_emails'], 'a@x.com, b@y.com, c@z.com')
+
+    def test_unauthenticated_denied(self):
+        self.client.logout()
+        resp = self.client.get('/api/freelance/task-scheduler/')
+        self.assertIn(resp.status_code, (401, 403))
+
+
+@override_settings(EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend')
+class TaskReminderEngineTests(TestCase):
+    def setUp(self):
+        self.admin = make_user('ADMIN', 'admin@test.com')
+        self.freelancer = make_freelancer(full_name='Budi', personal_email='budi@x.com')
+        self.event = Event.objects.create(name='Event A')
+        self.policy = TaskEscalationPolicy.get_solo()
+        self.policy.enabled = True
+        self.policy.reminder_offsets = '3,1,0'
+        self.policy.escalate_after_days = 1
+        self.policy.max_escalations = 3
+        self.policy.remind_freelancer = True
+        self.policy.remind_pic = False
+        self.policy.escalation_cc_emails = ''
+        self.policy.save()
+
+    def _task(self, *, deadline, status='BELUM_MULAI', **kw):
+        defaults = {
+            'event': self.event, 'freelancer': self.freelancer, 'title': 'Setup booth',
+            'deadline': deadline, 'status': status,
+        }
+        defaults.update(kw)
+        return FreelanceTask.objects.create(**defaults)
+
+    def _run(self, today):
+        from .services import gather_reminders
+        return gather_reminders(today=today)
+
+    def test_reminder_d3_d1_d0_fire_in_window(self):
+        deadline = date(2026, 9, 20)
+        task = self._task(deadline=deadline)
+        # Long before deadline: nothing due.
+        self.assertEqual(self._run(today=date(2026, 9, 10)), [])
+        # D-3 window opens.
+        due = self._run(today=date(2026, 9, 17))
+        self.assertEqual([(t.id, k, o) for t, k, o, _ in due], [(task.id, 'REMINDER', 3)])
+        # D-1 fires the next day (once previous was sent).
+        TaskReminderLog.objects.create(task=task, kind='REMINDER', offset_days=3)
+        due = self._run(today=date(2026, 9, 19))
+        self.assertEqual([(t.id, k, o) for t, k, o, _ in due], [(task.id, 'REMINDER', 1)])
+
+    def test_no_duplicate_send(self):
+        task = self._task(deadline=date(2026, 9, 20))
+        TaskReminderLog.objects.create(task=task, kind='REMINDER', offset_days=3)
+        self.assertEqual(self._run(today=date(2026, 9, 17)), [])
+
+    def test_completed_task_excluded(self):
+        self._task(deadline=date(2026, 9, 20), status='SELESAI')
+        self.assertEqual(self._run(today=date(2026, 9, 17)), [])
+
+    def test_null_deadline_excluded(self):
+        self._task(deadline=None)
+        self.assertEqual(self._run(today=date(2026, 9, 17)), [])
+
+    def test_send_mail_delivers_and_logs(self):
+        from .services import send_due_reminders
+        task = self._task(deadline=date.today() + timedelta(days=3), description='Siapkan booth')
+        result = send_due_reminders()
+        self.assertEqual(result['sent'], 1)
+        self.assertEqual(len(mail.outbox), 1)
+        body = mail.outbox[0].body
+        self.assertIn('Event A', body)
+        self.assertIn('budi@x.com', mail.outbox[0].to)
+        self.assertIn('Siapkan booth', body)
+        self.assertTrue(TaskReminderLog.objects.filter(task=task, kind='REMINDER').exists())
+
+    def test_no_recipient_skipped(self):
+        from .services import send_due_reminders
+        self.freelancer.personal_email = ''
+        self.freelancer.save()
+        self._task(deadline=date.today() + timedelta(days=3))
+        result = send_due_reminders()
+        self.assertEqual(result['sent'], 0)
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_disabled_policy_sends_nothing(self):
+        from .services import send_due_reminders
+        self.policy.enabled = False
+        self.policy.save()
+        self._task(deadline=date.today() + timedelta(days=3))
+        result = send_due_reminders()
+        self.assertEqual(result['sent'], 0)
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_pic_receives_via_company_email(self):
+        from .services import send_due_reminders
+        self.freelancer.company_email = 'pic@feraco.id'
+        self.freelancer.save()
+        self.policy.remind_pic = True
+        self.policy.save()
+        self._task(deadline=date.today() + timedelta(days=3), pic='Rina')
+        result = send_due_reminders()
+        self.assertEqual(result['sent'], 1)
+        to = mail.outbox[0].to
+        self.assertIn('budi@x.com', to)
+        self.assertIn('pic@feraco.id', to)
+
+    def test_escalation_fires_after_deadline(self):
+        deadline = date(2026, 9, 10)
+        task = self._task(deadline=deadline, status='SEDANG_DIKERJAKAN')
+        # Deadline day: the D-0 reminder fires first (one email per run).
+        due = self._run(today=date(2026, 9, 10))
+        self.assertEqual([(t.id, k, o) for t, k, o, _ in due], [(task.id, 'REMINDER', 0)])
+        TaskReminderLog.objects.create(task=task, kind='REMINDER', offset_days=0)
+        # 1 day overdue -> escalation #1 (escalate_after_days=1).
+        due = self._run(today=date(2026, 9, 11))
+        self.assertEqual([(t.id, k, n) for t, k, _, n in due], [(task.id, 'ESCALATION', 1)])
+        # Escalations repeat every interval up to max.
+        for n in (1, 2):
+            TaskReminderLog.objects.create(task=task, kind='ESCALATION', offset_days=n)
+        due = self._run(today=date(2026, 9, 13))
+        self.assertEqual([(t.id, k, n) for t, k, _, n in due], [(task.id, 'ESCALATION', 3)])
+        # After max reached: silence.
+        TaskReminderLog.objects.create(task=task, kind='ESCALATION', offset_days=3)
+        self.assertEqual(self._run(today=date(2026, 9, 20)), [])
+
+    def test_escalation_interval_respected(self):
+        self.policy.escalate_after_days = 3
+        self.policy.save()
+        task = self._task(deadline=date(2026, 9, 1))
+        # 1 day overdue with interval 3: nothing yet.
+        self.assertEqual(self._run(today=date(2026, 9, 2)), [])
+        # 3 days overdue: escalation #1.
+        due = self._run(today=date(2026, 9, 4))
+        self.assertEqual([(t.id, k, n) for t, k, _, n in due], [(task.id, 'ESCALATION', 1)])
+        # Catch-up: run only after 12 days -> escalations 2..3 due, sends one per run.
+        TaskReminderLog.objects.create(task=task, kind='ESCALATION', offset_days=1)
+        due = self._run(today=date(2026, 9, 13))
+        self.assertEqual([(t.id, k, n) for t, k, _, n in due], [(task.id, 'ESCALATION', 2)])
+
+    def test_escalation_sends_to_cc(self):
+        from .services import send_due_reminders
+        self.policy.escalation_cc_emails = 'hr@feraco.id'
+        self.policy.save()
+        self.freelancer.personal_email = ''
+        self.freelancer.save()
+        self._task(deadline=date.today() - timedelta(days=2))
+        result = send_due_reminders()
+        self.assertEqual(result['sent'], 1)
+        self.assertIn('hr@feraco.id', mail.outbox[0].to)
+        self.assertIn('[ESKALASI]', mail.outbox[0].subject)
+
+    def test_escalation_not_for_completed(self):
+        self._task(deadline=date.today() - timedelta(days=2), status='SELESAI')
+        self.assertEqual(self._run(today=date.today()), [])
+
+    def test_command_dry_run_and_send(self):
+        from io import StringIO
+        from django.core.management import call_command
+        self._task(deadline=date.today() + timedelta(days=3))
+        out = StringIO()
+        call_command('send_task_reminders', '--dry-run', stdout=out)
+        self.assertIn('REMINDER D-3', out.getvalue())
+        self.assertEqual(len(mail.outbox), 0)
+        call_command('send_task_reminders', stdout=out)
+        self.assertEqual(len(mail.outbox), 1)
+        out = StringIO()
+        call_command('send_task_reminders', stdout=out)
+        self.assertIn('Tidak ada', out.getvalue())  # idempotent: no repeat
+        self.assertEqual(len(mail.outbox), 1)
+
+    def test_burst_only_sends_most_urgent_once(self):
+        """Task created after deadline passed: single reminder, not the ladder."""
+        self._task(deadline=date.today() + timedelta(days=1))
+        from .services import send_due_reminders
+        result = send_due_reminders()
+        self.assertEqual(result['sent'], 1)
+        log = TaskReminderLog.objects.filter(kind='REMINDER').get()
+        self.assertEqual(log.offset_days, 1)  # most urgent due offset, single email

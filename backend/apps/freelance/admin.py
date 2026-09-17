@@ -8,6 +8,8 @@ from .models import (
     FreelancerSkill,
     Skill,
     SkillCategory,
+    TaskEscalationPolicy,
+    TaskReminderLog,
 )
 
 
@@ -46,6 +48,19 @@ class EventAdmin(admin.ModelAdmin):
 class EventAssignmentAdmin(admin.ModelAdmin):
     list_display = ('freelancer', 'event', 'role', 'pic', 'assigned_at')
     search_fields = ('freelancer__full_name', 'event__name')
+
+
+@admin.register(TaskEscalationPolicy)
+class TaskEscalationPolicyAdmin(admin.ModelAdmin):
+    list_display = ('enabled', 'reminder_offsets', 'escalate_after_days', 'max_escalations', 'updated_at')
+
+
+@admin.register(TaskReminderLog)
+class TaskReminderLogAdmin(admin.ModelAdmin):
+    list_display = ('task', 'kind', 'offset_days', 'recipient_emails', 'sent_at')
+    list_filter = ('kind',)
+    search_fields = ('task__title', 'recipient_emails')
+    readonly_fields = ('task', 'kind', 'offset_days', 'recipient_emails', 'sent_at')
 
 
 @admin.register(FreelancerPerformance)

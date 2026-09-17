@@ -228,3 +228,88 @@ class FreelanceTaskUpdate(models.Model):
 
     def __str__(self):
         return f'{self.task_id}: {self.status}'
+
+
+class TaskReminderLog(models.Model):
+    """One row per reminder/escalation email actually sent for a task.
+
+    Doubles as dedup state: a (task, kind, offset_days) row means that
+    notification was already sent and must not be repeated.
+    """
+
+    KIND_CHOICES = [
+        ('REMINDER', 'Reminder'),
+        ('ESCALATION', 'Escalation'),
+    ]
+
+    task = models.ForeignKey(
+        FreelanceTask, on_delete=models.CASCADE, related_name='reminder_logs'
+    )
+    kind = models.CharField(max_length=12, choices=KIND_CHOICES)
+    offset_days = models.PositiveSmallIntegerField(null=True, blank=True)
+    recipient_emails = models.TextField(blank=True)
+    sent_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-sent_at']
+
+    def __str__(self):
+        return f'{self.kind} task={self.task_id} offset={self.offset_days}'
+
+
+class TaskEscalationPolicy(models.Model):
+    """Singleton configuration for automatic deadline reminders + escalation.
+
+    - enabled: master switch for send_task_reminders.
+    - reminder_offsets: comma-separated days-before-deadline values.
+    - remind_freelancer / remind_pic: recipient toggles (freelancer needs
+      personal_email, PIC is a free-text name so only notified when the
+      company email exists on the freelancer record).
+    - escalation_cc_emails: extra recipients (e.g. HR manager) for reminder
+      emails too; mandatory recipients for overdue escalations.
+    - escalate_after_days: first escalation fires N days after the deadline
+      while the task is not SELESAI.
+    - max_escalations: further escalations every escalate_after_days up to
+      this count, then silence.
+    """
+
+    enabled = models.BooleanField(default=True)
+    reminder_offsets = models.CharField(max_length=255, default='3,1,0')
+    remind_freelancer = models.BooleanField(default=True)
+    remind_pic = models.BooleanField(default=True)
+    escalation_cc_emails = models.CharField(max_length=1024, blank=True)
+    escalate_after_days = models.PositiveSmallIntegerField(default=1)
+    max_escalations = models.PositiveSmallIntegerField(default=3)
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='updated_task_escalation_policies',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'Task escalation policy'
+        verbose_name_plural = 'Task escalation policies'
+
+    def __str__(self):
+        return 'Task escalation policy'
+
+    def save(self, *args, **kwargs):
+        self.pk = 1  # singleton
+        super().save(*args, **kwargs)
+
+    @classmethod
+    def get_solo(cls):
+        obj, _ = cls.objects.get_or_create(pk=1)
+        return obj
+
+    def reminder_offset_list(self):
+        offsets = []
+        for raw in (self.reminder_offsets or '').split(','):
+            raw = raw.strip()
+            if raw.lstrip('-').isdigit():
+                offsets.append(int(raw))
+        return sorted(set(offsets), reverse=True)

@@ -391,3 +391,38 @@ export function addTaskUpdate(id: number, input: { status?: TaskStatus; note?: s
 export function getEventTaskProgress(eventId: number): Promise<EventTaskProgress> {
   return request<EventTaskProgress>(`/events/${eventId}/task-progress/`);
 }
+
+export type TaskEscalationPolicy = {
+  enabled: boolean;
+  reminder_offsets: string;
+  reminder_offset_list: number[];
+  remind_freelancer: boolean;
+  remind_pic: boolean;
+  escalation_cc_emails: string;
+  escalate_after_days: number;
+  max_escalations: number;
+  updated_by: number | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export function getTaskScheduler(): Promise<TaskEscalationPolicy> {
+  return request<TaskEscalationPolicy>('/task-scheduler/');
+}
+
+export function updateTaskScheduler(
+  input: Partial<Pick<TaskEscalationPolicy, 'enabled' | 'reminder_offsets' | 'remind_freelancer' | 'remind_pic' | 'escalation_cc_emails' | 'escalate_after_days' | 'max_escalations'>>,
+): Promise<TaskEscalationPolicy> {
+  return request<TaskEscalationPolicy>('/task-scheduler/1/', { method: 'PATCH', body: JSON.stringify(input) });
+}
+
+export type SendRemindersResult = {
+  sent: number;
+  skipped: number;
+  failed: number;
+  details: { task_id: number; kind: string; offset_days: number | null; status: string }[];
+};
+
+export function sendTaskRemindersNow(): Promise<SendRemindersResult> {
+  return request<SendRemindersResult>('/task-scheduler/send-now/', { method: 'POST' });
+}

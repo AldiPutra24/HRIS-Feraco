@@ -12,6 +12,7 @@ from .models import (
     FreelancerSkill,
     Skill,
     SkillCategory,
+    TaskEscalationPolicy,
 )
 
 
@@ -130,6 +131,54 @@ class FreelanceTaskSerializer(serializers.ModelSerializer):
         freelancer = attrs.get('freelancer') or (self.instance.freelancer if self.instance else None)
         if not event or not freelancer:
             raise serializers.ValidationError('Event dan freelancer wajib diisi.')
+        return attrs
+
+
+class TaskEscalationPolicySerializer(serializers.ModelSerializer):
+    reminder_offset_list = serializers.SerializerMethodField()
+
+    class Meta:
+        model = TaskEscalationPolicy
+        fields = (
+            'enabled', 'reminder_offsets', 'reminder_offset_list',
+            'remind_freelancer', 'remind_pic', 'escalation_cc_emails',
+            'escalate_after_days', 'max_escalations',
+            'updated_by', 'created_at', 'updated_at',
+        )
+        read_only_fields = ('reminder_offset_list', 'updated_by', 'created_at', 'updated_at')
+
+    def get_reminder_offset_list(self, obj):
+        return obj.reminder_offset_list()
+
+    def validate_reminder_offsets(self, value):
+        raw = (value or '').strip()
+        if not raw:
+            raise serializers.ValidationError('Reminder offsets wajib diisi (contoh: 3,1,0).')
+        parts = [p.strip() for p in raw.split(',')]
+        if not parts or not all(p.lstrip('-').isdigit() for p in parts):
+            raise serializers.ValidationError('Format tidak valid. Gunakan angka dipisah koma (contoh: 3,1,0).')
+        ints = [int(p) for p in parts]
+        if any(i > 60 for i in ints):
+            raise serializers.ValidationError('Offset maksimal 60 hari sebelum deadline.')
+        # Normalize: unique, sorted descending (e.g. "1, 3, 0" -> "3,1,0").
+        return ','.join(str(i) for i in sorted(set(ints), reverse=True))
+
+    def validate_escalation_cc_emails(self, value):
+        emails = [p.strip() for p in (value or '').replace(';', ',').split(',') if p.strip()]
+        for email in emails:
+            if '@' not in email:
+                raise serializers.ValidationError(f'Email tidak valid: {email}')
+        return ', '.join(emails)
+
+    def validate(self, attrs):
+        escalate_after = attrs.get(
+            'escalate_after_days', getattr(self.instance, 'escalate_after_days', 1)
+        )
+        max_esc = attrs.get('max_escalations', getattr(self.instance, 'max_escalations', 3))
+        if escalate_after is not None and escalate_after < 1:
+            raise serializers.ValidationError({'escalate_after_days': 'Minimal 1 hari setelah deadline.'})
+        if max_esc is not None and max_esc < 1:
+            raise serializers.ValidationError({'max_escalations': 'Minimal 1 eskalasi.'})
         return attrs
 
 

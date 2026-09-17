@@ -8,6 +8,7 @@ from .views import (
     FreelancerViewSet,
     SkillCategoryViewSet,
     SkillViewSet,
+    TaskEscalationPolicyViewSet,
 )
 
 router = DefaultRouter()
@@ -17,6 +18,7 @@ router.register('skill-categories', SkillCategoryViewSet, basename='skill-catego
 router.register('events', EventViewSet, basename='event')
 router.register('assignments', EventAssignmentViewSet, basename='assignment')
 router.register('tasks', FreelanceTaskViewSet, basename='task')
+router.register('task-scheduler', TaskEscalationPolicyViewSet, basename='task-scheduler')
 
 urlpatterns = [
     path('', include(router.urls)),

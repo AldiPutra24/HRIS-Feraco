@@ -23,11 +23,14 @@ import {
   createTask,
   deleteTask,
   getEventTaskProgress,
+  getTaskScheduler,
   listEvents,
   listFreelancers,
   listTasks,
   request,
+  sendTaskRemindersNow,
   updateTask,
+  updateTaskScheduler,
   type EventTaskProgress,
   type FreelanceEvent,
   type FreelanceTask,
@@ -368,6 +371,209 @@ function TaskDetailView({
   );
 }
 
+function SchedulerSettingsCard() {
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [enabled, setEnabled] = useState(true);
+  const [offsets, setOffsets] = useState('3,1,0');
+  const [remindFreelancer, setRemindFreelancer] = useState(true);
+  const [remindPic, setRemindPic] = useState(true);
+  const [ccEmails, setCcEmails] = useState('');
+  const [escalateAfter, setEscalateAfter] = useState(1);
+  const [maxEscalations, setMaxEscalations] = useState(3);
+
+  const loadPolicy = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await getTaskScheduler();
+      setEnabled(data.enabled);
+      setOffsets(data.reminder_offsets);
+      setRemindFreelancer(data.remind_freelancer);
+      setRemindPic(data.remind_pic);
+      setCcEmails(data.escalation_cc_emails);
+      setEscalateAfter(data.escalate_after_days);
+      setMaxEscalations(data.max_escalations);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Gagal memuat pengaturan.');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  // eslint-disable-next-line react/set-state-in-effect -- initial settings fetch
+  useEffect(() => {
+    loadPolicy();
+  }, [loadPolicy]);
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      await updateTaskScheduler({
+        enabled,
+        reminder_offsets: offsets.trim(),
+        remind_freelancer: remindFreelancer,
+        remind_pic: remindPic,
+        escalation_cc_emails: ccEmails.trim(),
+        escalate_after_days: escalateAfter,
+        max_escalations: maxEscalations,
+      });
+      toast.success('Pengaturan reminder tersimpan.');
+      await loadPolicy();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Gagal menyimpan.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const sendNow = async () => {
+    setSending(true);
+    try {
+      const result = await sendTaskRemindersNow();
+      toast.success(
+        `Selesai: ${result.sent} terkirim, ${result.skipped} dilewati, ${result.failed} gagal.`,
+      );
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Gagal mengirim.');
+    } finally {
+      setSending(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <Card>
+        <CardContent className='p-6'>
+          <Skeleton className='h-40 w-full' />
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Reminder Deadline & Eskalasi Otomatis</CardTitle>
+      </CardHeader>
+      <CardContent className='space-y-4'>
+        <p className='text-muted-foreground text-sm'>
+          Email reminder dikirim otomatis via perintah harian{' '}
+          <code className='rounded bg-muted px-1 py-0.5 text-xs'>send_task_reminders</code> (jalankan
+          via cron). Task dengan status Selesai tidak di-email.
+        </p>
+        <div className='flex items-center gap-2'>
+          <input
+            id='scheduler-enabled'
+            type='checkbox'
+            className='h-4 w-4 accent-primary'
+            checked={enabled}
+            onChange={(e) => setEnabled(e.target.checked)}
+          />
+          <label htmlFor='scheduler-enabled' className='text-sm font-medium'>
+            Aktifkan reminder &amp; eskalasi otomatis
+          </label>
+        </div>
+        <div className='grid gap-3 md:grid-cols-2'>
+          <div>
+            <label htmlFor='scheduler-offsets' className='mb-1 block text-sm font-medium'>
+              Reminder (hari sebelum deadline)
+            </label>
+            <Input
+              id='scheduler-offsets'
+              value={offsets}
+              onChange={(e) => setOffsets(e.target.value)}
+              placeholder='3,1,0'
+            />
+            <p className='text-muted-foreground mt-1 text-xs'>
+              Dipisah koma. 0 = hari H, angka negatif diizinkan (setelah deadline).
+            </p>
+          </div>
+          <div>
+            <label htmlFor='scheduler-cc' className='mb-1 block text-sm font-medium'>
+              Email CC / Penerima eskalasi
+            </label>
+            <Input
+              id='scheduler-cc'
+              value={ccEmails}
+              onChange={(e) => setCcEmails(e.target.value)}
+              placeholder='hr@feraco.id, manager@feraco.id'
+            />
+            <p className='text-muted-foreground mt-1 text-xs'>
+              Selalu menerima eskalasi; ikut CC di reminder.
+            </p>
+          </div>
+          <div>
+            <label htmlFor='scheduler-escalate-after' className='mb-1 block text-sm font-medium'>
+              Eskalasi setelah (hari lewat deadline)
+            </label>
+            <Input
+              id='scheduler-escalate-after'
+              type='number'
+              min={1}
+              max={60}
+              value={escalateAfter}
+              onChange={(e) => setEscalateAfter(Number(e.target.value))}
+            />
+          </div>
+          <div>
+            <label htmlFor='scheduler-max-esc' className='mb-1 block text-sm font-medium'>
+              Maksimal eskalasi
+            </label>
+            <Input
+              id='scheduler-max-esc'
+              type='number'
+              min={1}
+              max={20}
+              value={maxEscalations}
+              onChange={(e) => setMaxEscalations(Number(e.target.value))}
+            />
+            <p className='text-muted-foreground mt-1 text-xs'>
+              Eskalasi berulang setiap interval di atas hingga batas ini.
+            </p>
+          </div>
+        </div>
+        <div className='flex flex-wrap items-center gap-4'>
+          <div className='flex items-center gap-2'>
+            <input
+              id='scheduler-freelancer'
+              type='checkbox'
+              className='h-4 w-4 accent-primary'
+              checked={remindFreelancer}
+              onChange={(e) => setRemindFreelancer(e.target.checked)}
+            />
+            <label htmlFor='scheduler-freelancer' className='text-sm'>
+              Email freelancer (butuh email di data freelancer)
+            </label>
+          </div>
+          <div className='flex items-center gap-2'>
+            <input
+              id='scheduler-pic'
+              type='checkbox'
+              className='h-4 w-4 accent-primary'
+              checked={remindPic}
+              onChange={(e) => setRemindPic(e.target.checked)}
+            />
+            <label htmlFor='scheduler-pic' className='text-sm'>
+              Email PIC (menggunakan email kantor di data freelancer)
+            </label>
+          </div>
+        </div>
+        <div className='flex flex-wrap justify-end gap-2'>
+          <Button variant='outline' onClick={sendNow} disabled={sending}>
+            {sending ? <Icons.spinner className='mr-1 animate-spin' size={16} /> : null}
+            Kirim Sekarang
+          </Button>
+          <Button onClick={save} disabled={saving}>
+            {saving ? <Icons.spinner className='mr-1 animate-spin' size={16} /> : null}
+            Simpan Pengaturan
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function TaskPage() {
   const [items, setItems] = useState<FreelanceTask[]>([]);
   const [loading, setLoading] = useState(true);
@@ -383,6 +589,7 @@ export default function TaskPage() {
   const [detailId, setDetailId] = useState<number | null>(null);
   const [detail, setDetail] = useState<FreelanceTask | null>(null);
   const [progress, setProgress] = useState<EventTaskProgress | null>(null);
+  const [view, setView] = useState<'list' | 'settings'>('list');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -452,11 +659,32 @@ export default function TaskPage() {
             Kelola task freelancer per event dan pantau progres.
           </p>
         </div>
-        <Button onClick={() => { setEditTask(null); setModalOpen(true); }}>
-          <Icons.add className='mr-1' size={16} /> Tambah Task
-        </Button>
+        <div className='flex items-center gap-2'>
+          <Button
+            variant={view === 'list' ? 'default' : 'outline'}
+            onClick={() => setView('list')}
+          >
+            Task
+          </Button>
+          <Button
+            variant={view === 'settings' ? 'default' : 'outline'}
+            onClick={() => setView('settings')}
+          >
+            <Icons.adjustments className='mr-1' size={16} /> Pengaturan Reminder
+          </Button>
+          <Button
+            onClick={() => {
+              setEditTask(null);
+              setModalOpen(true);
+            }}
+          >
+            <Icons.add className='mr-1' size={16} /> Tambah Task
+          </Button>
+        </div>
       </div>
 
+      {view === 'list' && (
+        <>
       {progress && (
         <Card>
           <CardHeader>
@@ -650,6 +878,10 @@ export default function TaskPage() {
           )}
         </CardContent>
       </Card>
+        </>
+      )}
+
+      {view === 'settings' && <SchedulerSettingsCard />}
 
       <TaskFormModal
         open={modalOpen}

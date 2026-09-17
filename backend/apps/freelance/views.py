@@ -17,6 +17,7 @@ from .models import (
     FreelancerSkill,
     Skill,
     SkillCategory,
+    TaskEscalationPolicy,
 )
 from .permissions import IsFreelanceManager
 from .serializers import (
@@ -32,7 +33,9 @@ from .serializers import (
     FreelancerWriteSerializer,
     SkillCategorySerializer,
     SkillSerializer,
+    TaskEscalationPolicySerializer,
 )
+from .services import send_due_reminders
 from .storage import _bucket, delete_object, is_configured, signed_url, upload_bytes
 
 
@@ -303,6 +306,44 @@ class EventAssignmentViewSet(viewsets.ModelViewSet):
         serializer.save()
         log_event(request, 'update', obj=assignment, description='Performance updated')
         return Response(serializer.data)
+
+class TaskEscalationPolicyViewSet(viewsets.ModelViewSet):
+    """Singleton GET/PATCH config for automatic task reminders + escalation.
+
+    The DefaultRouter exposes GET at the collection route and PATCH at the
+    detail route; both resolve to the same singleton row (get_or_create pk=1).
+    """
+
+    queryset = TaskEscalationPolicy.objects.all()
+    serializer_class = TaskEscalationPolicySerializer
+    permission_classes = [IsFreelanceManager]
+    http_method_names = ['get', 'patch', 'head', 'options']
+
+    def get_object(self):
+        return TaskEscalationPolicy.get_solo()
+
+    def perform_update(self, serializer):
+        obj = serializer.save(
+            updated_by=self.request.user if self.request.user.is_authenticated else None
+        )
+        log_event(
+            self.request,
+            'update',
+            obj=obj,
+            description='Task escalation policy updated',
+        )
+
+
+    @action(detail=False, methods=['post'], url_path='send-now')
+    def send_now(self, request):
+        """Trigger the reminder run immediately (same engine as the cron job)."""
+        result = send_due_reminders(request=request)
+        return Response(result)
+
+    def list(self, request, *args, **kwargs):
+        """GET /task-scheduler/ -> the singleton policy (never a paginated list)."""
+        return self.retrieve(request, pk=1)
+
 
 class FreelanceTaskViewSet(viewsets.ModelViewSet):
     queryset = FreelanceTask.objects.select_related('event', 'freelancer').all()
