@@ -3,8 +3,17 @@
 Each event has a default subject/body (Indonesian). Settings UI lets HR
 override subject/body per event; placeholders are rendered before send.
 Unknown placeholders render as empty string (never leak raw braces).
+
+Bodies may be plain text (legacy/default templates) or rich-text HTML
+authored in the Settings email editor. `render_email_parts` detects which
+one it got, sanitizes HTML through the whitelist sanitizer, escapes every
+placeholder value when the body is HTML (values can never inject markup)
+and derives a plain-text fallback for the HTML alternative.
 """
+import html
 import re
+
+from .sanitize import html_to_text, is_rich_html, sanitize_html
 
 PLACEHOLDER_RE = re.compile(r'\{\{\s*([a-z0-9_]+)\s*\}\}')
 
@@ -87,6 +96,44 @@ def render_template(text: str, context: dict) -> str:
         return str(context.get(match.group(1), ''))
 
     return PLACEHOLDER_RE.sub(_sub, text or '')
+
+
+def render_email_parts(subject_tpl: str, body_tpl: str, context: dict) -> tuple[str, str, str, bool]:
+    """Render subject + body template into sendable email parts.
+
+    Returns ``(subject, text_body, html_body, is_html)``. For plain-text
+    templates (all defaults + legacy rows) behaviour is identical to the
+    original ``render_template`` flow. For HTML templates the template is
+    sanitized first, every context value is HTML-escaped before substitution
+    (placeholder values can never inject markup), and a plain-text fallback
+    is derived from the rendered HTML for ``EmailMultiAlternatives``.
+    """
+    subject = render_template(subject_tpl or '', context)
+    if is_rich_html(body_tpl or ''):
+        safe_body = sanitize_html(body_tpl or '')
+        escaped_ctx = {k: html.escape(str(v), quote=False) for k, v in (context or {}).items()}
+        html_body = render_template(safe_body, escaped_ctx)
+        text_body = html_to_text(html_body)
+        return subject, text_body, html_body, True
+    return subject, render_template(body_tpl or '', context), '', False
+
+
+# Dummy values used by the Settings "Preview Email" action. Never sent —
+# only rendered into a copy of the template for the preview response.
+PREVIEW_CONTEXT = {
+    'employee_name': 'Budi Santoso',
+    'employee_email': 'budi.santoso@feraco.co.id',
+    'manager_name': 'Andi Pratama',
+    'manager_email': 'andi.pratama@feraco.co.id',
+    'contract_end_date': '31 Des 2026',
+    'days_remaining': '30',
+    'leave_type': 'Cuti Tahunan',
+    'leave_start': '05 Okt 2026',
+    'leave_end': '07 Okt 2026',
+    'leave_status': 'Menunggu Persetujuan',
+    'rejection_reason': 'Kuota cuti tidak mencukupi',
+    'birthday_today': ' HARI INI',
+}
 
 
 def fmt_date(value) -> str:

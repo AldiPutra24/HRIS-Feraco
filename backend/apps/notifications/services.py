@@ -19,13 +19,14 @@ to the delivery log and audit.
 from datetime import date
 
 from django.conf import settings
-from django.core.mail import send_mail
+from django.core.mail import EmailMultiAlternatives, send_mail
 from django.utils import timezone
 
 from apps.audit.services import log_event
 from apps.personnel.models import Employee, EmployeeContract
 
-from .emails import default_body, default_subject, fmt_date, render_template
+from .emails import default_body, default_subject, fmt_date, render_email_parts
+from .sanitize import sanitize_html
 from .models import (
     Notification,
     NotificationDeliveryLog,
@@ -111,8 +112,14 @@ def _deliver_inapp(event_key: str, event: str, user, title: str, message: str,
     return True
 
 
-def _send_email(event_key: str, event: str, email: str, subject: str, body: str):
+def _send_email(event_key: str, event: str, email: str, subject: str, body: str,
+                html_body: str = ''):
     """Send one email with try/except; log delivery either way.
+
+    ``body`` is always the plain-text version (fallback for HTML templates).
+    When ``html_body`` is given the mail is sent via EmailMultiAlternatives
+    with the (re-sanitized) rich text as the HTML alternative. Subject stays
+    plain text in both modes.
 
     Idempotent: if a SENT log for this key already exists the email is not
     sent again (FAILED rows allow a retry on the next run).
@@ -125,13 +132,26 @@ def _send_email(event_key: str, event: str, email: str, subject: str, body: str)
     if NotificationDeliveryLog.objects.filter(key=key, status='SENT').exists():
         return 'skipped'
     try:
-        send_mail(
-            subject=subject,
-            message=body,
-            from_email=settings.DEFAULT_FROM_EMAIL,
-            recipient_list=[email],
-            fail_silently=False,
-        )
+        if html_body:
+            # Defense in depth: the stored template was sanitized on save,
+            # sanitize the rendered body again right before sending.
+            html_body = sanitize_html(html_body)
+            msg = EmailMultiAlternatives(
+                subject=subject,
+                body=body,
+                from_email=settings.DEFAULT_FROM_EMAIL,
+                to=[email],
+            )
+            msg.attach_alternative(html_body, 'text/html')
+            msg.send(fail_silently=False)
+        else:
+            send_mail(
+                subject=subject,
+                message=body,
+                from_email=settings.DEFAULT_FROM_EMAIL,
+                recipient_list=[email],
+                fail_silently=False,
+            )
         NotificationDeliveryLog.objects.create(
             key=key,
             channel='EMAIL',
@@ -182,17 +202,16 @@ def notify_leave_submitted(leave) -> dict:
         if not cfg.enabled:
             return result
         ctx = _leave_context(leave)
-        subject = render_template(subject_tpl, ctx)
-        body = render_template(body_tpl, ctx)
+        subject, text_body, html_body, _ = render_email_parts(subject_tpl, body_tpl, ctx)
         key = f'leave-submitted:{leave.pk}'
         manager_user = _manager_user(leave.employee)
         if _deliver_inapp(
             key, 'LEAVE_SUBMITTED', manager_user,
-            'Pengajuan Izin/Cuti Baru', body, link=LEAVE_LINK, object_id=leave.pk,
+            'Pengajuan Izin/Cuti Baru', text_body, link=LEAVE_LINK, object_id=leave.pk,
         ):
             result['inapp'] += 1
         outcome = _send_email(key, 'LEAVE_SUBMITTED', _employee_email(_manager_employee(leave.employee)),
-                              subject, body)
+                              subject, text_body, html_body)
         result[outcome] = result.get(outcome, 0) + 1
     except Exception as exc:
         log_event(None, 'update', obj=None,
@@ -211,17 +230,16 @@ def notify_leave_status(leave, new_status: str) -> dict:
         if not cfg.enabled:
             return result
         ctx = _leave_context(leave)
-        subject = render_template(subject_tpl, ctx)
-        body = render_template(body_tpl, ctx)
+        subject, text_body, html_body, _ = render_email_parts(subject_tpl, body_tpl, ctx)
         key = f'leave-status:{leave.pk}:{new_status}'
         user = getattr(leave.employee, 'user', None)
         if _deliver_inapp(
             key, event, user,
             'Pengajuan Disetujui' if event == 'LEAVE_APPROVED' else 'Pengajuan Ditolak',
-            body, link=LEAVE_LINK, object_id=leave.pk,
+            text_body, link=LEAVE_LINK, object_id=leave.pk,
         ):
             result['inapp'] += 1
-        outcome = _send_email(key, event, _employee_email(leave.employee), subject, body)
+        outcome = _send_email(key, event, _employee_email(leave.employee), subject, text_body, html_body)
         result[outcome] = result.get(outcome, 0) + 1
     except Exception as exc:
         log_event(None, 'update', obj=None,
@@ -316,8 +334,7 @@ def _send_contract_one(contract, offset: int, days_remaining: int, dry_run: bool
     """Deliver contract reminder to employee + manager + HR. Returns unit list."""
     ctx = _contract_context(contract, days_remaining)
     cfg, subject_tpl, body_tpl = _template('CONTRACT')
-    subject = render_template(subject_tpl, ctx)
-    body = render_template(body_tpl, ctx)
+    subject, text_body, html_body, _ = render_email_parts(subject_tpl, body_tpl, ctx)
     event_key = f'contract:{contract.pk}:{offset}'
     kind = 'CONTRACT'
 
@@ -336,7 +353,7 @@ def _send_contract_one(contract, offset: int, days_remaining: int, dry_run: bool
     # HR (email only)
     for email in hr_recipients():
         plan.append(('hr', None, email))
-    return subject, body, event_key, kind, plan
+    return subject, text_body, html_body, event_key, kind, plan
 
 
 def send_contract_reminders(today: date = None, dry_run: bool = False, request=None):
@@ -351,13 +368,13 @@ def send_contract_reminders(today: date = None, dry_run: bool = False, request=N
             )
         return summary
     for contract, offset, days_remaining in due:
-        subject, body, event_key, kind, plan = _send_contract_one(contract, offset, days_remaining)
+        subject, text_body, html_body, event_key, kind, plan = _send_contract_one(contract, offset, days_remaining)
         for role, user, email in plan:
             if user is not None:
-                if _deliver_inapp(event_key, kind, user, subject, body,
+                if _deliver_inapp(event_key, kind, user, subject, text_body,
                                   link='/dashboard/karyawan', object_id=contract.pk):
                     summary['inapp'] += 1
-            outcome = _send_email(f'{event_key}:{role}', kind, email, subject, body)
+            outcome = _send_email(f'{event_key}:{role}', kind, email, subject, text_body, html_body)
             summary[outcome] = summary.get(outcome, 0) + 1
         summary['details'].append(
             f'[KONTRAK H-{offset}] {contract.employee.full_name}: {len(plan)} penerima'
@@ -397,25 +414,24 @@ def send_birthday_notifications(today: date = None, dry_run: bool = False, reque
         # HR info email (BIRTHDAY_HR row): recipients = HR emails, no in-app.
         cfg_hr, subj_hr_tpl, body_hr_tpl = _template('BIRTHDAY_HR')
         if cfg_hr.enabled:
-            body_hr = render_template(body_hr_tpl, {**ctx, 'birthday_today': ' HARI INI' if offset == 0 else ' besok (H-1)'})
-            subject_hr = render_template(subj_hr_tpl, ctx)
+            hr_ctx = {**ctx, 'birthday_today': ' HARI INI' if offset == 0 else ' besok (H-1)'}
+            subject_hr, text_hr, html_hr, _ = render_email_parts(subj_hr_tpl, body_hr_tpl, hr_ctx)
             event_key = f'birthday:{employee.pk}:{year}:{offset}:hr'
             for email in hr_recipients():
-                outcome = _send_email(event_key, 'BIRTHDAY_HR', email, subject_hr, body_hr)
+                outcome = _send_email(event_key, 'BIRTHDAY_HR', email, subject_hr, text_hr, html_hr)
                 summary[outcome] = summary.get(outcome, 0) + 1
         # Employee greeting email (BIRTHDAY_EMPLOYEE row).
         cfg_emp, subj_emp_tpl, body_emp_tpl = _template('BIRTHDAY_EMPLOYEE')
         if cfg_emp.enabled:
-            subject_emp = render_template(subj_emp_tpl, ctx)
-            body_emp = render_template(body_emp_tpl, ctx)
+            subject_emp, text_emp, html_emp, _ = render_email_parts(subj_emp_tpl, body_emp_tpl, ctx)
             event_key = f'birthday:{employee.pk}:{year}:{offset}:employee'
             outcome = _send_email(event_key, 'BIRTHDAY_EMPLOYEE',
-                                  _employee_email(employee), subject_emp, body_emp)
+                                  _employee_email(employee), subject_emp, text_emp, html_emp)
             summary[outcome] = summary.get(outcome, 0) + 1
             # In-app greeting if the employee has a user account.
             emp_user = getattr(employee, 'user', None)
             if emp_user is not None and _deliver_inapp(event_key, 'BIRTHDAY', emp_user,
-                                                       subject_emp, body_emp):
+                                                       subject_emp, text_emp):
                 summary['inapp'] += 1
         summary['details'].append(f'[BIRTHDAY H-{offset}] {employee.full_name} terkirim')
     if due:

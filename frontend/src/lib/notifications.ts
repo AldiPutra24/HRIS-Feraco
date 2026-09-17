@@ -142,6 +142,26 @@ export function updateEventConfig(id: number, input: Partial<Pick<EventConfig, '
   });
 }
 
+export type EventPreview = {
+  event: string;
+  subject: string;
+  text: string;
+  html: string;
+  is_html: boolean;
+};
+
+/** Render a template (unsaved editor content allowed) with dummy data. */
+export function previewEventConfig(input: {
+  event: string;
+  subject?: string;
+  body?: string;
+}): Promise<EventPreview> {
+  return request<EventPreview>('/notification-events/preview/', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
 export type DeliveryChannel = 'EMAIL' | 'IN_APP';
 export type DeliveryStatus = 'SENT' | 'FAILED' | 'SKIPPED';
 export type DeliveryEvent =
