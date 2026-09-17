@@ -607,7 +607,7 @@ export function EmailBodyEditor({ value, onChange, placeholders, id }: Props) {
         role='textbox'
         aria-multiline='true'
         aria-label='Isi email'
-        data-placeholder={hasContent ? undefined : 'Isi email (placeholder boleh dipakai)'}
+        data-placeholder={hasContent ? undefined : 'Isi Text...'}
         className='bg-background min-h-40 w-full overflow-auto rounded-xl border px-3 py-2 text-sm leading-relaxed outline-none [&_a]:text-primary [&_a]:underline [&_a]:underline-offset-2 [&_blockquote]:border-l-4 [&_blockquote]:border-l-border [&_blockquote]:pl-3 [&_blockquote]:text-muted-foreground [&_blockquote]:italic [&_h1]:text-xl [&_h1]:font-bold [&_h2]:text-lg [&_h2]:font-bold [&_h3]:text-base [&_h3]:font-semibold [&_ol]:list-decimal [&_ol]:pl-6 [&_ul]:list-disc [&_ul]:pl-6 [&[data-placeholder]:empty]:before:text-muted-foreground [&[data-placeholder]:empty]:before:content-[attr(data-placeholder)] focus:ring-ring/50 focus:ring-2'
         tabIndex={0}
         style={{ wordBreak: 'break-word' }}
