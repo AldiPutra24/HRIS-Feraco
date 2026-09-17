@@ -2,20 +2,24 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'react-toastify';
+import { Icons } from '@/components/icons';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useAuth } from '@/lib/auth/auth-provider';
+import { EmailBodyEditor } from '@/features/settings/email-body-editor';
 import {
   EVENT_CONFIG_LABELS,
   getNotificationSettings,
   listEventConfigs,
   listHrCandidates,
+  previewEventConfig,
   updateEventConfig,
   updateNotificationSettings,
   type EventConfig,
+  type EventPreview,
   type HrCandidate,
   type NotificationSetting,
 } from '@/lib/notifications';
@@ -23,6 +27,52 @@ import {
 // Frontend role casing (AuthRole union): lowercase — matches user.role from
 // auth-client toUser() which lowercases backend Role.key (uppercase).
 const HR_ROLES: ReadonlySet<string> = new Set(['admin', 'hr_staff', 'hr_lead']);
+
+function PreviewModal({
+  preview,
+  onClose,
+}: {
+  preview: EventPreview | null;
+  onClose: () => void;
+}) {
+  if (!preview) return null;
+  // Konvensi modal HRIS: klik backdrop TIDAK menutup modal (hanya tombol).
+  return (
+    <div className='bg-background/60 fixed inset-0 z-50 flex items-center justify-center p-4'>
+      <div className='bg-background flex max-h-[85vh] w-full max-w-2xl flex-col rounded-xl border shadow-lg'>
+        <div className='flex items-center justify-between border-b px-4 py-3'>
+          <p className='text-sm font-semibold'>Preview Email</p>
+          <Button variant='ghost' size='icon-sm' onClick={onClose} aria-label='Tutup preview'>
+            <Icons.close className='size-4' />
+          </Button>
+        </div>
+        <div className='flex items-center gap-2 border-b bg-muted/40 px-4 py-2 text-xs'>
+          <span className='text-muted-foreground shrink-0'>Subjek:</span>
+          <span className='truncate font-medium'>{preview.subject}</span>
+        </div>
+        <div className='overflow-auto px-4 py-3'>
+          {/* Rendered exactly like the email body (sanitized server-side,
+              placeholders replaced with dummy data). Not editable. */}
+          {preview.is_html ? (
+            <div
+              className='text-sm leading-relaxed [&_a]:text-primary [&_a]:underline [&_blockquote]:border-l-4 [&_blockquote]:border-l-border [&_blockquote]:pl-3 [&_h1]:text-xl [&_h1]:font-bold [&_h2]:text-lg [&_h2]:font-bold [&_h3]:text-base [&_h3]:font-semibold [&_ol]:list-decimal [&_ol]:pl-6 [&_ul]:list-disc [&_ul]:pl-6'
+              // Sanitized server-side (whitelist sanitizer) before it is
+              // returned by the preview API; never edited by the user here.
+              dangerouslySetInnerHTML={{ __html: preview.html }}
+            />
+          ) : (
+            <p className='text-sm leading-relaxed whitespace-pre-wrap'>{preview.text}</p>
+          )}
+        </div>
+        <div className='flex justify-end gap-2 border-t px-4 py-3'>
+          <Button variant='outline' onClick={onClose}>
+            Tutup
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function EventCard({
   config,
@@ -37,6 +87,8 @@ function EventCard({
   const [subject, setSubject] = useState(config.subject);
   const [body, setBody] = useState(config.body);
   const [saving, setSaving] = useState(false);
+  const [previewing, setPreviewing] = useState(false);
+  const [preview, setPreview] = useState<EventPreview | null>(null);
 
   async function save() {
     setSaving(true);
@@ -52,6 +104,20 @@ function EventCard({
       toast.error(err instanceof Error ? err.message : 'Gagal menyimpan.');
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function showPreview() {
+    setPreviewing(true);
+    try {
+      // Send the UNSAVED editor content; backend renders with dummy data,
+      // saves nothing, sends nothing.
+      const result = await previewEventConfig({ event: config.event, subject, body });
+      setPreview(result);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Gagal memuat preview.');
+    } finally {
+      setPreviewing(false);
     }
   }
 
@@ -91,36 +157,23 @@ function EventCard({
           <Label className='mb-1 block text-xs' htmlFor={`body-${config.id}`}>
             Email Body
           </Label>
-          <textarea
+          <EmailBodyEditor
             id={`body-${config.id}`}
-            className='min-h-28 w-full rounded-xl border bg-background px-3 py-2 text-sm'
             value={body}
-            onChange={(e) => setBody(e.target.value)}
-            placeholder='Isi email (placeholder boleh dipakai)'
+            onChange={setBody}
+            placeholders={config.available_placeholders}
           />
         </div>
-        <div className='text-muted-foreground text-xs'>
-          <p className='mb-1 font-medium'>Placeholder tersedia:</p>
-          <div className='flex flex-wrap gap-1'>
-            {config.available_placeholders.map((p) => (
-              <button
-                key={p}
-                type='button'
-                className='bg-muted rounded px-1.5 py-0.5 font-mono text-[10px] hover:bg-accent'
-                title='Klik untuk salin'
-                onClick={() => navigator.clipboard?.writeText(p)}
-              >
-                {p}
-              </button>
-            ))}
-          </div>
-        </div>
-        <div className='flex justify-end'>
+        <div className='flex justify-end gap-2'>
+          <Button variant='outline' onClick={showPreview} disabled={previewing}>
+            {previewing ? 'Memuat…' : 'Preview Email'}
+          </Button>
           <Button onClick={save} disabled={saving || !dirty}>
             {saving ? 'Menyimpan…' : 'Simpan Template'}
           </Button>
         </div>
       </CardContent>
+      <PreviewModal preview={preview} onClose={() => setPreview(null)} />
     </Card>
   );
 }

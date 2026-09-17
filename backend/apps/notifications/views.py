@@ -6,6 +6,7 @@ from apps.accounts.models import User
 from apps.audit.services import log_event
 from apps.personnel.permissions import WRITE_ROLES, _role
 
+from .emails import PREVIEW_CONTEXT, default_body, default_subject, render_email_parts
 from .models import (
     Notification,
     NotificationDeliveryLog,
@@ -147,7 +148,8 @@ class NotificationEventConfigViewSet(viewsets.ModelViewSet):
     queryset = NotificationEventConfig.objects.all()
     serializer_class = NotificationEventConfigSerializer
     permission_classes = [IsHRAdmin]
-    http_method_names = ['get', 'patch', 'head', 'options']
+    # 'post' is needed for the @action preview (detail=False).
+    http_method_names = ['get', 'post', 'patch', 'head', 'options']
     pagination_class = None
 
     def get_queryset(self):
@@ -162,4 +164,33 @@ class NotificationEventConfigViewSet(viewsets.ModelViewSet):
     def perform_update(self, serializer):
         obj = serializer.save()
         log_event(self.request, 'update', obj=obj, description=f'Notification config {obj.event} updated')
+
+    @action(detail=False, methods=['post'])
+    def preview(self, request):
+        """Render a template with dummy data for the Settings email preview.
+
+        Accepts optional {event, subject, body} (unsaved editor content);
+        falls back to the stored config / defaults per event. Nothing is
+        sent, no template is modified. Subject stays plain text; HTML bodies
+        are sanitized + placeholder values escaped exactly like a real send.
+        """
+        data = request.data or {}
+        event = str(data.get('event') or '').upper()
+        if event not in EVENT_KEYS:
+            return Response({'detail': 'Invalid event.'}, status=status.HTTP_400_BAD_REQUEST)
+        cfg = NotificationEventConfig.objects.filter(event=event).first()
+        subject_tpl = str(data.get('subject') or (cfg.subject if cfg else '') or default_subject(event))
+        raw_body = data.get('body')
+        if raw_body is None:
+            body_tpl = (cfg.body if cfg else '') or default_body(event)
+        else:
+            body_tpl = str(raw_body)
+        subject, text_body, html_body, is_html = render_email_parts(subject_tpl, body_tpl, PREVIEW_CONTEXT)
+        return Response({
+            'event': event,
+            'subject': subject,
+            'text': text_body,
+            'html': html_body,
+            'is_html': is_html,
+        })
 

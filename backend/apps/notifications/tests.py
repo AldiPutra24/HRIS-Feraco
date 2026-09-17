@@ -521,3 +521,176 @@ class CommandTests(TestCase):
                         return_value=date(2026, 9, 18)):
             call_command('send_employee_notifications', stdout=StringIO())
         self.assertEqual(len(mail.outbox), 2)
+
+
+HTML_RICH_BODY = (
+    '<p>Halo <strong>{{employee_name}}</strong>,</p>'
+    '<p>Selamat ulang tahun! 🎉</p>'
+    '<ul><li>Semoga sehat</li><li>Semoga sukses</li></ul>'
+    '<p style="text-align: center"><em>Tim HRIS Feraco</em></p>'
+    '<p><a href="https://feraco.co.id">Website FERACO</a></p>'
+)
+
+
+@override_settings(EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend')
+class RichTextHtmlEmailTests(TestCase):
+    """Rich-text editor pipeline: save -> render -> send HTML + preview."""
+
+    def setUp(self):
+        self.client = Client()
+        self.hr = make_user('HR_STAFF', 'hreditor@test.com')
+        self.emp_user = make_user('EMPLOYEE', 'empedit@test.com')
+        self.emp = make_employee('E010', 'Budi', user=self.emp_user,
+                                 personal_email='budi@gmail.com',
+                                 birth_date=date(1990, 9, 18))
+        # Keep the HR info email out of the way: these tests inspect the
+        # employee greeting only.
+        NotificationEventConfig.objects.create(event='BIRTHDAY_HR', enabled=False)
+        self.client.force_login(self.hr)
+
+    def _config_row(self):
+        return NotificationEventConfig.objects.get_or_create(event='BIRTHDAY_EMPLOYEE')[0]
+
+    def _save_body(self, body):
+        row = self._config_row()
+        return self.client.patch(
+            f'{EVENTS_URL}{row.id}/',
+            data=json.dumps({'subject': 'Selamat ulang tahun {{employee_name}}', 'body': body}),
+            content_type='application/json',
+        )
+
+    def test_rich_html_saved_and_sanitized(self):
+        res = self._save_body(
+            '<p>Halo <strong>{{employee_name}}</strong></p>'
+            '<script>alert(1)</script><p onclick="evil()" style="color: red">X</p>'
+            '<a href="javascript:alert(1)">bad</a><a href="https://feraco.co.id">ok</a>'
+        )
+        self.assertEqual(res.status_code, 200)
+        body = self._config_row().body
+        self.assertIn('<strong>{{employee_name}}</strong>', body)
+        self.assertNotIn('script', body.lower())
+        self.assertNotIn('onclick', body.lower())
+        self.assertNotIn('javascript:', body.lower())
+        self.assertIn('style="color: red"', body)
+        self.assertIn('href="https://feraco.co.id"', body)
+
+    def test_formatting_survives_save_reload_cycle(self):
+        res = self._save_body(HTML_RICH_BODY)
+        self.assertEqual(res.status_code, 200)
+        # Simpan ulang apa adanya (simulasi editor load -> save): idempotent.
+        res = self._save_body(self._config_row().body)
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(self._config_row().body, HTML_RICH_BODY)
+
+    def test_plain_text_body_stored_verbatim(self):
+        legacy = 'Halo {{employee_name}},\n\nSelamat ulang tahun!'
+        res = self._save_body(legacy)
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(self._config_row().body, legacy)
+
+    def test_html_email_sent_with_alternative(self):
+        self._save_body(HTML_RICH_BODY)
+        with mock.patch('apps.notifications.services.timezone.localdate',
+                        return_value=date(2026, 9, 18)):
+            result = run_all()
+        self.assertEqual(result['birthday']['sent'], 1)  # employee greeting
+        sent = mail.outbox[0]
+        self.assertEqual(sent.to, ['budi@gmail.com'])
+        self.assertIn('Budi', sent.body)  # plain-text fallback
+        self.assertEqual(len(sent.alternatives), 1)
+        alt_content, alt_type = sent.alternatives[0]
+        self.assertEqual(alt_type, 'text/html')
+        self.assertIn('<strong>Budi</strong>', alt_content)
+        self.assertIn('<a href="https://feraco.co.id">Website FERACO</a>', alt_content)
+        self.assertNotIn('{{', alt_content)
+
+    def test_plain_text_email_unchanged_no_alternatives(self):
+        self._save_body('Halo {{employee_name}}, selamat ulang tahun!')
+        with mock.patch('apps.notifications.services.timezone.localdate',
+                        return_value=date(2026, 9, 18)):
+            run_all()
+        sent = mail.outbox[0]
+        self.assertEqual(len(sent.alternatives), 0)
+        self.assertIn('Halo Budi', sent.body)
+
+    def test_html_custom_template_used_when_sending(self):
+        self._save_body(
+            '<p>Untuk <em>{{employee_name}}</em> ulang tahun ke-{betulkan}</p>'
+            '<blockquote>Terbaik, HR</blockquote>'
+        )
+        with mock.patch('apps.notifications.services.timezone.localdate',
+                        return_value=date(2026, 9, 18)):
+            run_all()
+        alt_content = mail.outbox[0].alternatives[0][0]
+        self.assertIn('<em>Budi</em>', alt_content)
+        self.assertIn('<blockquote>Terbaik, HR</blockquote>', alt_content)
+
+    def test_html_value_injection_escaped(self):
+        """Context values containing markup cannot inject HTML."""
+        self.emp.full_name = '<b>Evil</b> <script>x()</script>'
+        self.emp.save()
+        self._save_body('<p>Hai {{employee_name}}</p>')
+        with mock.patch('apps.notifications.services.timezone.localdate',
+                        return_value=date(2026, 9, 18)):
+            run_all()
+        alt_content = mail.outbox[0].alternatives[0][0]
+        self.assertNotIn('<b>Evil</b>', alt_content)
+        self.assertNotIn('<script>', alt_content)
+        self.assertIn('&lt;b&gt;Evil&lt;/b&gt;', alt_content)
+
+    def test_preview_renders_dummy_data_without_saving_or_sending(self):
+        self._save_body(HTML_RICH_BODY)
+        before = self._config_row().body
+        res = self.client.post(
+            f'{EVENTS_URL}preview/',
+            data=json.dumps({'event': 'BIRTHDAY_EMPLOYEE'}),
+            content_type='application/json',
+        )
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.data['is_html'], True)
+        self.assertIn('Budi Santoso', res.data['html'])
+        self.assertIn('<strong>Budi Santoso</strong>', res.data['html'])
+        self.assertEqual(len(mail.outbox), 0)
+        self.assertEqual(self._config_row().body, before)  # nothing saved
+
+    def test_preview_uses_unsaved_editor_content(self):
+        res = self.client.post(
+            f'{EVENTS_URL}preview/',
+            data=json.dumps({
+                'event': 'CONTRACT',
+                'subject': 'Draft subj {{employee_name}}',
+                'body': '<p>Kontrak berakhir <u>{{contract_end_date}}</u></p>',
+            }),
+            content_type='application/json',
+        )
+        self.assertEqual(res.status_code, 200)
+        self.assertIn('Draft subj Budi Santoso', res.data['subject'])
+        self.assertIn('<u>31 Des 2026</u>', res.data['html'])
+        self.assertIn('Kontrak berakhir', res.data['text'])  # fallback
+
+    def test_preview_invalid_event_400(self):
+        res = self.client.post(
+            f'{EVENTS_URL}preview/',
+            data=json.dumps({'event': 'HACKED'}),
+            content_type='application/json',
+        )
+        self.assertEqual(res.status_code, 400)
+
+    def test_preview_forbidden_without_hr_role(self):
+        self.client.force_login(self.emp_user)
+        res = self.client.post(
+            f'{EVENTS_URL}preview/',
+            data=json.dumps({'event': 'CONTRACT'}),
+            content_type='application/json',
+        )
+        self.assertEqual(res.status_code, 403)
+
+    def test_inapp_message_stays_plain_text_for_html_template(self):
+        self._save_body('<p>Halo <strong>{{employee_name}}</strong></p>')
+        with mock.patch('apps.notifications.services.timezone.localdate',
+                        return_value=date(2026, 9, 18)):
+            result = run_all()
+        self.assertEqual(result['birthday']['inapp'], 1)
+        notif = Notification.objects.get(recipient=self.emp_user, kind='BIRTHDAY')
+        self.assertNotIn('<', notif.message)
+        self.assertIn('Halo Budi', notif.message)

@@ -3,6 +3,7 @@ from rest_framework import serializers
 from apps.accounts.models import User
 
 from .emails import AVAILABLE_PLACEHOLDERS
+from .sanitize import is_rich_html, sanitize_html
 from .models import (
     Notification,
     NotificationDeliveryLog,
@@ -30,6 +31,18 @@ class NotificationEventConfigSerializer(serializers.ModelSerializer):
 
     def get_available_placeholders(self, obj):
         return AVAILABLE_PLACEHOLDERS
+
+    def validate_body(self, value):
+        """Sanitize editor HTML on save (XSS whitelist — see sanitize.py).
+
+        Legacy plain-text bodies (no markup at all) are stored as-is so
+        existing templates keep rendering byte-identical; they cannot carry
+        XSS because they are never interpreted as HTML on the send path.
+        """
+        value = (value or '').strip()
+        if value and is_rich_html(value):
+            return sanitize_html(value)
+        return value
 
 
 class NotificationSettingSerializer(serializers.ModelSerializer):
