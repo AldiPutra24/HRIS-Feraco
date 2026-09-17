@@ -121,11 +121,8 @@ function EventModal({
   };
 
   return (
-    <button
-      type="button"
-      aria-label="Tutup"
+    <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
-      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
       <div role="dialog" className="w-full max-w-lg rounded-2xl border bg-background p-5 shadow-sm">
         <h3 className="mb-4 text-base font-semibold">{edit ? 'Edit Event' : 'Tambah Event'}</h3>
@@ -168,7 +165,7 @@ function EventModal({
           </Button>
         </div>
       </div>
-    </button>
+    </div>
   );
 }
 
@@ -236,11 +233,8 @@ function AssignmentModal({
   };
 
   return (
-    <button
-      type="button"
-      aria-label="Tutup"
+    <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
-      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
       <div role="dialog" className="w-full max-w-lg rounded-2xl border bg-background p-5 shadow-sm">
         <h3 className="mb-1 text-base font-semibold">
@@ -329,7 +323,7 @@ function AssignmentModal({
           </Button>
         </div>
       </div>
-    </button>
+    </div>
   );
 }
 
@@ -347,11 +341,8 @@ function ConfirmDialog({
   onCancel: () => void;
 }) {
   return (
-    <button
-      type="button"
-      aria-label="Tutup"
+    <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
-      onClick={(e) => { if (e.target === e.currentTarget) onCancel(); }}
     >
       <div role="dialog" aria-label={title} className="w-full max-w-sm rounded-2xl border bg-background p-5 shadow-sm">
         <h3 className="mb-2 text-base font-semibold">{title}</h3>
@@ -361,7 +352,7 @@ function ConfirmDialog({
           <Button variant="destructive" onClick={onConfirm}>{confirmLabel}</Button>
         </div>
       </div>
-    </button>
+    </div>
   );
 }
 
