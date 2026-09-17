@@ -3,7 +3,12 @@ from rest_framework import serializers
 from apps.accounts.models import User
 
 from .emails import AVAILABLE_PLACEHOLDERS
-from .models import Notification, NotificationEventConfig, NotificationSetting
+from .models import (
+    Notification,
+    NotificationDeliveryLog,
+    NotificationEventConfig,
+    NotificationSetting,
+)
 
 EVENT_KEYS = (
     'LEAVE_SUBMITTED',
@@ -72,6 +77,20 @@ class NotificationSettingSerializer(serializers.ModelSerializer):
             if getattr(u.role, 'key', '') not in ('HR_STAFF', 'HR_LEAD'):
                 raise serializers.ValidationError(f'{u.username} bukan HR Staff/HR Lead.')
         return value
+
+
+class NotificationDeliveryLogSerializer(serializers.ModelSerializer):
+    recipient_username = serializers.CharField(
+        source='recipient.username', read_only=True, default=None,
+    )
+
+    class Meta:
+        model = NotificationDeliveryLog
+        fields = (
+            'id', 'key', 'channel', 'event', 'recipient_email', 'recipient_username',
+            'subject', 'status', 'detail', 'created_at',
+        )
+        read_only_fields = fields
 
 
 class NotificationSerializer(serializers.Serializer):
