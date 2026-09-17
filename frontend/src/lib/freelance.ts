@@ -273,14 +273,29 @@ export function listEvents(params: Record<string, string> = {}): Promise<Freelan
   return request<FreelanceEvent[] | Page<FreelanceEvent>>(`/events/${qs ? `?${qs}` : ''}`).then(unwrapList);
 }
 
-export function createEvent(input: {
+export type EventInput = {
   name: string;
   event_date?: string | null;
   location?: string;
   client?: string;
   description?: string;
-}): Promise<FreelanceEvent> {
+};
+
+export function createEvent(input: EventInput): Promise<FreelanceEvent> {
   return request<FreelanceEvent>('/events/', { method: 'POST', body: JSON.stringify(input) });
+}
+
+export function updateEvent(id: number, input: Partial<EventInput>): Promise<FreelanceEvent> {
+  return request<FreelanceEvent>(`/events/${id}/`, { method: 'PUT', body: JSON.stringify(input) });
+}
+
+export function deleteEvent(id: number): Promise<void> {
+  return request<void>(`/events/${id}/`, { method: 'DELETE' });
+}
+
+export function listAssignments(params: Record<string, string> = {}): Promise<EventAssignment[]> {
+  const qs = new URLSearchParams(params).toString();
+  return request<EventAssignment[] | Page<EventAssignment>>(`/assignments/${qs ? `?${qs}` : ''}`).then(unwrapList);
 }
 
 export type AssignmentInput = {
