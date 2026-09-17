@@ -192,6 +192,17 @@ CSRF_TRUSTED_ORIGINS = [
     o for o in (os.environ.get('CSRF_TRUSTED_ORIGINS') or 'http://localhost:3000,http://localhost:3001,http://localhost:3002').split(',') if o
 ]
 
+# Email (freelance task reminders). Console backend prints to stderr in dev;
+# set EMAIL_BACKEND=smtp + SMTP_* in production env to actually deliver.
+EMAIL_BACKEND = os.environ.get('EMAIL_BACKEND', 'django.core.mail.backends.console.EmailBackend')
+EMAIL_HOST = os.environ.get('EMAIL_HOST', '')
+EMAIL_PORT = int(os.environ.get('EMAIL_PORT', '587') or 587)
+EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', '')
+EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
+EMAIL_USE_TLS = os.environ.get('EMAIL_USE_TLS', 'true').lower() == 'true'
+EMAIL_USE_SSL = os.environ.get('EMAIL_USE_SSL', 'false').lower() == 'true'
+DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'HRIS Feraco <noreply@feraco.id>')
+
 SESSION_COOKIE_SAMESITE = 'Lax'
 CSRF_COOKIE_SAMESITE = 'Lax'
 SESSION_COOKIE_HTTPONLY = True
