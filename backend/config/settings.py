@@ -46,6 +46,7 @@ INSTALLED_APPS = [
     'apps.onboarding',
     'apps.announcements',
     'apps.notifications',
+    'apps.kms',
 ]
 
 MIDDLEWARE = [

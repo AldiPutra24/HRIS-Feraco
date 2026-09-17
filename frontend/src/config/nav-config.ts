@@ -64,6 +64,13 @@ export const employeeNavGroups: NavGroup[] = [
         icon: 'page',
         isActive: false,
         items: []
+      },
+      {
+        title: 'Knowledge / KMS',
+        url: '/kms',
+        icon: 'books',
+        isActive: false,
+        items: []
       }
     ]
   }
@@ -110,6 +117,13 @@ export const managementNavGroups: NavGroup[] = [
         items: []
       },
       {
+        title: 'Knowledge / KMS',
+        url: '/kms',
+        icon: 'books',
+        isActive: false,
+        items: []
+      },
+      {
         title: 'Profile',
         url: '/dashboard/settings/account',
         icon: 'account',
@@ -150,6 +164,18 @@ export const navGroups: NavGroup[] = [
         url: '/dashboard/freelance',
         icon: 'freelancer',
         shortcut: ['f', 'f'],
+        isActive: false,
+        items: []
+      }
+    ]
+  },
+  {
+    label: 'Knowledge',
+    items: [
+      {
+        title: 'Knowledge / KMS',
+        url: '/kms',
+        icon: 'books',
         isActive: false,
         items: []
       }
