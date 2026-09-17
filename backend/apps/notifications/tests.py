@@ -316,9 +316,11 @@ class NotificationApiTests(TestCase):
 class NotificationSettingsApiTests(TestCase):
     def setUp(self):
         self.client = Client()
+        self.admin = make_user('ADMIN', 'adminset@test.com')
         self.hr = make_user('HR_STAFF', 'hrset@test.com')
         self.emp = make_user('EMPLOYEE', 'empset@test.com')
         self.hr_lead = make_user('HR_LEAD', 'lead@test.com')
+        self.mgmt = make_user('MANAGEMENT', 'mgmtset@test.com')
 
     def login_hr(self):
         self.client.force_login(self.hr)
@@ -330,6 +332,26 @@ class NotificationSettingsApiTests(TestCase):
         self.assertIn(HR_DEFAULT_EMAIL, res.data['default_hr_emails'])
         self.assertTrue(res.data['birthday_h1_enabled'])
         self.assertTrue(res.data['birthday_h0_enabled'])
+
+    def test_role_matrix_allowed_admin_hr_staff_hr_lead(self):
+        """ADMIN/HR_STAFF/HR_LEAD boleh akses notification settings API."""
+        for user in (self.admin, self.hr, self.hr_lead):
+            self.client.force_login(user)
+            res = self.client.get(SETTINGS_URL)
+            self.assertEqual(res.status_code, 200, user.username)
+
+    def test_role_matrix_denied_employee_management(self):
+        """EMPLOYEE/MANAGEMENT ditolak (GET dan PATCH)."""
+        for user in (self.emp, self.mgmt):
+            self.client.force_login(user)
+            res = self.client.get(SETTINGS_URL)
+            self.assertEqual(res.status_code, 403, user.username)
+            res = self.client.patch(
+                f'{SETTINGS_URL}1/',
+                data=json.dumps({'contract_offsets': '30'}),
+                content_type='application/json',
+            )
+            self.assertEqual(res.status_code, 403, user.username)
 
     def test_employee_forbidden(self):
         self.client.force_login(self.emp)

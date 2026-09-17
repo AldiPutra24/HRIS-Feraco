@@ -20,7 +20,9 @@ import {
   type NotificationSetting,
 } from '@/lib/notifications';
 
-const HR_ROLES = ['ADMIN', 'HR_STAFF', 'HR_LEAD'];
+// Frontend role casing (AuthRole union): lowercase — matches user.role from
+// auth-client toUser() which lowercases backend Role.key (uppercase).
+const HR_ROLES: ReadonlySet<string> = new Set(['admin', 'hr_staff', 'hr_lead']);
 
 function EventCard({
   config,
@@ -125,8 +127,8 @@ function EventCard({
 
 export function NotificationSettings() {
   const { user } = useAuth();
-  const role = (user as { role?: string | null } | null)?.role ?? null;
-  const allowed = role !== null && HR_ROLES.includes(role);
+  const role = user?.role ?? null;
+  const allowed = role !== null && HR_ROLES.has(role);
 
   const [loading, setLoading] = useState(true);
   const [setting, setSetting] = useState<NotificationSetting | null>(null);
