@@ -17,8 +17,13 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (isLoading || !isAuthenticated) return;
-    // Route guard by role: employees live under /dashboard/employee only.
-    if (user?.role === 'employee' && !pathname.startsWith('/dashboard/employee')) {
+    // Route guard by role: employees live under /dashboard/employee (KMS is
+    // accessible to every role, per spec).
+    if (
+      user?.role === 'employee' &&
+      !pathname.startsWith('/dashboard/employee') &&
+      !pathname.startsWith('/kms')
+    ) {
       router.replace('/dashboard/employee');
       return;
     }
