@@ -50,6 +50,7 @@ import {
 } from '@/lib/payroll';
 import { listEmployees, type Employee } from '@/lib/employees';
 import { useAuth } from '@/lib/auth/auth-provider';
+import { toast } from 'react-toastify';
 
 const CATEGORY = [
   { value: 'EARNING_FIXED', label: 'Gaji Pokok & Tunjangan Tetap' },
@@ -1114,6 +1115,7 @@ function PayrollEmployeeTable({ period, refreshKey = 0, onManualChange }: { peri
                   <TableHead className='text-right'>Gross</TableHead>
                   <TableHead className='text-right'>Net</TableHead>
                   <TableHead className='text-right'>Item Manual</TableHead>
+                  <TableHead className='text-right'>Aksi</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -1125,11 +1127,13 @@ function PayrollEmployeeTable({ period, refreshKey = 0, onManualChange }: { peri
                     periodStatus={period.status}
                     onAddManual={handleAddManual}
                     onRemoveManual={handleRemoveManual}
+                    periodPaid={period.status === 'PAID' || period.status === 'LOCKED'}
+                    periodLabel={`${period.period_year}-${String(period.period_month).padStart(2, '0')}`}
                   />
                 ))}
                 {payrolls.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={9} className='text-muted-foreground py-8 text-center'>
+                    <TableCell colSpan={10} className='text-muted-foreground py-8 text-center'>
                       Belum ada data payroll.
                     </TableCell>
                   </TableRow>
@@ -1144,13 +1148,15 @@ function PayrollEmployeeTable({ period, refreshKey = 0, onManualChange }: { peri
 }
 
 function PayrollRow({
-  payroll, components, periodStatus, onAddManual, onRemoveManual,
+  payroll, components, periodStatus, onAddManual, onRemoveManual, periodPaid, periodLabel,
 }: {
   payroll: Payroll;
   components: PayrollComponent[];
   periodStatus: string;
   onAddManual: (id: number, code: string, amount: string) => void;
   onRemoveManual: (id: number, code: string) => void;
+  periodPaid: boolean;
+  periodLabel: string;
 }) {
   const [editingCode, setEditingCode] = useState('');
   const [amountInput, setAmountInput] = useState('');
@@ -1223,6 +1229,20 @@ function PayrollRow({
             </div>
           )}
         </div>
+      </TableCell>
+      <TableCell className='text-right'>
+        {periodPaid && (
+          <Button
+            variant='ghost'
+            size='sm'
+            onClick={() =>
+              downloadPayslip(payroll.id, `${payroll.employee_name} ${periodLabel}`)
+                .catch(() => toast.error('Slip gaji hanya tersedia setelah periode dibayar (PAID/LOCKED).'))
+            }
+          >
+            <Icons.download />Slip Gaji
+          </Button>
+        )}
       </TableCell>
     </TableRow>
   );
@@ -1383,8 +1403,8 @@ function PayrollProcessingSection() {
                               variant='ghost'
                               size='sm'
                               onClick={() =>
-                                downloadPayslip(p.id, `${p.period_year}-${String(p.period_month).padStart(2, '0')}`)
-                                  .catch(() => {})
+                                downloadRecap(p.id, `${p.period_year}-${String(p.period_month).padStart(2, '0')}`)
+                                  .catch(() => toast.error('Gagal mengunduh rekap payroll.'))
                               }
                             >
                               <Icons.download />Rekap
