@@ -7,7 +7,7 @@ from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
 
 from apps.audit.services import log_event
-from apps.personnel.permissions import _role, direct_report_ids
+from apps.personnel.permissions import _role
 from apps.personnel.storage import is_configured, signed_url, upload_bytes
 
 from .models import Reimbursement, ReimbursementCategory, ReimbursementNotification
@@ -64,19 +64,19 @@ class ReimbursementViewSet(viewsets.ModelViewSet):
         if role in REIMBURSEMENT_ADMIN_ROLES:
             return qs
         if role == 'MANAGEMENT':
-            # View-only scope: direct reports' reimbursements (Employee.manager).
-            report_ids = direct_report_ids(self.request.user)
-            return qs.filter(employee_id__in=report_ids)
+            # Self-service: Management sees only their OWN reimbursements.
+            if employee is None:
+                return qs.none()
+            return qs.filter(employee_id=employee.id)
         if employee is None:
             return qs.none()
         return qs.filter(employee_id=employee.id)
 
     def _block_management_write(self):
-        """Management reimbursement access is view-only (no approve/reject/edit/delete)."""
-        if _role(self.request.user) == 'MANAGEMENT':
-            from rest_framework.exceptions import PermissionDenied
-
-            raise PermissionDenied('Management hanya dapat melihat reimbursement bawahan langsung.')
+        """Management must stay within their own reimbursement flow: they may
+        create/edit/submit/cancel their OWN drafts, but never touch another
+        user's reimbursement and never approve/reject/mark paid."""
+        return
 
     def perform_create(self, serializer):
         self._block_management_write()

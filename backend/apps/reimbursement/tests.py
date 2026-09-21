@@ -506,7 +506,8 @@ class ReimbursementWorkflowTests(TestCase):
 
 
 class ManagementScopeTests(TestCase):
-    """Management reimbursement access: view-only, direct reports only."""
+    """Management reimbursement: self-service flow like Employee - own
+    reimbursements only, never direct reports' or other users' data."""
 
     def setUp(self):
         self.mgr_user = make_user('MANAGEMENT', 'mgr@test.com')
@@ -519,7 +520,10 @@ class ManagementScopeTests(TestCase):
         )
         self.rep.user = self.rep_user
         self.rep.save()
-        self.outsider = Employee.objects.create(employee_id='E002', full_name='Outsider', employment_status='ACTIVE')
+        self.mgr2_user = make_user('MANAGEMENT', 'mgr2@test.com')
+        self.mgr2 = Employee.objects.create(employee_id='M002', full_name='Manager Two', employment_status='ACTIVE')
+        self.mgr2.user = self.mgr2_user
+        self.mgr2.save()
         self.cat = ReimbursementCategory.objects.create(name='Transport', code='TRANSPORT')
 
     def _create(self, emp, status='PENDING'):
@@ -528,65 +532,97 @@ class ManagementScopeTests(TestCase):
             transaction_date=date.today(), amount=50000, status=status,
         )
 
-    def test_management_sees_only_direct_reports(self):
-        mine = self._create(self.rep)
-        other = self._create(self.outsider)
+    def test_management_sees_only_own(self):
+        mine = self._create(self.mgr)
+        self._create(self.rep)      # direct report
+        self._create(self.mgr2)     # another manager
         self.client.force_login(self.mgr_user)
         resp = self.client.get('/api/reimbursements/')
         self.assertEqual(resp.status_code, 200)
         data = resp.json()
         results = data['results'] if isinstance(data, dict) else data
         ids = {r['id'] for r in results}
-        self.assertIn(mine.id, ids)
-        self.assertNotIn(other.id, ids)
+        self.assertEqual(ids, {mine.id})
 
-    def test_management_cannot_approve(self):
+    def test_management_detail_of_other_404(self):
         r = self._create(self.rep)
+        r2 = self._create(self.mgr2)
+        self.client.force_login(self.mgr_user)
+        self.assertEqual(self.client.get(f'/api/reimbursements/{r.id}/').status_code, 404)
+        self.assertEqual(self.client.get(f'/api/reimbursements/{r2.id}/').status_code, 404)
+
+    def test_management_can_create_own(self):
+        self.client.force_login(self.mgr_user)
+        resp = self.client.post('/api/reimbursements/', {
+            'category': self.cat.id,
+            'transaction_date': '2026-09-01',
+            'amount': 10000,
+            'project_category': 'GPFE',
+        }, content_type='application/json')
+        self.assertEqual(resp.status_code, 201)
+        data = resp.json()
+        self.assertEqual(data['employee'], self.mgr.id)
+        self.assertEqual(data['employee_name'], 'Manager')
+
+    def test_management_cannot_set_other_requester(self):
+        self.client.force_login(self.mgr_user)
+        resp = self.client.post('/api/reimbursements/', {
+            'category': self.cat.id,
+            'transaction_date': '2026-09-01',
+            'amount': 10000,
+            'employee': self.rep.id,
+            'project_category': 'GPFE',
+        }, content_type='application/json')
+        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.json()['employee'], self.mgr.id)
+        r = Reimbursement.objects.get(id=resp.json()['id'])
+        self.assertEqual(r.employee_id, self.mgr.id)
+
+    def test_management_can_edit_and_submit_own_draft(self):
+        self.client.force_login(self.mgr_user)
+        resp = self.client.post('/api/reimbursements/', {
+            'category': self.cat.id,
+            'transaction_date': '2026-09-01',
+            'amount': 10000,
+            'project_category': 'GPFE',
+        }, content_type='application/json')
+        rid = resp.json()['id']
+        resp = self.client.patch(f'/api/reimbursements/{rid}/',
+                                 {'amount': 15000}, content_type='application/json')
+        self.assertEqual(resp.status_code, 200)
+        resp = self.client.post(f'/api/reimbursements/{rid}/submit/')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json()['status'], 'PENDING')
+
+    def test_management_cannot_approve_reject_mark_paid(self):
+        r = self._create(self.mgr, status='PENDING')
         self.client.force_login(self.mgr_user)
         resp = self.client.post(
             f'/api/reimbursements/{r.id}/approve/',
             {'approved_amount': 40000}, content_type='application/json',
         )
         self.assertEqual(resp.status_code, 403)
-        r.refresh_from_db()
-        self.assertEqual(r.status, 'PENDING')
-
-    def test_management_cannot_reject(self):
-        r = self._create(self.rep)
-        self.client.force_login(self.mgr_user)
         resp = self.client.post(
             f'/api/reimbursements/{r.id}/reject/',
             {'rejection_reason': 'no'}, content_type='application/json',
         )
         self.assertEqual(resp.status_code, 403)
+        r2 = self._create(self.mgr, status='APPROVED')
+        self.assertEqual(self.client.post(f'/api/reimbursements/{r2.id}/mark_paid/').status_code, 403)
         r.refresh_from_db()
         self.assertEqual(r.status, 'PENDING')
 
-    def test_management_cannot_mark_paid_or_delete(self):
-        r = self._create(self.rep, status='APPROVED')
+    def test_management_cannot_touch_other_users_reimbursement(self):
+        r = self._create(self.rep)
         self.client.force_login(self.mgr_user)
-        resp = self.client.post(f'/api/reimbursements/{r.id}/mark_paid/')
-        self.assertEqual(resp.status_code, 403)
-        resp = self.client.delete(f'/api/reimbursements/{r.id}/')
-        self.assertEqual(resp.status_code, 403)
-
-    def test_management_cannot_create(self):
-        self.client.force_login(self.mgr_user)
-        resp = self.client.post('/api/reimbursements/', {
-            'category': self.cat.id,
-            'transaction_date': '2026-09-01',
-            'amount': 10000,
-        }, content_type='application/json')
-        self.assertEqual(resp.status_code, 403)
-
-    def test_management_non_report_detail_404(self):
-        r = self._create(self.outsider)
-        self.client.force_login(self.mgr_user)
-        resp = self.client.get(f'/api/reimbursements/{r.id}/')
-        self.assertEqual(resp.status_code, 404)
+        self.assertEqual(self.client.patch(
+            f'/api/reimbursements/{r.id}/', {'amount': 1},
+            content_type='application/json').status_code, 404)
+        self.assertEqual(self.client.post(f'/api/reimbursements/{r.id}/submit/').status_code, 404)
+        self.assertEqual(self.client.post(f'/api/reimbursements/{r.id}/cancel/').status_code, 404)
 
     def test_hr_still_sees_all_and_can_approve(self):
-        r = self._create(self.rep)
+        r = self._create(self.mgr)
         hr = make_user('HR_STAFF', 'hr2@test.com')
         self.client.force_login(hr)
         resp = self.client.post(

@@ -111,10 +111,23 @@ export const managementNavGroups: NavGroup[] = [
       },
       {
         title: 'Reimbursement',
-        url: '/dashboard/reimbursements',
+        url: '/dashboard/management/reimbursement',
         icon: 'receipt',
         isActive: false,
-        items: []
+        items: [
+          {
+            title: 'Pengajuan Saya',
+            url: '/dashboard/management/reimbursement',
+            isActive: false,
+            items: []
+          },
+          {
+            title: 'Ajukan Reimbursement',
+            url: '/dashboard/management/reimbursement/new',
+            isActive: false,
+            items: []
+          }
+        ]
       },
       {
         title: 'Payroll',
