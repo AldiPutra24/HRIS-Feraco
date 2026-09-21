@@ -171,6 +171,12 @@ export type Payroll = {
   updated_at: string;
 };
 
+/** Payroll as exposed to the self-service payslip page (adds period info). */
+export type MyPayroll = Payroll & {
+  period_status: string;
+  period_label: string;
+};
+
 // ---------- Tax config (Tahap 3a) ----------
 
 export type TerBracket = {
@@ -370,4 +376,10 @@ export function downloadPayslip(payrollId: number, employeeName: string): Promis
 
 export function downloadRecap(periodId: number, label: string): Promise<void> {
   return downloadFile(`/periods/${periodId}/recap/`, `rekap-payroll-${label}.xlsx`);
+}
+
+// ---------- Employee self-service payslip ----------
+
+export function listMyPayslips(): Promise<MyPayroll[]> {
+  return request<MyPayroll[]>('/payrolls/my-payslips/');
 }

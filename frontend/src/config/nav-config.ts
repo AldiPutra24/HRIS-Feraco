@@ -66,6 +66,13 @@ export const employeeNavGroups: NavGroup[] = [
         items: []
       },
       {
+        title: 'Slip Gaji',
+        url: '/dashboard/employee/payslip',
+        icon: 'wallet',
+        isActive: false,
+        items: []
+      },
+      {
         title: 'Knowledge / KMS',
         url: '/kms',
         icon: 'books',

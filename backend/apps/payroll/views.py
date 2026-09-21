@@ -3,6 +3,7 @@ from decimal import Decimal
 
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from django.db import transaction
 
@@ -20,7 +21,7 @@ from .models import (
     TaxConfig,
     TerBracket,
 )
-from .permissions import IsPayrollAdmin, PayrollPeriodPermission, SalaryStructurePermission, PAYROLL_ADMIN_ROLES
+from .permissions import IsPayrollAdmin, PayrollPeriodPermission, SalaryStructurePermission, PAYROLL_ADMIN_ROLES, PAYROLL_VIEW_ROLES
 from .serializers import (
     AnnualTaxBracketSerializer,
     EmployeeTaxProfileSerializer,
@@ -623,10 +624,42 @@ class PayrollViewSet(viewsets.ReadOnlyModelViewSet):
         refresh_payroll_totals(payroll)
         return Response(PayrollSerializer(payroll).data)
 
-    @action(detail=True, methods=['get'])
+    @action(detail=True, methods=['get'], permission_classes=[IsAuthenticated])
     def payslip(self, request, pk=None):
-        """Slip gaji PDF (PRD Section 6) — HR only, period PAID/LOCKED."""
-        if _role(request.user) not in PAYROLL_ADMIN_ROLES:
+        """Slip gaji PDF (PRD Section 6) — HR only, period PAID/LOCKED.
+
+        Employees may download their OWN slip; anyone else's payroll is
+        rejected (ownership checked here, not just the queryset).
+        """
+        role = _role(request.user)
+        if role in PAYROLL_ADMIN_ROLES:
+            return build_payslip_pdf(self.get_object())
+        if role == 'EMPLOYEE':
+            from apps.personnel.permissions import employee_for
+
+            employee = employee_for(request.user)
+            if employee is not None and self.get_object().employee_id == employee.id:
+                return build_payslip_pdf(self.get_object())
+        return Response({'detail': 'Tidak berwenang.'}, status=403)
+
+    @action(detail=False, methods=['get'], url_path='my-payslips', permission_classes=[IsAuthenticated])
+    def my_payslips(self, request):
+        """Employee self-service: own payroll records for PAID/LOCKED periods,
+        newest period first. Never exposes another employee's payroll."""
+        if _role(request.user) not in PAYROLL_VIEW_ROLES | {'EMPLOYEE'}:
             return Response({'detail': 'Tidak berwenang.'}, status=403)
-        return build_payslip_pdf(self.get_object())
+        personnel = getattr(request.user, 'personnel', None)
+        employee = getattr(personnel, 'employee', None)
+        if employee is None:
+            return Response({'detail': 'Akun tidak terhubung ke data karyawan.'}, status=404)
+        qs = (
+            Payroll.objects.select_related('employee', 'period')
+            .prefetch_related('items')
+            .filter(
+                employee_id=employee.id,
+                period__status__in=[PayrollPeriod.Status.PAID, PayrollPeriod.Status.LOCKED],
+            )
+            .order_by('-period__period_year', '-period__period_month')
+        )
+        return Response(PayrollSerializer(qs, many=True, context={'request': request}).data)
 

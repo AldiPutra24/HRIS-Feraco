@@ -1820,3 +1820,91 @@ class PayrollEligibilityTests(TestCase):
         self.assertEqual(data['ready_count'], 1)
         self.assertEqual(data['not_ready_count'], 1)
         self.assertEqual(data['not_ready'][0]['full_name'], 'Jane')
+
+
+class EmployeeSelfServicePayslipTests(TestCase):
+    """Employee self-service: /payrolls/my-payslips/ + own-slip payslip access."""
+
+    def setUp(self):
+        make_tax_config(rate='1', threshold='0')
+        self.emp = Employee.objects.create(
+            employee_id='E001', full_name='John', employment_status='ACTIVE',
+            bank_account_name='BCA', bank_account_number='1234567890',
+        )
+        SalaryStructure.objects.create(
+            employee=self.emp, effective_from=date(2026, 1, 1), basic_salary=5000000,
+        )
+        self.other = Employee.objects.create(
+            employee_id='E002', full_name='Jane', employment_status='ACTIVE',
+            bank_account_name='BCA', bank_account_number='9876543210',
+        )
+        SalaryStructure.objects.create(
+            employee=self.other, effective_from=date(2026, 1, 1), basic_salary=4000000,
+        )
+        self.paid_period = make_month_period(6)
+        calculate_period(self.paid_period)
+        self.draft_period = make_month_period(7)
+        calculate_period(self.draft_period)
+        self.paid_period.status = PayrollPeriod.Status.CALCULATED
+        self.paid_period.save(update_fields=['status'])
+        for target in (PayrollPeriod.Status.REVIEW, PayrollPeriod.Status.APPROVED,
+                       PayrollPeriod.Status.PAID):
+            self.paid_period.status = target
+            self.paid_period.save(update_fields=['status'])
+        self.payroll = Payroll.objects.get(period=self.paid_period, employee=self.emp)
+        self.other_payroll = Payroll.objects.get(period=self.paid_period, employee=self.other)
+
+    def _login_employee(self, employee):
+        user = make_user('EMPLOYEE', f'{employee.employee_id.lower()}@test.com')
+        employee.user = user
+        employee.save(update_fields=['user'])
+        self.client.force_login(user)
+        return user
+
+    def test_my_payslips_lists_own_paid_only(self):
+        self._login_employee(self.emp)
+        res = self.client.get(reverse('payroll-my-payslips'))
+        self.assertEqual(res.status_code, 200)
+        data = res.json()
+        self.assertEqual(len(data), 1)
+        self.assertEqual(data[0]['id'], self.payroll.id)
+        self.assertEqual(data[0]['period_status'], 'PAID')
+        self.assertIn('period_label', data[0])
+
+    def test_my_payslips_excludes_other_employees(self):
+        self._login_employee(self.other)
+        res = self.client.get(reverse('payroll-my-payslips'))
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual([r['id'] for r in res.json()], [self.other_payroll.id])
+
+    def test_my_payslips_unauthenticated_denied(self):
+        res = self.client.get(reverse('payroll-my-payslips'))
+        self.assertEqual(res.status_code, 403)
+
+    def test_my_payslips_user_without_employee_record(self):
+        self.client.force_login(make_user('EMPLOYEE', 'noemp@test.com'))
+        res = self.client.get(reverse('payroll-my-payslips'))
+        self.assertEqual(res.status_code, 404)
+
+    def test_employee_downloads_own_payslip(self):
+        self._login_employee(self.emp)
+        res = self.client.get(reverse('payroll-payslip', args=[self.payroll.id]))
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res['Content-Type'], 'application/pdf')
+
+    def test_employee_cannot_download_other_payslip(self):
+        self._login_employee(self.emp)
+        res = self.client.get(reverse('payroll-payslip', args=[self.other_payroll.id]))
+        self.assertEqual(res.status_code, 403)
+
+    def test_employee_payslip_blocked_on_draft_period(self):
+        self._login_employee(self.emp)
+        draft_payroll = Payroll.objects.get(period=self.draft_period, employee=self.emp)
+        res = self.client.get(reverse('payroll-payslip', args=[draft_payroll.id]))
+        # Own employee but period not PAID/LOCKED -> rejected by the PDF guard.
+        self.assertEqual(res.status_code, 400)
+
+    def test_hr_payslip_access_unchanged(self):
+        self.client.force_login(make_user('HR_STAFF', 'hr@test.com'))
+        res = self.client.get(reverse('payroll-payslip', args=[self.other_payroll.id]))
+        self.assertEqual(res.status_code, 200)
