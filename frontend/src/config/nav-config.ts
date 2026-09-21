@@ -263,14 +263,40 @@ export const navGroups: NavGroup[] = [
         url: '/dashboard/recruitment',
         icon: 'userPlus',
         isActive: false,
-        items: []
+        items: [
+          {
+            title: 'Inhouse',
+            url: '/dashboard/recruitment/jobs?type=INHOUSE',
+            isActive: false,
+            items: []
+          },
+          {
+            title: 'Freelance',
+            url: '/dashboard/recruitment/jobs?type=FREELANCE',
+            isActive: false,
+            items: []
+          }
+        ]
       },
       {
-        title: 'Candidates',
+        title: 'Candidate',
         url: '/dashboard/recruitment/candidates',
         icon: 'teams',
         isActive: false,
-        items: []
+        items: [
+          {
+            title: 'Inhouse',
+            url: '/dashboard/recruitment/candidates',
+            isActive: false,
+            items: []
+          },
+          {
+            title: 'Freelance / Talent Pool',
+            url: '/dashboard/recruitment/candidates/freelance',
+            isActive: false,
+            items: []
+          }
+        ]
       },
       {
         title: 'Onboarding',

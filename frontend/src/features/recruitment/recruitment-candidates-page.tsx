@@ -9,7 +9,15 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import { TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { listCandidates, listJobs, hardDeleteCandidate, type Candidate, type Job } from '@/lib/recruitment';
+import {
+  acceptCandidateFreelance,
+  listCandidates,
+  listJobs,
+  hardDeleteCandidate,
+  type Candidate,
+  type Job,
+  type RecruitmentType
+} from '@/lib/recruitment';
 import { ALL_STATUSES, statusLabel } from '@/features/recruitment/candidate-pipeline';
 import { useAuth } from '@/lib/auth/auth-provider';
 
@@ -21,11 +29,18 @@ function statusVariant(status: string): 'default' | 'secondary' | 'outline' {
   return 'default';
 }
 
-export function RecruitmentCandidatesPage({ fixedJobId }: { fixedJobId?: string }) {
+export function RecruitmentCandidatesPage({
+  fixedJobId,
+  recruitmentType,
+}: {
+  fixedJobId?: string;
+  recruitmentType?: RecruitmentType;
+}) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin';
+  const isFreelance = recruitmentType === 'FREELANCE';
   const fJob = fixedJobId ?? (searchParams.get('job') ?? '');
   const fStatus = searchParams.get('status') ?? '';
 
@@ -45,6 +60,7 @@ export function RecruitmentCandidatesPage({ fixedJobId }: { fixedJobId?: string 
     const params: Record<string, string> = {};
     if (fJob) params.job = fJob;
     if (fStatus) params.status = fStatus;
+    if (recruitmentType) params.recruitment_type = recruitmentType;
     try {
       const candidates = await listCandidates(params);
       setItems(candidates);
@@ -53,15 +69,29 @@ export function RecruitmentCandidatesPage({ fixedJobId }: { fixedJobId?: string 
     } finally {
       setLoading(false);
     }
-  }, [fJob, fStatus]);
+  }, [fJob, fStatus, recruitmentType]);
 
   useEffect(() => {
     load();
   }, [load]);
 
   useEffect(() => {
-    listJobs().then(setJobs).catch(() => {});
-  }, []);
+    // Job dropdown follows the page's recruitment category.
+    listJobs(recruitmentType ? { recruitment_type: recruitmentType } : {})
+      .then(setJobs)
+      .catch(() => {});
+  }, [recruitmentType]);
+
+  async function handleAcceptFreelance(c: Candidate) {
+    if (!window.confirm(`Terima "${c.full_name}" ke Freelance / Talent Pool?`)) return;
+    try {
+      const res = await acceptCandidateFreelance(c.id);
+      toast.success(res.detail || 'Kandidat masuk Freelance / Talent Pool.');
+      load();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Gagal menerima kandidat.');
+    }
+  }
 
   async function handleDelete(c: Candidate) {
     if (!window.confirm(`Hapus permanen kandidat "${c.full_name}"? Tidak dapat dibatalkan.`)) return;
@@ -86,8 +116,14 @@ export function RecruitmentCandidatesPage({ fixedJobId }: { fixedJobId?: string 
   return (
     <div className='flex flex-1 flex-col gap-4 p-4 md:p-6'>
       <div>
-        <h2 className='text-2xl font-bold tracking-tight'>Candidate Inbox</h2>
-        <p className='text-muted-foreground text-sm'>Kelola lamaran masuk dari portal publik.</p>
+        <h2 className='text-2xl font-bold tracking-tight'>
+          {isFreelance ? 'Candidate Freelance / Talent Pool' : 'Candidate Inhouse'}
+        </h2>
+        <p className='text-muted-foreground text-sm'>
+          {isFreelance
+            ? 'Kandidat recruitment freelance. Kandidat diterima masuk ke Freelance / Talent Pool.'
+            : 'Kelola lamaran masuk dari portal publik. Kandidat lolos lanjut ke Onboarding.'}
+        </p>
       </div>
 
       <Card>
@@ -197,6 +233,11 @@ export function RecruitmentCandidatesPage({ fixedJobId }: { fixedJobId?: string 
                           >
                             Detail
                           </Button>
+                          {isFreelance && c.status !== 'OFFER_ACCEPTED' && c.status !== 'REJECTED' && c.status !== 'WITHDRAWN' && (
+                            <Button size='sm' variant='default' onClick={() => handleAcceptFreelance(c)}>
+                              Masuk Talent Pool
+                            </Button>
+                          )}
                           {isAdmin && (
                             <Button size='sm' variant='destructive' onClick={() => handleDelete(c)}>
                               Hapus Permanen

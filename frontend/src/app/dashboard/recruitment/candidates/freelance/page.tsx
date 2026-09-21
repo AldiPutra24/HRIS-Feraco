@@ -3,14 +3,14 @@ import { Suspense } from 'react';
 import { RecruitmentCandidatesPage } from '@/features/recruitment/recruitment-candidates-page';
 
 export const metadata: Metadata = {
-  title: 'Candidate Inhouse',
-  description: 'Kandidat recruitment inhouse.'
+  title: 'Candidate Freelance / Talent Pool',
+  description: 'Kandidat recruitment freelance.'
 };
 
 export default function Page() {
   return (
     <Suspense>
-      <RecruitmentCandidatesPage recruitmentType='INHOUSE' />
+      <RecruitmentCandidatesPage recruitmentType='FREELANCE' />
     </Suspense>
   );
 }

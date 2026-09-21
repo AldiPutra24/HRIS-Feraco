@@ -16,6 +16,7 @@ from .models import Candidate, Job
 from .permissions import IsRecruitmentAdmin, RECRUITMENT_ADMIN_ROLES
 from .serializers import CandidateSerializer, JobPublicSerializer, JobSerializer
 from .services import _bucket, transition_candidate
+from .talent_pool import accept_candidate_to_talent_pool
 
 
 class JobViewSet(viewsets.ModelViewSet):
@@ -24,7 +25,7 @@ class JobViewSet(viewsets.ModelViewSet):
     queryset = Job.objects.select_related('department', 'position').prefetch_related('applications').all()
     serializer_class = JobSerializer
     permission_classes = [IsRecruitmentAdmin]
-    filterset_fields = ['status', 'department', 'employment_type']
+    filterset_fields = ['status', 'department', 'employment_type', 'recruitment_type']
     search_fields = ['title', 'location']
     ordering_fields = ['created_at', 'open_date', 'close_date']
 
@@ -128,6 +129,15 @@ class CandidateViewSet(viewsets.ModelViewSet):
     filterset_fields = ['job', 'source', 'status']
     search_fields = ['full_name', 'email']
 
+    def get_queryset(self):
+        """Optional ?recruitment_type=INHOUSE|FREELANCE filter via the related
+        job — keeps Inhouse and Freelance candidate lists isolated."""
+        qs = super().get_queryset()
+        rtype = self.request.query_params.get('recruitment_type')
+        if rtype in ('INHOUSE', 'FREELANCE'):
+            qs = qs.filter(job__recruitment_type=rtype)
+        return qs
+
     def get_permissions(self):
         if self.action == 'create':
             return [AllowAny()]
@@ -161,6 +171,37 @@ class CandidateViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         return Response(CandidateSerializer(candidate, context={'request': request}).data)
+
+    @action(detail=True, methods=['post'], url_path='accept-freelance')
+    def accept_freelance(self, request, pk=None):
+        """Freelance flow: accepted candidate enters the Freelance/Talent Pool.
+
+        Creates or updates (dedup by email) the Freelancer record from the
+        candidate's data and marks the candidate OFFER_ACCEPTED. Never creates
+        an Employee/User/Onboarding — that is the Inhouse path only.
+        """
+        obj = self.get_object()
+        if obj.job.recruitment_type != 'FREELANCE':
+            return Response(
+                {'detail': 'Hanya kandidat recruitment Freelance yang dapat masuk Talent Pool.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if obj.status in Candidate.TERMINAL:
+            return Response(
+                {'detail': f'Kandidat berstatus {obj.status} tidak dapat diterima.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        freelancer, created = accept_candidate_to_talent_pool(obj, request)
+        return Response({
+            'candidate': CandidateSerializer(obj, context={'request': request}).data,
+            'freelancer_id': freelancer.id,
+            'created': created,
+            'detail': (
+                f'Kandidat "{obj.full_name}" masuk Freelance / Talent Pool.'
+                if created else
+                f'Data freelancer "{freelancer.full_name}" diperbarui dari kandidat.'
+            ),
+        })
 
     @action(detail=True, methods=['get', 'post'])
     def cv(self, request, pk=None):

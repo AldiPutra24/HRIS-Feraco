@@ -22,7 +22,8 @@ import {
   reopenJob,
   updateJob,
   type Job,
-  type JobInput
+  type JobInput,
+  type RecruitmentType
 } from '@/lib/recruitment';
 
 const STATUS_VARIANT: Record<string, 'default' | 'secondary' | 'destructive' | 'outline'> = {
@@ -33,6 +34,10 @@ const STATUS_VARIANT: Record<string, 'default' | 'secondary' | 'destructive' | '
 
 const STATUS_OPTIONS = ['DRAFT', 'OPEN', 'CLOSED'];
 const EMPLOYMENT_OPTIONS = ['FULL_TIME', 'PART_TIME', 'CONTRACT', 'INTERNSHIP', 'FREELANCE'];
+const RECRUITMENT_TYPE_OPTIONS: { value: RecruitmentType; label: string }[] = [
+  { value: 'INHOUSE', label: 'Inhouse' },
+  { value: 'FREELANCE', label: 'Freelance' }
+];
 
 function StatusBadge({ status }: { status: string }) {
   return <Badge variant={STATUS_VARIANT[status] ?? 'secondary'}>{status}</Badge>;
@@ -57,6 +62,7 @@ const emptyForm: JobInput = {
   description: '',
   requirements: '',
   employment_type: 'FULL_TIME',
+  recruitment_type: 'INHOUSE',
   location: '',
   open_date: new Date().toISOString().slice(0, 10),
   close_date: ''
@@ -69,6 +75,7 @@ export function RecruitmentJobsPage() {
   const isAdmin = user?.role === 'admin';
   const fStatus = searchParams.get('status') ?? '';
   const fSearch = searchParams.get('q') ?? '';
+  const fType = (searchParams.get('type') as RecruitmentType | null) ?? null;
 
   function setFilter(key: string, value: string) {
     const params = new URLSearchParams(searchParams);
@@ -90,6 +97,7 @@ export function RecruitmentJobsPage() {
     const params: Record<string, string> = {};
     if (fStatus) params.status = fStatus;
     if (fSearch) params.search = fSearch;
+    if (fType) params.recruitment_type = fType;
     try {
       const jobs = await listJobs(params);
       setItems(jobs);
@@ -98,7 +106,7 @@ export function RecruitmentJobsPage() {
     } finally {
       setLoading(false);
     }
-  }, [fStatus, fSearch]);
+  }, [fStatus, fSearch, fType]);
 
   useEffect(() => {
     load();
@@ -124,6 +132,7 @@ export function RecruitmentJobsPage() {
       description: job.description,
       requirements: job.requirements,
       employment_type: job.employment_type,
+      recruitment_type: job.recruitment_type ?? 'INHOUSE',
       location: job.location,
       open_date: job.open_date,
       close_date: job.close_date ?? ''
@@ -204,6 +213,21 @@ export function RecruitmentJobsPage() {
         <Button onClick={openCreate}>Add New Job</Button>
       </div>
 
+      <div className='flex gap-1 rounded-lg border p-1 w-fit'>
+        {([null, 'INHOUSE', 'FREELANCE'] as const).map((t) => (
+          <button
+            key={t ?? 'all'}
+            type='button'
+            onClick={() => setFilter('type', t ?? '')}
+            className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+              fType === t ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'
+            }`}
+          >
+            {t === null ? 'Semua' : t === 'INHOUSE' ? 'Inhouse' : 'Freelance'}
+          </button>
+        ))}
+      </div>
+
       <Card>
         <CardHeader>
           <CardTitle>Filter</CardTitle>
@@ -255,6 +279,7 @@ export function RecruitmentJobsPage() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Job Title</TableHead>
+                    <TableHead>Category</TableHead>
                     <TableHead>Department</TableHead>
                     <TableHead>Position</TableHead>
                     <TableHead>Type</TableHead>
@@ -274,6 +299,11 @@ export function RecruitmentJobsPage() {
                       <TableCell>{j.department_name || '-'}</TableCell>
                       <TableCell>{j.position_name || '-'}</TableCell>
                       <TableCell>{employmentLabel(j.employment_type)}</TableCell>
+                      <TableCell>
+                        <Badge variant={j.recruitment_type === 'FREELANCE' ? 'secondary' : 'outline'}>
+                          {j.recruitment_type === 'FREELANCE' ? 'Freelance' : 'Inhouse'}
+                        </Badge>
+                      </TableCell>
                       <TableCell>{j.location || '-'}</TableCell>
                       <TableCell>{j.open_date}</TableCell>
                       <TableCell>{j.close_date ?? '-'}</TableCell>
@@ -387,6 +417,20 @@ export function RecruitmentJobsPage() {
                     {deptPositions.map((p) => (
                       <option key={p.id} value={p.id}>
                         {p.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <Label className='text-xs'>Recruitment Type</Label>
+                  <select
+                    className='border-input h-9 w-full rounded-lg border bg-transparent px-2.5 text-sm'
+                    value={form.recruitment_type}
+                    onChange={(e) => setForm({ ...form, recruitment_type: e.target.value as RecruitmentType })}
+                  >
+                    {RECRUITMENT_TYPE_OPTIONS.map((t) => (
+                      <option key={t.value} value={t.value}>
+                        {t.label}
                       </option>
                     ))}
                   </select>

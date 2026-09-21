@@ -473,3 +473,122 @@ class HardDeleteTests(TestCase):
         data = resp.json()
         self.assertIn('next_statuses', data)
         self.assertIn('SCREENING', data['next_statuses'])
+
+class RecruitmentTypeTests(TestCase):
+    """Inhouse vs Freelance recruitment split: job typing, candidate
+    isolation, and the freelance -> Talent Pool bridge."""
+
+    def setUp(self):
+        self.admin = make_user('ADMIN', 'admin@test.com')
+        self.client.force_login(self.admin)
+        self.department = Department.objects.create(name='Engineering')
+        self.position = Position.objects.create(name='Developer', department=self.department)
+        self.job_inhouse = Job.objects.create(
+            title='Inhouse Dev', slug='inhouse-dev', department=self.department,
+            position=self.position, description='d', requirements='r',
+            employment_type='FULL_TIME', location='Jakarta',
+            open_date=date.today(), status='OPEN',
+        )
+        self.job_freelance = Job.objects.create(
+            title='Freelance MC', slug='freelance-mc', department=self.department,
+            position=self.position, description='d', requirements='r',
+            employment_type='FREELANCE', recruitment_type='FREELANCE',
+            location='Jakarta', open_date=date.today(), status='OPEN',
+        )
+
+    def test_default_recruitment_type_is_inhouse(self):
+        self.assertEqual(self.job_inhouse.recruitment_type, 'INHOUSE')
+
+    def test_create_inhouse_and_freelance_jobs(self):
+        resp = self.client.post('/api/recruitment/jobs/', _job_data(
+            self.department, self.position, title='Job A',
+        ), content_type='application/json')
+        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.json()['recruitment_type'], 'INHOUSE')
+        resp = self.client.post('/api/recruitment/jobs/', _job_data(
+            self.department, self.position, title='Job B', recruitment_type='FREELANCE',
+        ), content_type='application/json')
+        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.json()['recruitment_type'], 'FREELANCE')
+
+    def test_invalid_recruitment_type_rejected(self):
+        resp = self.client.post('/api/recruitment/jobs/', _job_data(
+            self.department, self.position, title='Job C', recruitment_type='BOGUS',
+        ), content_type='application/json')
+        self.assertEqual(resp.status_code, 400)
+
+    def test_job_filter_by_recruitment_type(self):
+        resp = self.client.get('/api/recruitment/jobs/?recruitment_type=INHOUSE')
+        ids = {j['id'] for j in resp.json()['results']}
+        self.assertIn(self.job_inhouse.id, ids)
+        self.assertNotIn(self.job_freelance.id, ids)
+        resp = self.client.get('/api/recruitment/jobs/?recruitment_type=FREELANCE')
+        ids = {j['id'] for j in resp.json()['results']}
+        self.assertIn(self.job_freelance.id, ids)
+        self.assertNotIn(self.job_inhouse.id, ids)
+
+    def _candidate(self, job, email='cand@test.com'):
+        return Candidate.objects.create(
+            job=job, full_name='Candra', email=email, phone='081234567890',
+        )
+
+    def test_candidate_filter_by_recruitment_type(self):
+        inhouse = self._candidate(self.job_inhouse, 'a@test.com')
+        freelance = self._candidate(self.job_freelance, 'b@test.com')
+        resp = self.client.get('/api/recruitment/candidates/?recruitment_type=INHOUSE')
+        ids = {c['id'] for c in resp.json()['results']}
+        self.assertEqual(ids, {inhouse.id})
+        resp = self.client.get('/api/recruitment/candidates/?recruitment_type=FREELANCE')
+        ids = {c['id'] for c in resp.json()['results']}
+        self.assertEqual(ids, {freelance.id})
+
+    def test_freelance_accept_enters_talent_pool_no_employee(self):
+        from apps.personnel.models import Employee, Freelancer
+
+        cand = self._candidate(self.job_freelance, 'freelance@test.com')
+        resp = self.client.post(f'/api/recruitment/candidates/{cand.id}/accept-freelance/')
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(resp.json()['created'])
+        cand.refresh_from_db()
+        self.assertEqual(cand.status, 'OFFER_ACCEPTED')
+        # Freelancer created with mapped data.
+        fl = Freelancer.objects.get(personal_email='freelance@test.com')
+        self.assertEqual(fl.full_name, 'Candra')
+        self.assertEqual(fl.whatsapp, '081234567890')
+        # No Employee / User account created by the freelance flow.
+        self.assertFalse(Employee.objects.filter(full_name='Candra').exists())
+
+    def test_freelance_accept_dedups_existing_freelancer(self):
+        from apps.freelance.models import Freelancer
+
+        Freelancer.objects.create(
+            full_name='Candra Lama', personal_email='freelance@test.com',
+            domicile='Jakarta',
+        )
+        cand = self._candidate(self.job_freelance, 'freelance@test.com')
+        resp = self.client.post(f'/api/recruitment/candidates/{cand.id}/accept-freelance/')
+        self.assertEqual(resp.status_code, 200)
+        self.assertFalse(resp.json()['created'])
+        # Exactly one freelancer; curated name/domicile untouched.
+        self.assertEqual(Freelancer.objects.filter(personal_email='freelance@test.com').count(), 1)
+        fl = Freelancer.objects.get(personal_email='freelance@test.com')
+        self.assertEqual(fl.full_name, 'Candra Lama')
+        self.assertEqual(fl.domicile, 'Jakarta')
+
+    def test_inhouse_candidate_cannot_use_freelance_accept(self):
+        cand = self._candidate(self.job_inhouse, 'inhouse@test.com')
+        resp = self.client.post(f'/api/recruitment/candidates/{cand.id}/accept-freelance/')
+        self.assertEqual(resp.status_code, 400)
+
+    def test_freelance_accept_rejected_candidate_blocked(self):
+        cand = self._candidate(self.job_freelance, 'rej@test.com')
+        cand.status = 'REJECTED'
+        cand.save(update_fields=['status'])
+        resp = self.client.post(f'/api/recruitment/candidates/{cand.id}/accept-freelance/')
+        self.assertEqual(resp.status_code, 400)
+
+    def test_unauth_cannot_accept_freelance(self):
+        cand = self._candidate(self.job_freelance, 'x@test.com')
+        self.client.logout()
+        resp = self.client.post(f'/api/recruitment/candidates/{cand.id}/accept-freelance/')
+        self.assertIn(resp.status_code, (401, 403))
