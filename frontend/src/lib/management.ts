@@ -22,6 +22,24 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+export type ManagementPendingLeave = {
+  id: number;
+  employee_name: string;
+  leave_type_name: string;
+  start_date: string;
+  end_date: string;
+  total_days: number;
+};
+
+export type ManagementTeamMember = {
+  id: number;
+  full_name: string;
+  employee_id: string;
+  position_name: string | null;
+  department_name: string | null;
+  employment_status: string;
+};
+
 export type ManagementDashboard = {
   team: {
     total: number;
@@ -36,6 +54,8 @@ export type ManagementDashboard = {
     cancelled: number;
     total: number;
   };
+  pending_leave_items: ManagementPendingLeave[];
+  team_members: ManagementTeamMember[];
 };
 
 export function getManagementDashboard(): Promise<ManagementDashboard> {

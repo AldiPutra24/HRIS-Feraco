@@ -680,7 +680,7 @@ class DashboardManagementView(APIView):
         ]
 
         team_ids = list(team.values_list('id', flat=True))
-        leaves = LeaveRequest.objects.filter(employee_id__in=team_ids)
+        leaves = LeaveRequest.objects.select_related('employee', 'leave_type').filter(employee_id__in=team_ids)
         leave_counts = leaves.values('status').annotate(count=Count('id'))
         counts = {c['status']: c['count'] for c in leave_counts}
         leave = {
@@ -690,6 +690,30 @@ class DashboardManagementView(APIView):
             'cancelled': counts.get('CANCELLED', 0),
             'total': sum(counts.values()),
         }
+        # Items for the "Perlu Perhatian" section (already scoped to the team).
+        pending_items = [
+            {
+                'id': lr.id,
+                'employee_name': lr.employee.full_name,
+                'leave_type_name': lr.leave_type.name,
+                'start_date': lr.start_date.isoformat(),
+                'end_date': lr.end_date.isoformat(),
+                'total_days': lr.total_days,
+            }
+            for lr in leaves.filter(status='PENDING').order_by('start_date')[:5]
+        ]
+
+        team_members = [
+            {
+                'id': e.id,
+                'full_name': e.full_name,
+                'employee_id': e.employee_id,
+                'position_name': e.position.name if e.position_id else None,
+                'department_name': e.department.name if e.department_id else None,
+                'employment_status': e.employment_status,
+            }
+            for e in team.select_related('position', 'department').order_by('full_name')
+        ]
 
         return Response(
             {
@@ -700,5 +724,7 @@ class DashboardManagementView(APIView):
                     'by_department': by_department,
                 },
                 'leave': leave,
+                'pending_leave_items': pending_items,
+                'team_members': team_members,
             }
         )
