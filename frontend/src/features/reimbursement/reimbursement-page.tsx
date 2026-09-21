@@ -46,7 +46,11 @@ export function ReimbursementPage() {
   const router = useRouter();
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin';
-  // MANAGEMENT: view-only (backend scopes to direct reports, blocks all writes).
+  // MANAGEMENT now uses the self-service page (same flow as Employee); keep
+  // direct-URL visitors away from the HR approval view.
+  useEffect(() => {
+    if (user?.role === 'management') router.replace('/dashboard/management/reimbursement');
+  }, [user, router]);
   const canAct = user?.role !== 'management';
   const searchParams = useSearchParams();
   const fStatus = searchParams.get('status') ?? '';
