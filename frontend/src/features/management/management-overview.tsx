@@ -6,9 +6,11 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Icons } from '@/components/icons';
 import { getManagementDashboard, type ManagementDashboard, type ManagementPendingLeave, type ManagementTeamMember } from '@/lib/management';
 import { listNotifications, type AppNotification } from '@/lib/notifications';
+import { listAnnouncements, type Announcement } from '@/lib/announcements';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -41,6 +43,10 @@ const NOTIF_ICON: Record<string, keyof typeof Icons> = {
 
 function fmtDate(d: string): string {
   return new Date(d).toLocaleDateString('id-ID', { day: 'numeric', month: 'short' });
+}
+
+function fmtDateLong(d: string): string {
+  return new Date(d).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
 // ---------------------------------------------------------------------------
@@ -150,6 +156,8 @@ function TeamMemberRow({ member }: { member: ManagementTeamMember }) {
 export function ManagementOverview() {
   const [data, setData] = useState<ManagementDashboard | null>(null);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
+  const [announcements, setAnnouncements] = useState<Announcement[]>([]);
+  const [announcementDetail, setAnnouncementDetail] = useState<Announcement | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [fetchedAt, setFetchedAt] = useState<Date | null>(null);
@@ -158,12 +166,14 @@ export function ManagementOverview() {
     setLoading(true);
     setError('');
     try {
-      const [d, n] = await Promise.all([
+      const [d, n, a] = await Promise.all([
         getManagementDashboard(),
         listNotifications().catch(() => ({ results: [] as AppNotification[], unread: 0 })),
+        listAnnouncements().catch(() => [] as Announcement[]),
       ]);
       setData(d);
       setNotifications(n.results.slice(0, 5));
+      setAnnouncements(a.filter((x) => x.status === 'ACTIVE').slice(0, 3));
       setFetchedAt(new Date());
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Gagal memuat data.');
@@ -301,6 +311,33 @@ export function ManagementOverview() {
         </SectionCard>
       </div>
 
+      {/* Pengumuman */}
+      <SectionCard title='Pengumuman'>
+        {announcements.length === 0 ? (
+          <p className='text-muted-foreground py-4 text-center text-sm'>Belum ada pengumuman.</p>
+        ) : (
+          <div className='flex flex-col gap-1'>
+            {announcements.map((a) => (
+              <button
+                key={a.id}
+                type='button'
+                onClick={() => setAnnouncementDetail(a)}
+                className='hover:bg-muted flex w-full flex-col items-start rounded-lg px-3 py-2.5 text-left transition-colors'
+              >
+                <div className='flex w-full items-center justify-between gap-2'>
+                  <p className='text-sm font-medium'>{a.title}</p>
+                  <span className='text-muted-foreground shrink-0 text-xs'>{fmtDate(a.created_at)}</span>
+                </div>
+                <p className='text-muted-foreground line-clamp-2 text-sm'>{a.body}</p>
+                {a.use_end_date && a.end_date && (
+                  <span className='text-muted-foreground/70 text-xs'>Berakhir: {fmtDateLong(a.end_date)}</span>
+                )}
+              </button>
+            ))}
+          </div>
+        )}
+      </SectionCard>
+
       {/* Aktivitas Terbaru */}
       <SectionCard title='Aktivitas Terbaru'>
         {notifications.length === 0 ? (
@@ -329,6 +366,20 @@ export function ManagementOverview() {
           </ul>
         )}
       </SectionCard>
+
+      {/* Announcement detail sheet (same flow as Employee Dashboard) */}
+      <Sheet open={announcementDetail !== null} onOpenChange={(o) => !o && setAnnouncementDetail(null)}>
+        <SheetContent side='right' className='w-full sm:max-w-md'>
+          <SheetHeader>
+            <SheetTitle>{announcementDetail?.title}</SheetTitle>
+            <SheetDescription>
+              Dipublikasikan {announcementDetail ? fmtDateLong(announcementDetail.created_at) : ''}
+              {announcementDetail?.created_by_name ? ` · ${announcementDetail.created_by_name}` : ''}
+            </SheetDescription>
+          </SheetHeader>
+          <div className='whitespace-pre-wrap px-4 py-4 text-sm'>{announcementDetail?.body}</div>
+        </SheetContent>
+      </Sheet>
 
       {/* Quick Actions */}
       <div className='flex flex-wrap gap-2'>
