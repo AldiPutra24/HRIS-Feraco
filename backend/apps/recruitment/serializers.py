@@ -13,11 +13,16 @@ class JobSerializer(serializers.ModelSerializer):
         fields = (
             'id', 'title', 'slug', 'department', 'department_name',
             'position', 'position_name', 'description', 'requirements',
-            'employment_type', 'location', 'open_date', 'close_date',
+            'employment_type', 'recruitment_type', 'location', 'open_date', 'close_date',
             'status', 'created_by', 'created_at', 'updated_at',
             'applications_count',
         )
         read_only_fields = ('id', 'slug', 'created_by', 'created_at', 'updated_at', 'applications_count', 'status')
+
+    def validate_recruitment_type(self, value):
+        if value not in dict(Job.RECRUITMENT_TYPES):
+            raise serializers.ValidationError('Recruitment type tidak valid.')
+        return value
 
     def get_applications_count(self, obj):
         return obj.applications.count()
@@ -51,7 +56,7 @@ class JobPublicSerializer(serializers.ModelSerializer):
         model = Job
         fields = (
             'id', 'title', 'slug', 'department_name', 'position_name',
-            'description', 'requirements', 'employment_type', 'location',
+            'description', 'requirements', 'employment_type', 'recruitment_type', 'location',
             'open_date', 'close_date',
         )
 
@@ -69,6 +74,7 @@ class CandidateStatusHistorySerializer(serializers.ModelSerializer):
 class CandidateSerializer(serializers.ModelSerializer):
     cv_url = serializers.SerializerMethodField()
     job_title = serializers.CharField(source='job.title', read_only=True)
+    recruitment_type = serializers.CharField(source='job.recruitment_type', read_only=True)
     applied_at = serializers.DateTimeField(source='created_at', read_only=True)
     next_statuses = serializers.SerializerMethodField()
     status_history = CandidateStatusHistorySerializer(many=True, read_only=True)
@@ -76,7 +82,7 @@ class CandidateSerializer(serializers.ModelSerializer):
     class Meta:
         model = Candidate
         fields = (
-            'id', 'job', 'job_title', 'full_name', 'email', 'phone',
+            'id', 'job', 'job_title', 'recruitment_type', 'full_name', 'email', 'phone',
             'cv_name', 'cv_url', 'source', 'status',
             'next_statuses', 'status_history',
             'applied_at', 'created_at', 'updated_at',

@@ -38,6 +38,8 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+export type RecruitmentType = 'INHOUSE' | 'FREELANCE';
+
 export type Job = {
   id: number;
   title: string;
@@ -49,6 +51,7 @@ export type Job = {
   description: string;
   requirements: string;
   employment_type: string;
+  recruitment_type: RecruitmentType;
   location: string;
   open_date: string;
   close_date: string | null;
@@ -85,6 +88,7 @@ export type Candidate = {
   id: number;
   job: number;
   job_title: string;
+  recruitment_type: RecruitmentType;
   full_name: string;
   email: string;
   phone: string;
@@ -114,6 +118,11 @@ export function getJob(id: number): Promise<Job> {
   return request<Job>(`/jobs/${id}/`);
 }
 
+/** Accept a freelance candidate into the Freelance/Talent Pool. */
+export function acceptCandidateFreelance(id: number): Promise<{ freelancer_id: number; created: boolean; detail: string }> {
+  return request(`/candidates/${id}/accept-freelance/`, { method: 'POST' });
+}
+
 export type JobInput = {
   title: string;
   department: number | null;
@@ -121,6 +130,7 @@ export type JobInput = {
   description: string;
   requirements: string;
   employment_type: string;
+  recruitment_type: RecruitmentType;
   location: string;
   open_date: string;
   close_date: string | null;

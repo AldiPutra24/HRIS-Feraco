@@ -18,6 +18,13 @@ class Job(models.Model):
         ('INTERNSHIP', 'Internship'),
         ('FREELANCE', 'Freelance'),
     ]
+    # Recruitment category: inhouse hires become Employees (via Onboarding);
+    # freelance hires enter the Freelance/Talent Pool. Default INHOUSE keeps
+    # all pre-existing jobs classified as inhouse (backward compatible).
+    RECRUITMENT_TYPES = [
+        ('INHOUSE', 'Inhouse'),
+        ('FREELANCE', 'Freelance'),
+    ]
 
     title = models.CharField(max_length=255)
     slug = models.SlugField(max_length=280, unique=True)
@@ -38,6 +45,7 @@ class Job(models.Model):
     description = models.TextField(blank=True)
     requirements = models.TextField(blank=True)
     employment_type = models.CharField(max_length=16, choices=EMPLOYMENT_TYPES, default='FULL_TIME')
+    recruitment_type = models.CharField(max_length=16, choices=RECRUITMENT_TYPES, default='INHOUSE')
     location = models.CharField(max_length=255, blank=True)
     open_date = models.DateField()
     close_date = models.DateField(null=True, blank=True)

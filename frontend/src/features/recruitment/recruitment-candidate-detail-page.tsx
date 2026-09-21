@@ -233,6 +233,10 @@ export function RecruitmentCandidateDetailPage({ id }: { id: string }) {
           <Field label='Telepon' value={candidate.phone || '-'} />
           <Field label='Lowongan' value={candidate.job_title} />
           <Field
+            label='Kategori'
+            value={candidate.recruitment_type === 'FREELANCE' ? 'Freelance' : 'Inhouse'}
+          />
+          <Field
             label='Tanggal Melamar'
             value={new Date(candidate.applied_at).toLocaleDateString('id-ID', {
               day: 'numeric',
