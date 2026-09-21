@@ -264,12 +264,14 @@ class PayrollItemSerializer(serializers.ModelSerializer):
 
 class PayrollSerializer(serializers.ModelSerializer):
     employee_name = serializers.CharField(source='employee.full_name', read_only=True)
+    period_status = serializers.CharField(source='period.status', read_only=True)
+    period_label = serializers.SerializerMethodField()
     items = PayrollItemSerializer(many=True, read_only=True)
 
     class Meta:
         model = Payroll
         fields = (
-            'id', 'period', 'employee', 'employee_name', 'basic_salary',
+            'id', 'period', 'employee', 'employee_name', 'period_status', 'period_label', 'basic_salary',
             'total_fixed_earning', 'total_variable_earning', 'total_deduction',
             'reimbursement_total', 'gross_salary', 'net_salary',
             'pro_rata_factor', 'unpaid_leave_days', 'ptkp_status_snapshot',
@@ -277,6 +279,12 @@ class PayrollSerializer(serializers.ModelSerializer):
             'is_dtp', 'transfer_amount',
             'items', 'created_at', 'updated_at',
         )
+
+    def get_period_label(self, obj):
+        months = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
+                  'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember']
+        p = obj.period
+        return f'{months[p.period_month - 1]} {p.period_year}'
         read_only_fields = (
             'id', 'period', 'employee', 'basic_salary', 'total_fixed_earning',
             'total_variable_earning', 'total_deduction', 'reimbursement_total',
