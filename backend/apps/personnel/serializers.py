@@ -1,4 +1,4 @@
-﻿from django.db.models import Q
+﻿from django.db.models import Max as models, Q
 from django.utils import timezone
 from rest_framework import serializers
 
@@ -273,6 +273,7 @@ class EmployeeContractSerializer(serializers.ModelSerializer):
             'employee',
             'contract_type',
             'contract_number',
+            'pkwt_sequence',
             'start_date',
             'end_date',
             'probation_enabled',
@@ -324,6 +325,16 @@ class EmployeeContractSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({'end_date': 'Tanggal selesai tidak boleh sebelum tanggal mulai.'})
 
         contract_type = attrs.get('contract_type')
+        seq = attrs.get('pkwt_sequence')
+        if seq is not None:
+            if seq < 1:
+                raise serializers.ValidationError(
+                    {'pkwt_sequence': 'Urutan PKWT harus angka bulat positif (minimal 1).'}
+                )
+            if contract_type != 'PKWT':
+                raise serializers.ValidationError(
+                    {'pkwt_sequence': 'Urutan PKWT hanya berlaku untuk kontrak PKWT.'}
+                )
         if contract_type == 'PKWTT' and attrs.get('end_date'):
             # PKWTT (kontrak permanen) tidak memiliki tanggal selesai.
             attrs['end_date'] = None

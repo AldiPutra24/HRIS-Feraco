@@ -998,3 +998,63 @@ class ManagementEmployeeScopeTests(TestCase):
         ids = self._list_ids()
         self.assertIn(self.rep.id, ids)
         self.assertIn(self.other.id, ids)
+
+class ContractPkwtSequenceTests(TestCase):
+    """PKWT sequence field: validation + backward compatibility."""
+
+    def setUp(self):
+        from apps.accounts.models import User, Role
+
+        self.role, _ = Role.objects.get_or_create(key='HR_STAFF', defaults={'name': 'HR'})
+        self.user = User.objects.create_user(username='hr@x.id', email='hr@x.id', password='password', role=self.role)
+        self.client.force_login(self.user)
+        self.emp = Employee.objects.create(full_name='Test Emp', join_date='2024-01-01')
+
+    def _payload(self, **over):
+        data = {
+            'employee': self.emp.id,
+            'contract_type': 'PKWT',
+            'pkwt_sequence': 1,
+            'start_date': '2024-01-01',
+            'end_date': '2024-12-31',
+        }
+        data.update(over)
+        return data
+
+    def _post(self, payload):
+        return self.client.post(
+            reverse('employee-contracts', args=[self.emp.pk]), payload, content_type='application/json'
+        )
+
+    def test_create_pkwt_ke_1(self):
+        r = self._post(self._payload())
+        self.assertEqual(r.status_code, 201)
+        self.assertEqual(r.data['pkwt_sequence'], 1)
+
+    def test_create_pkwt_ke_2_after_ke_1(self):
+        EmployeeContract.objects.create(employee=self.emp, contract_type='PKWT', pkwt_sequence=1, start_date='2024-01-01', end_date='2024-12-31')
+        r = self._post(self._payload(pkwt_sequence=2, start_date='2025-01-01', end_date='2025-12-31'))
+        self.assertEqual(r.status_code, 201)
+        self.assertEqual(r.data['pkwt_sequence'], 2)
+
+    def test_zero_rejected(self):
+        r = self._post(self._payload(pkwt_sequence=0))
+        self.assertEqual(r.status_code, 400)
+
+    def test_negative_rejected(self):
+        r = self._post(self._payload(pkwt_sequence=-1))
+        self.assertEqual(r.status_code, 400)
+
+    def test_sequence_not_lower_than_previous(self):
+        EmployeeContract.objects.create(employee=self.emp, contract_type='PKWT', pkwt_sequence=3, start_date='2026-01-01', end_date='2026-12-31')
+        r = self._post(self._payload(pkwt_sequence=2))
+        self.assertEqual(r.status_code, 400)
+
+    def test_empty_sequence_backward_compatible(self):
+        # Kontrak lama tanpa urutan tetap bisa dibuat.
+        r = self._post({
+            'employee': self.emp.id, 'contract_type': 'PKWT',
+            'start_date': '2024-01-01', 'end_date': '2024-12-31',
+        })
+        self.assertEqual(r.status_code, 201)
+        self.assertIsNone(r.data['pkwt_sequence'])

@@ -228,6 +228,8 @@ class EmployeeContract(models.Model):
     employee = models.ForeignKey(Employee, on_delete=models.CASCADE, related_name='contracts')
     contract_type = models.CharField(max_length=16, choices=CONTRACT_CHOICES)
     contract_number = models.CharField(max_length=64, unique=True, null=True, blank=True)
+    # Urutan PKWT (ke-1, ke-2, ...). Optional: kontrak lama belum tentu punya.
+    pkwt_sequence = models.PositiveIntegerField(null=True, blank=True)
     start_date = models.DateField()
     end_date = models.DateField(null=True, blank=True)
     probation_enabled = models.BooleanField(default=False)

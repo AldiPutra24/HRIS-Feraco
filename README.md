@@ -5,6 +5,12 @@ Internal Human Resource Information System.
 - **Frontend** - Next.js 16 (App Router), TypeScript, Tailwind CSS v4, shadcn/ui on Base UI. See `frontend/`.
 - **Backend** - Django + Django REST Framework, PostgreSQL, session/cookie auth, RBAC, audit log. See `backend/`.
 
+## Employee Contract — Urutan PKWT
+- Field `pkwt_sequence` (PositiveIntegerField, nullable) pada `EmployeeContract` + migration `personnel/0016`; kontrak lama tanpa nilai tetap kompatibel.
+- Form `+ Add Contract`: input numerik **Ke- / PKWT** terpisah dari No. Kontrak (Tipe | Ke- / PKWT | No. Kontrak); validasi integer ≥ 1, PKWT-only, tidak boleh ≤ urutan kontrak sebelumnya (server-side di `EmployeeViewSet.contracts` + client-side).
+- Current Contract menampilkan `PKWT ke-N`; Contract History punya kolom **Ke- / PKWT**.
+- Tests: `ContractPkwtSequenceTests` (6) OK; personnel suite 109 tests (1 error pre-existing `test_import_xlsx`, juga gagal sebelum perubahan). tsc + build bersih.
+
 ## Structure
 
 ```

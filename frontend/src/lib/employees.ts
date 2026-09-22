@@ -85,6 +85,7 @@ export type Contract = {
   employee: number;
   contract_type: string;
   contract_number: string | null;
+  pkwt_sequence: number | null;
   start_date: string;
   end_date: string | null;
   probation_enabled: boolean;
