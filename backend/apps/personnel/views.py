@@ -1,7 +1,7 @@
 import datetime
 import io
 
-from django.db.models import Q
+from django.db.models import Max, Q
 from django.utils import timezone
 from rest_framework import generics, status, viewsets
 from rest_framework.decorators import action
@@ -245,6 +245,19 @@ class EmployeeViewSet(SoftHardDeleteMixin, viewsets.ModelViewSet):
             return Response(data)
         serializer = EmployeeContractSerializer(data=request.data, context={'request': request})
         serializer.is_valid(raise_exception=True)
+        seq = serializer.validated_data.get('pkwt_sequence')
+        if seq is not None:
+            prior = employee.contracts.filter(pkwt_sequence__isnull=False, deleted_at__isnull=True)
+            contract_pk = serializer.instance.pk if serializer.instance else None
+            if contract_pk:
+                prior = prior.exclude(pk=contract_pk)
+            max_seq = prior.aggregate(m=Max('pkwt_sequence'))['m']
+            if max_seq is not None and seq <= max_seq:
+                from rest_framework.exceptions import ValidationError
+
+                raise ValidationError(
+                    {'pkwt_sequence': f'Urutan PKWT tidak boleh lebih kecil atau sama dengan kontrak sebelumnya (terakhir: PKWT ke-{max_seq}).'}
+                )
         start_date = serializer.validated_data.get('start_date')
         if start_date:
             current = employee.contracts.filter(status='ACTIVE').order_by('-start_date').first()

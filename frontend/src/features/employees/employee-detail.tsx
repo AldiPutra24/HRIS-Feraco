@@ -67,6 +67,7 @@ export function EmployeeDetail({ id }: { id: number }) {
   const [contractForm, setContractForm] = useState({
     contract_type: 'PKWT',
     contract_number: '',
+    pkwt_sequence: '',
     start_date: '',
     end_date: '',
     probation_enabled: false,
@@ -118,6 +119,7 @@ export function EmployeeDetail({ id }: { id: number }) {
   const payload = {
     contract_type: contractForm.contract_type,
     contract_number: contractForm.contract_number || null,
+    pkwt_sequence: contractForm.pkwt_sequence === '' ? null : Number(contractForm.pkwt_sequence),
     start_date: contractForm.start_date,
     end_date: contractForm.end_date || null,
     probation_enabled: contractForm.probation_enabled,
@@ -130,6 +132,7 @@ export function EmployeeDetail({ id }: { id: number }) {
     setContractForm({
       contract_type: 'PKWT',
       contract_number: '',
+      pkwt_sequence: '',
       start_date: '',
       end_date: '',
       probation_enabled: false,
@@ -144,6 +147,13 @@ export function EmployeeDetail({ id }: { id: number }) {
   function validateContract(activate: boolean): string | null {
     const f = contractForm;
     if (!f.start_date) return 'Tanggal mulai wajib diisi.';
+    if (f.pkwt_sequence !== '') {
+      const n = Number(f.pkwt_sequence);
+      if (!Number.isInteger(n) || n < 1) return 'Urutan PKWT harus angka bulat positif (minimal 1).';
+      if (f.contract_type !== 'PKWT') return 'Urutan PKWT hanya berlaku untuk kontrak PKWT.';
+      const maxSeq = contracts.reduce<number | null>((m, c) => (c.pkwt_sequence != null && (m == null || c.pkwt_sequence > m) ? c.pkwt_sequence : m), null);
+      if (!editingContract && maxSeq != null && n <= maxSeq) return `Urutan PKWT tidak boleh lebih kecil atau sama dengan kontrak sebelumnya (terakhir: PKWT ke-${maxSeq}).`;
+    }
     if (f.end_date && f.end_date < f.start_date) return 'Tanggal selesai tidak boleh sebelum tanggal mulai.';
     if (activate && f.contract_type !== 'PKWTT' && !f.end_date) return 'Kontrak aktif wajib memiliki tanggal selesai.';
     if (f.contract_type === 'PKWT' && (f.probation_enabled || f.probation_start_date || f.probation_end_date)) {
@@ -205,6 +215,7 @@ export function EmployeeDetail({ id }: { id: number }) {
     setContractForm({
       contract_type: contract.contract_type,
       contract_number: contract.contract_number || '',
+      pkwt_sequence: contract.pkwt_sequence != null ? String(contract.pkwt_sequence) : '',
       start_date: contract.start_date,
       end_date: contract.end_date || '',
       probation_enabled: contract.probation_enabled,
@@ -408,7 +419,7 @@ export function EmployeeDetail({ id }: { id: number }) {
                 <CardContent>
                   {current ? (
                     <div className='grid grid-cols-1 gap-4 md:grid-cols-4'>
-                      <Field label='Tipe' value={current.contract_type} />
+                      <Field label='Tipe' value={current.contract_type === 'PKWT' && current.pkwt_sequence ? `PKWT ke-${current.pkwt_sequence}` : current.contract_type} />
                       <Field label='No. Kontrak' value={current.contract_number} />
                       <Field label='Periode' value={`${current.start_date} — ${current.end_date || 'Berlangsung'}`} />
                       <Field label='Durasi' value={current.duration_display} />
@@ -460,6 +471,13 @@ export function EmployeeDetail({ id }: { id: number }) {
                   <option value='PKWT'>PKWT</option>
                   <option value='PKWTT'>PKWTT</option>
                 </select>
+                <Input
+                  placeholder='Ke- / PKWT'
+                  type='number'
+                  min={1}
+                  value={contractForm.pkwt_sequence}
+                  onChange={(e) => setContractForm((f) => ({ ...f, pkwt_sequence: e.target.value }))}
+                />
                 <Input
                   placeholder='No. Kontrak'
                   value={contractForm.contract_number}
@@ -533,6 +551,7 @@ export function EmployeeDetail({ id }: { id: number }) {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Tipe</TableHead>
+                    <TableHead>Ke- / PKWT</TableHead>
                     <TableHead>No. Kontrak</TableHead>
                     <TableHead>Periode</TableHead>
                     <TableHead>Durasi</TableHead>
@@ -545,7 +564,8 @@ export function EmployeeDetail({ id }: { id: number }) {
                 <TableBody>
                   {contracts.map((c) => (
                     <TableRow key={c.id}>
-                      <TableCell>{c.contract_type}</TableCell>
+                      <TableCell>{c.contract_type === 'PKWT' && c.pkwt_sequence ? `PKWT ke-${c.pkwt_sequence}` : c.contract_type}</TableCell>
+                      <TableCell>{c.pkwt_sequence ?? '-'}</TableCell>
                       <TableCell>{c.contract_number || '-'}</TableCell>
                       <TableCell>{c.start_date} — {c.end_date || '-'}</TableCell>
                       <TableCell>{c.duration_display}</TableCell>
