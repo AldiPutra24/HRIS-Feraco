@@ -92,8 +92,12 @@ class EmployeeViewSet(SoftHardDeleteMixin, viewsets.ModelViewSet):
 
     def get_queryset(self):
         qs = super().get_queryset()
-        # MANAGEMENT/GENERAL_MANAGER: read-only scope to their team (Employee.manager hierarchy).
+        # MANAGEMENT: read-only scope to their team (Employee.manager hierarchy).
+        # GENERAL_MANAGER: sees ALL employees — GM oversees the whole company,
+        # not just their reporting subtree (still read-only via permission).
         if self._is_management():
+            if _role(self.request.user) == 'GENERAL_MANAGER':
+                return qs
             report_ids = team_scope_ids(self.request.user)
             return qs.filter(id__in=report_ids)
         q = self.request.query_params.get('search')
