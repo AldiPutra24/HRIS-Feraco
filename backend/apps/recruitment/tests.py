@@ -645,6 +645,40 @@ class RecruitmentTypeTests(TestCase):
         resp = self.client.post(f'/api/recruitment/candidates/{cand.id}/accept-freelance/')
         self.assertEqual(resp.status_code, 400)
 
+    def test_freelance_accept_maps_domicile_and_position_to_skill(self):
+        """Candidate location/position map to Freelancer domicile/skills when available."""
+        from apps.freelance.models import Freelancer
+
+        cand = self._candidate(self.job_freelance, 'map@test.com')
+        # Job freelance uses position_text; location is on the job.
+        self.job_freelance.position_text = 'MC'
+        self.job_freelance.save(update_fields=['position_text'])
+        resp = self.client.post(f'/api/recruitment/candidates/{cand.id}/accept-freelance/')
+        self.assertEqual(resp.status_code, 200)
+        fl = Freelancer.objects.get(personal_email='map@test.com')
+        self.assertEqual(fl.domicile, self.job_freelance.location)
+        self.assertTrue(fl.freelancer_skills.filter(skill__name=self.job_freelance.position_text).exists())
+
+    def test_serializer_exposes_talent_pool_flag(self):
+        cand = self._candidate(self.job_freelance, 'flag@test.com')
+        resp = self.client.get(f'/api/recruitment/candidates/{cand.id}/')
+        self.assertIsNone(resp.json()['talent_pool_freelancer_id'])
+        self.client.post(f'/api/recruitment/candidates/{cand.id}/accept-freelance/')
+        resp = self.client.get(f'/api/recruitment/candidates/{cand.id}/')
+        self.assertIsNotNone(resp.json()['talent_pool_freelancer_id'])
+
+    def test_inhouse_pipeline_transitions_unchanged(self):
+        """Inhouse candidate still walks Screening -> ... -> Offer Accepted."""
+        cand = self._candidate(self.job_inhouse, 'pipe@test.com')
+        for st in ('SCREENING', 'INTERVIEW_HR', 'INTERVIEW_USER', 'INTERVIEW_GM', 'OFFERING', 'OFFER_ACCEPTED'):
+            resp = self.client.post(
+                f'/api/recruitment/candidates/{cand.id}/transition/',
+                {'status': st}, content_type='application/json',
+            )
+            self.assertEqual(resp.status_code, 200, st)
+        cand.refresh_from_db()
+        self.assertEqual(cand.status, 'OFFER_ACCEPTED')
+
     def test_unauth_cannot_accept_freelance(self):
         cand = self._candidate(self.job_freelance, 'x@test.com')
         self.client.logout()

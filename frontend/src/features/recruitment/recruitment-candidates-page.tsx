@@ -83,13 +83,12 @@ export function RecruitmentCandidatesPage({
   }, [recruitmentType]);
 
   async function handleAcceptFreelance(c: Candidate) {
-    if (!window.confirm(`Terima "${c.full_name}" ke Freelance / Talent Pool?`)) return;
     try {
-      const res = await acceptCandidateFreelance(c.id);
-      toast.success(res.detail || 'Kandidat masuk Freelance / Talent Pool.');
-      load();
+      await acceptCandidateFreelance(c.id);
+      toast.success('Kandidat berhasil dipindahkan ke Freelance / Talent Pool.');
+      router.push('/dashboard/freelance');
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Gagal menerima kandidat.');
+      toast.error(err instanceof Error ? err.message : 'Gagal memindahkan kandidat.');
     }
   }
 
@@ -233,10 +232,16 @@ export function RecruitmentCandidatesPage({
                           >
                             Detail
                           </Button>
-                          {isFreelance && c.status !== 'OFFER_ACCEPTED' && c.status !== 'REJECTED' && c.status !== 'WITHDRAWN' && (
-                            <Button size='sm' variant='default' onClick={() => handleAcceptFreelance(c)}>
-                              Masuk Talent Pool
-                            </Button>
+                          {isFreelance && c.status !== 'REJECTED' && c.status !== 'WITHDRAWN' && (
+                            c.talent_pool_freelancer_id != null ? (
+                              <Button size='sm' variant='outline' disabled>
+                                Sudah di Talent Pool
+                              </Button>
+                            ) : (
+                              <Button size='sm' variant='default' onClick={() => handleAcceptFreelance(c)}>
+                                Pindahkan ke Freelance / Talent Pool
+                              </Button>
+                            )
                           )}
                           {isAdmin && (
                             <Button size='sm' variant='destructive' onClick={() => handleDelete(c)}>
