@@ -3,7 +3,7 @@ from rest_framework.permissions import BasePermission, SAFE_METHODS
 from apps.personnel.permissions import _role
 
 PAYROLL_ADMIN_ROLES = {'ADMIN', 'HR_STAFF', 'HR_LEAD'}
-PAYROLL_VIEW_ROLES = {'ADMIN', 'HR_STAFF', 'HR_LEAD', 'MANAGEMENT'}
+PAYROLL_VIEW_ROLES = {'ADMIN', 'HR_STAFF', 'HR_LEAD', 'MANAGEMENT', 'GENERAL_MANAGER'}
 
 
 class IsPayrollAdmin(BasePermission):

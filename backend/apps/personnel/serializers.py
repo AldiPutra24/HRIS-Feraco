@@ -181,13 +181,15 @@ class EmployeeSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError('Karyawan tidak dapat menjadi manager untuk dirinya sendiri.')
         if value.employment_status != 'ACTIVE':
             raise serializers.ValidationError('Manager harus karyawan ACTIVE.')
-        if value.position_id is None or value.position.role != Position.ROLE_MANAGEMENT:
-            raise serializers.ValidationError('Manager harus berposition role MANAGEMENT.')
-        employee_dept = value.department_id
-        if self.instance is not None and self.instance.department_id is not None:
-            employee_dept = self.instance.department_id
-        if employee_dept is not None and value.department_id != employee_dept:
-            raise serializers.ValidationError('Manager harus berada di department yang sama.')
+        is_gm = getattr(getattr(value, 'user', None), 'role', None) is not None and value.user.role.key == 'GENERAL_MANAGER'
+        if not is_gm and (value.position_id is None or value.position.role != Position.ROLE_MANAGEMENT):
+            raise serializers.ValidationError('Manager harus berposition role MANAGEMENT atau General Manager.')
+        if not is_gm:
+            employee_dept = value.department_id
+            if self.instance is not None and self.instance.department_id is not None:
+                employee_dept = self.instance.department_id
+            if employee_dept is not None and value.department_id != employee_dept:
+                raise serializers.ValidationError('Manager harus berada di department yang sama.')
         return value
 
     def validate(self, attrs):

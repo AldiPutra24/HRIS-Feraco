@@ -8,6 +8,7 @@ ROLES = {
     'HR_LEAD': 'HR Lead',
     'EMPLOYEE': 'Employee',
     'MANAGEMENT': 'Management',
+    'GENERAL_MANAGER': 'General Manager',
 }
 
 

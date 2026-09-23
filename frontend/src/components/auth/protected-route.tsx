@@ -32,7 +32,7 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
       if (readMode() !== 'employee') router.replace('/dashboard/pilih');
       return;
     }
-    if (user && user.role !== 'employee' && pathname.startsWith('/dashboard/employee')) {
+    if (user && user.role !== 'employee' && user.role !== 'general_manager' && pathname.startsWith('/dashboard/employee')) {
       router.replace('/dashboard/overview');
     }
   }, [isLoading, isAuthenticated, user, router, pathname]);

@@ -18,6 +18,27 @@ from .serializers import CandidateSerializer, JobPublicSerializer, JobSerializer
 from .services import _bucket, transition_candidate
 from .talent_pool import accept_candidate_to_talent_pool
 
+# CV upload validation: PDF/DOC/DOCX only, max 10 MB.
+CV_ALLOWED_EXTENSIONS = {'.pdf', '.doc', '.docx'}
+CV_ALLOWED_MIME = {
+    'application/pdf',
+    'application/msword',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+}
+CV_MAX_SIZE = 10 * 1024 * 1024
+
+
+def _validate_cv(file):
+    """Return an error message for an invalid CV file, or None if valid."""
+    import os
+
+    ext = os.path.splitext(file.name or '')[1].lower()
+    if ext not in CV_ALLOWED_EXTENSIONS:
+        return 'Format CV harus PDF, DOC, atau DOCX.'
+    if file.size and file.size > CV_MAX_SIZE:
+        return 'Ukuran CV maksimal 10MB.'
+    return None
+
 
 class JobViewSet(viewsets.ModelViewSet):
     """HR admin: manage job postings."""
@@ -146,13 +167,37 @@ class CandidateViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         obj = serializer.save()
         file = self.request.FILES.get('cv')
+        if file:
+            err = _validate_cv(file)
+            if err:
+                obj.delete()
+                from rest_framework.exceptions import ValidationError
+
+                raise ValidationError({'cv': err})
         if file and is_configured():
             path = f'cvs/{obj.id}/{file.name}'
-            upload_bytes(_bucket(), path, file.read(), file.content_type or 'application/octet-stream')
-            obj.cv_name = file.name
-            obj.cv_path = path
-            obj.cv_content_type = file.content_type or ''
-            obj.save(update_fields=['cv_name', 'cv_path', 'cv_content_type', 'updated_at'])
+            try:
+                upload_bytes(_bucket(), path, file.read(), file.content_type or 'application/octet-stream')
+            except Exception as exc:
+                obj.delete()
+                return Response(
+                    {'detail': f'Gagal mengunggah CV ke storage: {str(exc)[:150]}'},
+                    status=status.HTTP_502_BAD_GATEWAY,
+                )
+            try:
+                obj.cv_name = file.name
+                obj.cv_path = path
+                obj.cv_content_type = file.content_type or ''
+                obj.save(update_fields=['cv_name', 'cv_path', 'cv_content_type', 'updated_at'])
+            except Exception:
+                # DB failed after storage succeeded — remove the orphaned object.
+                from apps.personnel.storage import delete_object
+
+                try:
+                    delete_object(_bucket(), path)
+                except Exception:
+                    pass
+                raise
             log_event(self.request, 'upload', obj=obj, description=f'CV uploaded for candidate "{obj.full_name}"')
         log_event(self.request, 'create', obj=obj, description=f'Candidate "{obj.full_name}" applied for "{obj.job.title}"')
 
@@ -211,23 +256,36 @@ class CandidateViewSet(viewsets.ModelViewSet):
         return self._upload_cv(request, obj)
 
     def _upload_cv(self, request, obj):
-        if not is_configured():
-            return Response({'detail': 'Storage not configured.'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
         file = request.FILES.get('file')
         if not file:
             return Response({'detail': 'File wajib diisi.'}, status=status.HTTP_400_BAD_REQUEST)
+        err = _validate_cv(file)
+        if err:
+            return Response({'detail': err}, status=status.HTTP_400_BAD_REQUEST)
+        if not is_configured():
+            return Response({'detail': 'Storage not configured.'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
         path = f'cvs/{obj.id}/{file.name}'
-        upload_bytes(_bucket(), path, file.read(), file.content_type or 'application/octet-stream')
-        if obj.cv_path:
+        try:
+            upload_bytes(_bucket(), path, file.read(), file.content_type or 'application/octet-stream')
+        except Exception as exc:
+            return Response(
+                {'detail': f'Gagal mengunggah ke storage: {str(exc)[:150]}'},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+        try:
+            obj.cv_name = file.name
+            obj.cv_path = path
+            obj.cv_content_type = file.content_type or ''
+            obj.save(update_fields=['cv_name', 'cv_path', 'cv_content_type', 'updated_at'])
+        except Exception:
+            # DB failed after storage succeeded — remove the orphaned object.
+            from apps.personnel.storage import delete_object
+
             try:
-                from apps.personnel.storage import delete_object
-                delete_object(_bucket(), obj.cv_path)
+                delete_object(_bucket(), path)
             except Exception:
                 pass
-        obj.cv_name = file.name
-        obj.cv_path = path
-        obj.cv_content_type = file.content_type or ''
-        obj.save(update_fields=['cv_name', 'cv_path', 'cv_content_type', 'updated_at'])
+            raise
         log_event(request, 'upload', obj=obj, description=f'CV uploaded for candidate "{obj.full_name}"')
         return Response({'detail': 'CV uploaded.', 'cv_name': file.name})
 

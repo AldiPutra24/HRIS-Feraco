@@ -1,4 +1,4 @@
-export type AuthRole = 'admin' | 'hr_staff' | 'hr_lead' | 'employee' | 'management';
+export type AuthRole = 'admin' | 'hr_staff' | 'hr_lead' | 'employee' | 'management' | 'general_manager';
 
 export type AuthUser = {
   id: number;

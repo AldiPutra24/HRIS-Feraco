@@ -56,8 +56,8 @@ export function LeavePage() {
 
   const { user } = useAuth();
   const role = user?.role;
-  const isApprover = role === 'admin' || role === 'hr_staff' || role === 'hr_lead' || role === 'management';
-  const canApproveReject = role === 'management';
+  const isApprover = role === 'admin' || role === 'hr_staff' || role === 'hr_lead' || role === 'management' || role === 'general_manager';
+  const canApproveReject = role === 'management' || role === 'general_manager';
   const isAdmin = role === 'admin' || role === 'hr_staff' || role === 'hr_lead';
   const canHardDelete = role === 'admin'; // backend: ADMIN/superadmin only
 

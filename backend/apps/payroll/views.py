@@ -478,7 +478,7 @@ class PayrollPeriodViewSet(viewsets.ModelViewSet):
             .prefetch_related('items')
         )
         role = _role(request.user)
-        if role == 'MANAGEMENT':
+        if role in ('MANAGEMENT', 'GENERAL_MANAGER'):
             personnel = getattr(request.user, 'personnel', None)
             employee = getattr(personnel, 'employee', None)
             if employee is None:
@@ -547,7 +547,7 @@ class PayrollViewSet(viewsets.ReadOnlyModelViewSet):
 
     def get_queryset(self):
         qs = super().get_queryset()
-        if _role(self.request.user) == 'MANAGEMENT':
+        if _role(self.request.user) in ('MANAGEMENT', 'GENERAL_MANAGER'):
             personnel = getattr(self.request.user, 'personnel', None)
             employee = getattr(personnel, 'employee', None)
             if employee is None:

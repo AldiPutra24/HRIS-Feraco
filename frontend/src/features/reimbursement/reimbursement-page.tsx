@@ -49,7 +49,7 @@ export function ReimbursementPage() {
   // MANAGEMENT now uses the self-service page (same flow as Employee); keep
   // direct-URL visitors away from the HR approval view.
   useEffect(() => {
-    if (user?.role === 'management') router.replace('/dashboard/management/reimbursement');
+    if (user?.role === 'management' || user?.role === 'general_manager') router.replace('/dashboard/management/reimbursement');
   }, [user, router]);
   const canAct = user?.role !== 'management';
   const searchParams = useSearchParams();
