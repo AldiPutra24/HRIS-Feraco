@@ -96,7 +96,7 @@ export function EmployeeList() {
         <div>
           <h2 className='text-2xl font-bold tracking-tight'>Karyawan</h2>
           <p className='text-muted-foreground text-sm'>
-            {isManagement ? 'Data bawahan langsung Anda (hanya lihat).' : 'Kelola data karyawan.'}
+            {isManagement ? 'Data Karyawan (hanya lihat).' : 'Kelola data karyawan.'}
           </p>
         </div>
         {!isManagement && (
