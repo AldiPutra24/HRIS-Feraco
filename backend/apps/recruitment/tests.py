@@ -511,6 +511,64 @@ class RecruitmentTypeTests(TestCase):
         self.assertEqual(resp.status_code, 201)
         self.assertEqual(resp.json()['recruitment_type'], 'FREELANCE')
 
+    def test_create_freelance_job_without_department_or_position(self):
+        """Freelance jobs use free-text position; department/FK/employment_type not required."""
+        resp = self.client.post('/api/recruitment/jobs/', {
+            'title': 'MC Wedding',
+            'position_text': 'MC',
+            'description': 'd',
+            'requirements': 'r',
+            'recruitment_type': 'FREELANCE',
+            'location': 'Jakarta',
+            'open_date': str(date.today()),
+        }, content_type='application/json')
+        self.assertEqual(resp.status_code, 201)
+        data = resp.json()
+        self.assertIsNone(data['department'])
+        self.assertIsNone(data['position'])
+        self.assertEqual(data['position_text'], 'MC')
+        self.assertEqual(data['status'], 'OPEN')  # complete per freelance rules
+
+        # incomplete freelance job (no position_text) -> DRAFT
+        resp = self.client.post('/api/recruitment/jobs/', {
+            'title': 'Photographer', 'recruitment_type': 'FREELANCE',
+            'open_date': str(date.today()),
+        }, content_type='application/json')
+        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.json()['status'], 'DRAFT')
+
+    def test_edit_freelance_job_clears_inhouse_fields(self):
+        resp = self.client.patch(f'/api/recruitment/jobs/{self.job_inhouse.id}/', {
+            'recruitment_type': 'FREELANCE',
+            'position_text': 'Event Crew',
+            'department': None,
+            'position': None,
+        }, content_type='application/json')
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertIsNone(data['department'])
+        self.assertIsNone(data['position'])
+        self.assertEqual(data['position_text'], 'Event Crew')
+
+    def test_edit_freelance_job_to_inhouse_requires_master_data(self):
+        """Switching a freelance job to INHOUSE without department/position -> DRAFT."""
+        resp = self.client.patch(f'/api/recruitment/jobs/{self.job_freelance.id}/', {
+            'recruitment_type': 'INHOUSE',
+            'department': None,
+            'position': None,
+        }, content_type='application/json')
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertEqual(data['recruitment_type'], 'INHOUSE')
+        self.assertEqual(data['status'], 'DRAFT')  # department/position missing for inhouse
+
+    def test_existing_inhouse_job_behavior_unchanged(self):
+        resp = self.client.patch(f'/api/recruitment/jobs/{self.job_inhouse.id}/', {
+            'title': 'Inhouse Dev v2',
+        }, content_type='application/json')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json()['status'], 'OPEN')  # still complete as inhouse
+
     def test_invalid_recruitment_type_rejected(self):
         resp = self.client.post('/api/recruitment/jobs/', _job_data(
             self.department, self.position, title='Job C', recruitment_type='BOGUS',

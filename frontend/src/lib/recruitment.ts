@@ -48,6 +48,7 @@ export type Job = {
   department_name: string;
   position: number | null;
   position_name: string;
+  position_text?: string;
   description: string;
   requirements: string;
   employment_type: string;
@@ -67,9 +68,11 @@ export type PublicJob = {
   slug: string;
   department_name: string;
   position_name: string;
+  position_text?: string;
   description: string;
   requirements: string;
   employment_type: string;
+  recruitment_type?: string;
   location: string;
   open_date: string;
   close_date: string | null;
@@ -127,6 +130,7 @@ export type JobInput = {
   title: string;
   department: number | null;
   position: number | null;
+  position_text?: string;
   description: string;
   requirements: string;
   employment_type: string;

@@ -42,6 +42,9 @@ class Job(models.Model):
         blank=True,
         related_name='jobs',
     )
+    # Free-text position for FREELANCE jobs (no department/position master data
+    # needed, e.g. 'MC', 'Photographer'). INHOUSE jobs use the FKs above.
+    position_text = models.CharField(max_length=255, blank=True)
     description = models.TextField(blank=True)
     requirements = models.TextField(blank=True)
     employment_type = models.CharField(max_length=16, choices=EMPLOYMENT_TYPES, default='FULL_TIME')
