@@ -66,6 +66,14 @@ class UserAdminSerializer(serializers.ModelSerializer):
     def validate(self, attrs):
         employee = attrs.get('employee')
         role = attrs.get('role')
+        if role is not None:
+            role_key = role.key if hasattr(role, 'key') else role
+            # GM must always be bound to its employee (front-end enforces the
+            # dropdown; this is the backend source of truth).
+            if role_key == 'GENERAL_MANAGER' and employee is None:
+                raise serializers.ValidationError({
+                    'employee': 'Role General Manager wajib terhubung ke karyawan General Manager (Departemen General Management, Aktif).'
+                })
         if employee is not None:
             # Employee must have a Position (source of role).
             if employee.position_id is None:
@@ -78,6 +86,21 @@ class UserAdminSerializer(serializers.ModelSerializer):
                     if employee.position.role != role_key:
                         raise serializers.ValidationError({
                             'employee': f'Karyawan harus memiliki Position dengan role {role_key}.'
+                        })
+                if role_key == 'GENERAL_MANAGER':
+                    # GM user must bind to the General Manager employee in
+                    # Department 'General Management' who is ACTIVE.
+                    if employee.department_id is None or employee.department.name != 'General Management':
+                        raise serializers.ValidationError({
+                            'employee': 'Karyawan untuk role General Manager harus berada di departemen General Management.'
+                        })
+                    if employee.position_id is None or employee.position.name != 'General Manager':
+                        raise serializers.ValidationError({
+                            'employee': 'Karyawan untuk role General Manager harus memiliki Position "General Manager".'
+                        })
+                    if employee.employment_status != 'ACTIVE':
+                        raise serializers.ValidationError({
+                            'employee': 'Karyawan untuk role General Manager harus berstatus ACTIVE.'
                         })
             # Pull name/email from the employee (source of truth).
             attrs['first_name'] = employee.full_name

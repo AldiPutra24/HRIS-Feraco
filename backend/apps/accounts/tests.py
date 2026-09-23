@@ -138,3 +138,66 @@ class UserEmployeeRoleValidationTests(TestCase):
         res = self._create('EMPLOYEE', self.no_pos.id)
         self.assertEqual(res.status_code, 400)
         self.assertIn('employee', res.data)
+
+
+class GeneralManagerUserBindingTests(TestCase):
+    """GM role binds only to the General Manager employee (General Management dept, ACTIVE)."""
+
+    def setUp(self):
+        from apps.personnel.models import Department, Employee, Position
+
+        Role.objects.get_or_create(key='ADMIN', defaults={'name': 'Admin'})
+        Role.objects.get_or_create(key='GENERAL_MANAGER', defaults={'name': 'General Manager'})
+        Role.objects.get_or_create(key='EMPLOYEE', defaults={'name': 'Employee'})
+        Role.objects.get_or_create(key='MANAGEMENT', defaults={'name': 'Management'})
+        self.admin = User.objects.create_user(username='admin@test.com', email='admin@test.com', password='password')
+        self.admin.role = Role.objects.get(key='ADMIN')
+        self.admin.save()
+        self.client.force_login(self.admin)
+
+        self.gm_dept = Department.objects.create(name='General Management')
+        self.other_dept = Department.objects.create(name='Ops')
+        self.gm_pos = Position.objects.create(name='General Manager', department=self.gm_dept, role=Position.ROLE_MANAGEMENT)
+        self.mgr_pos = Position.objects.create(name='Manager', department=self.other_dept, role=Position.ROLE_MANAGEMENT)
+        self.emp_pos = Position.objects.create(name='Staff', department=self.other_dept, role=Position.ROLE_EMPLOYEE)
+
+        self.gm_emp = Employee.objects.create(employee_id='G1', full_name='Pak Ferry', department=self.gm_dept, position=self.gm_pos, employment_status='ACTIVE')
+        self.mgr_emp = Employee.objects.create(employee_id='G2', full_name='Mgr', department=self.other_dept, position=self.mgr_pos, employment_status='ACTIVE')
+        self.emp_emp = Employee.objects.create(employee_id='G3', full_name='Staff', department=self.other_dept, position=self.emp_pos, employment_status='ACTIVE')
+        self.gm_inactive = Employee.objects.create(employee_id='G4', full_name='Old GM', department=self.gm_dept, position=self.gm_pos, employment_status='INACTIVE')
+
+    def _create(self, role_key, employee_id):
+        return self.client.post(reverse('user-list'), {
+            'username': f'{role_key.lower()}{employee_id}@test.com',
+            'email': f'{role_key.lower()}{employee_id}@test.com',
+            'password': 'password123',
+            'role': Role.objects.get(key=role_key).id,
+            'employee': employee_id,
+        }, content_type='application/json')
+
+    def test_gm_role_with_gm_employee_ok(self):
+        res = self._create('GENERAL_MANAGER', self.gm_emp.id)
+        self.assertEqual(res.status_code, 201, res.data)
+
+    def test_gm_role_with_other_employee_rejected(self):
+        for emp in (self.mgr_emp, self.emp_emp, self.gm_inactive):
+            with self.subTest(employee=emp.full_name):
+                res = self._create('GENERAL_MANAGER', emp.id)
+                self.assertEqual(res.status_code, 400)
+                self.assertIn('employee', res.data)
+
+    def test_gm_role_without_employee_rejected(self):
+        res = self.client.post(reverse('user-list'), {
+            'username': 'gmnoemp@test.com',
+            'email': 'gmnoemp@test.com',
+            'password': 'password123',
+            'role': Role.objects.get(key='GENERAL_MANAGER').id,
+        }, content_type='application/json')
+        self.assertEqual(res.status_code, 400)
+        self.assertIn('employee', res.data)
+
+    def test_existing_roles_unaffected(self):
+        res = self._create('MANAGEMENT', self.mgr_emp.id)
+        self.assertEqual(res.status_code, 201)
+        res = self._create('EMPLOYEE', self.emp_emp.id)
+        self.assertEqual(res.status_code, 201)
