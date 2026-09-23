@@ -594,6 +594,93 @@ class TaskReminderEngineTests(TestCase):
         self.assertIn('hr@feraco.id', mail.outbox[0].to)
         self.assertIn('[ESKALASI]', mail.outbox[0].subject)
 
+
+class GeneralManagerFreelanceAccessTests(TestCase):
+    """GENERAL_MANAGER dapat melihat seluruh Freelancer/Talent Pool.
+
+    Scope GM = semua data freelancer (bukan Employee hierarchy): Freelancer
+    tidak punya relasi manager/reporting, jadi team_scope_ids() tidak relevan
+    dan queryset tetap penuh. Role lain tidak berubah.
+    """
+
+    def setUp(self):
+        self.gm = make_user('GENERAL_MANAGER', 'gm@test.com')
+        self.hr = make_user('HR_STAFF', 'hr@test.com')
+        self.mgmt = make_user('MANAGEMENT', 'mgmt@test.com')
+        self.f1 = make_freelancer(full_name='Freelancer A', whatsapp='0811')
+        self.f2 = make_freelancer(full_name='Freelancer B', whatsapp='0812')
+        make_freelancer(full_name='Freelancer C', whatsapp='0813')
+
+    def test_gm_sees_all_freelancers(self):
+        self.client.force_login(self.gm)
+        resp = self.client.get('/api/freelance/freelancers/')
+        self.assertEqual(resp.status_code, 200)
+        names = {f['full_name'] for f in resp.json()['results']}
+        self.assertEqual(names, {'Freelancer A', 'Freelancer B', 'Freelancer C'})
+
+    def test_gm_not_limited_by_reporting_hierarchy(self):
+        # GM tidak punya (atau punya) Employee ter-link — hasil tetap semua
+        # freelancer, tidak terpengaruh Employee.manager apa pun.
+        from apps.personnel.models import Employee
+        emp = Employee.objects.create(
+            employee_id='GM-001', full_name='GM Person', user=self.gm,
+        )
+        # anak buah GM (Employee hierarchy) tidak mengubah daftar freelancer.
+        Employee.objects.create(
+            employee_id='CHILD-001', full_name='Child Person', manager=emp,
+        )
+        self.client.force_login(self.gm)
+        resp = self.client.get('/api/freelance/freelancers/')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(len(resp.json()['results']), 3)
+        # filter/search existing tetap bekerja atas seluruh data.
+        resp = self.client.get('/api/freelance/freelancers/?search=0811')
+        names = [f['full_name'] for f in resp.json()['results']]
+        self.assertEqual(names, ['Freelancer A'])
+
+    def test_management_behavior_unchanged(self):
+        self.client.force_login(self.mgmt)
+        resp = self.client.get('/api/freelance/freelancers/')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(len(resp.json()['results']), 3)
+
+    def test_hr_behavior_unchanged(self):
+        self.client.force_login(self.hr)
+        resp = self.client.get('/api/freelance/freelancers/')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(len(resp.json()['results']), 3)
+
+
+class TaskReminderRegressionTests(TestCase):
+    """Regression harness: reminder tests that ended up after the GM tests.
+    Shares the same setup as TaskReminderEngineTests."""
+
+    def setUp(self):
+        self.admin = make_user('ADMIN', 'admin@test.com')
+        self.freelancer = make_freelancer(full_name='Budi', personal_email='budi@x.com')
+        self.event = Event.objects.create(name='Event A')
+        self.policy = TaskEscalationPolicy.get_solo()
+        self.policy.enabled = True
+        self.policy.reminder_offsets = '3,1,0'
+        self.policy.escalate_after_days = 1
+        self.policy.max_escalations = 3
+        self.policy.remind_freelancer = True
+        self.policy.remind_pic = False
+        self.policy.escalation_cc_emails = ''
+        self.policy.save()
+
+    def _task(self, *, deadline, status='BELUM_MULAI', **kw):
+        defaults = {
+            'event': self.event, 'freelancer': self.freelancer, 'title': 'Setup booth',
+            'deadline': deadline, 'status': status,
+        }
+        defaults.update(kw)
+        return FreelanceTask.objects.create(**defaults)
+
+    def _run(self, today):
+        from .services import gather_reminders
+        return gather_reminders(today=today)
+
     def test_escalation_not_for_completed(self):
         self._task(deadline=date.today() - timedelta(days=2), status='SELESAI')
         self.assertEqual(self._run(today=date.today()), [])

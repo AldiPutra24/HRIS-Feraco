@@ -138,6 +138,13 @@ export const managementNavGroups: NavGroup[] = [
         items: []
       },
       {
+        title: 'Freelance / Talent Pool',
+        url: '/dashboard/freelance',
+        icon: 'freelancer',
+        isActive: false,
+        items: []
+      },
+      {
         title: 'Knowledge / KMS',
         url: '/kms',
         icon: 'books',
