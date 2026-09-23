@@ -592,3 +592,67 @@ class RecruitmentTypeTests(TestCase):
         self.client.logout()
         resp = self.client.post(f'/api/recruitment/candidates/{cand.id}/accept-freelance/')
         self.assertIn(resp.status_code, (401, 403))
+
+
+class CvUploadValidationTests(TestCase):
+    """CV upload: filename with special chars, validation, storage error mapping."""
+
+    def setUp(self):
+        self.admin = make_user('ADMIN')
+        self.client.force_login(self.admin)
+        self.job = Job.objects.create(
+            title='Backend Dev', recruitment_type='FREELANCE',
+            employment_type='CONTRACT', location='Remote',
+            open_date=timezone.localdate(),
+        )
+
+    def _cv(self, name, content=b'%PDF-1.4 x', mime='application/pdf'):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        return SimpleUploadedFile(name, content, content_type=mime)
+
+    def _upload(self, name):
+        c = Candidate.objects.create(job=self.job, full_name='Budi', email='budi@test.com')
+        return self.client.post(
+            f'/api/recruitment/candidates/{c.id}/cv/', {'file': self._cv(name)}, format='multipart'
+        )
+
+    def test_rejects_non_pdf_extension(self):
+        c = Candidate.objects.create(job=self.job, full_name='Budi', email='budi@test.com')
+        resp = self.client.post(
+            f'/api/recruitment/candidates/{c.id}/cv/',
+            {'file': self._cv('cv.exe', b'MZ', 'application/octet-stream')}, format='multipart'
+        )
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn('PDF', resp.json()['detail'])
+
+    def test_rejects_oversized_file(self):
+        c = Candidate.objects.create(job=self.job, full_name='Budi', email='budi@test.com')
+        big = self._cv('cv.pdf', b'x' * (10 * 1024 * 1024 + 1))
+        resp = self.client.post(f'/api/recruitment/candidates/{c.id}/cv/', {'file': big}, format='multipart')
+        self.assertEqual(resp.status_code, 400)
+
+    def test_storage_failure_is_502_not_500(self):
+        from apps.personnel import storage
+
+        c = Candidate.objects.create(job=self.job, full_name='Budi', email='budi@test.com')
+        if not storage.is_configured():
+            self.skipTest('storage not configured')
+        with self.subTest('storage error surfaces as 502'):
+            with mock.patch.object(storage, 'upload_bytes', side_effect=RuntimeError('Storage upload failed (400): Invalid key')):
+                resp = self.client.post(
+                    f'/api/recruitment/candidates/{c.id}/cv/',
+                    {'file': self._cv('cv.pdf')}, format='multipart'
+                )
+                self.assertEqual(resp.status_code, 502)
+                self.assertIn('storage', resp.json()['detail'].lower())
+
+    def test_special_char_filename_encoded_for_storage(self):
+        from apps.personnel.storage import _quoted_path
+
+        # '%', '#', '&' must be percent-encoded so the Supabase URL is valid.
+        self.assertEqual(_quoted_path('cvs/1/CV 100%.pdf'), 'cvs/1/CV%20100%25.pdf')
+        self.assertEqual(_quoted_path('cvs/1/CV & Portfolio#1.pdf'), 'cvs/1/CV%20%26%20Portfolio%231.pdf')
+        self.assertEqual(_quoted_path('cvs/1/CV+Sari.pdf'), 'cvs/1/CV%2BSari.pdf')
+        # slashes survive as separators
+        self.assertTrue(_quoted_path('cvs/1/x.pdf').startswith('cvs/1/'))

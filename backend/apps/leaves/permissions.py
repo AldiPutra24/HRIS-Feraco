@@ -38,7 +38,9 @@ class LeaveRequestPermission(BasePermission):
         # Owner may read their own request.
         if employee is not None and obj.employee_id == employee.id:
             return request.method in SAFE_METHODS or request.method in ('POST', 'DELETE')
-        # Manager approver may act on requests of their direct reports.
-        if role == 'MANAGEMENT' and employee is not None:
-            return obj.employee.manager_id == employee.id
+        # Manager approver may act on requests within their team scope.
+        if role in ('MANAGEMENT', 'GENERAL_MANAGER') and employee is not None:
+            from apps.personnel.permissions import team_scope_ids
+
+            return obj.employee_id in team_scope_ids(request.user)
         return False

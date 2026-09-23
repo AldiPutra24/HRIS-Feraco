@@ -5,7 +5,11 @@ from rest_framework.permissions import BasePermission, SAFE_METHODS
 # unless they are the subject (enforced where relevant). Backend is source of truth.
 WRITE_ROLES = {'ADMIN', 'HR_STAFF', 'HR_LEAD'}
 DELETE_ROLES = {'ADMIN', 'HR_LEAD'}
-READ_ROLES = {'ADMIN', 'HR_STAFF', 'HR_LEAD', 'MANAGEMENT'}
+READ_ROLES = {'ADMIN', 'HR_STAFF', 'HR_LEAD', 'MANAGEMENT', 'GENERAL_MANAGER'}
+
+# Roles with team/dashboard scope. MANAGEMENT = direct reports only;
+# GENERAL_MANAGER = full reporting hierarchy below them (transitive).
+TEAM_ROLES = {'MANAGEMENT', 'GENERAL_MANAGER'}
 
 
 def _role(user):
@@ -16,6 +20,40 @@ def employee_for(user):
     """Employee record linked to a user via personnel, or None."""
     personnel = getattr(user, 'personnel', None)
     return getattr(personnel, 'employee', None)
+
+
+def team_scope_ids(user):
+    """IDs of employees within the user's team scope.
+
+    MANAGEMENT: direct reports only (Employee.manager = their Employee).
+    GENERAL_MANAGER: the full reporting hierarchy below them — direct reports,
+    Management below them, and everyone reporting under that Management.
+    Implemented as a transitive manager walk (BFS), never department or
+    parent_position. Non-team roles get an empty set.
+    """
+    employee = employee_for(user)
+    role = _role(user)
+    if employee is None or role not in TEAM_ROLES:
+        return set()
+    if role == 'MANAGEMENT':
+        return set(
+            Employee.objects.filter(manager=employee).values_list('id', flat=True)
+        )
+    # GENERAL_MANAGER: transitive closure of the reporting tree.
+    scope: set[int] = set()
+    frontier = [employee.id]
+    while frontier:
+        children = list(
+            Employee.objects.filter(manager_id__in=frontier)
+            .exclude(id__in=scope)
+            .values_list('id', flat=True)
+        )
+        children = [c for c in children if c not in scope and c != employee.id]
+        if not children:
+            break
+        scope.update(children)
+        frontier = children
+    return scope
 
 
 def direct_report_ids(user):
@@ -29,6 +67,11 @@ def direct_report_ids(user):
     return set(
         Employee.objects.filter(manager=employee).values_list('id', flat=True)
     )
+
+
+def has_team_scope(user):
+    """True for MANAGEMENT / GENERAL_MANAGER with a linked Employee."""
+    return _role(user) in TEAM_ROLES and employee_for(user) is not None
 
 
 class IsHRStaff(BasePermission):

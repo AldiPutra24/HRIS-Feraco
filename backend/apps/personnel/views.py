@@ -16,7 +16,7 @@ from apps.audit.services import log_event
 from apps.softdelete import SoftHardDeleteMixin
 
 from .models import Department, Employee, EmployeeContract, EmployeeDocument, EmploymentHistory, Position
-from .permissions import IsHRStaff, IsManagementViewer, _role, direct_report_ids
+from .permissions import IsHRStaff, IsManagementViewer, _role, team_scope_ids
 from .services import set_current_contract, sync_contract_status
 from .serializers import (
     DepartmentSerializer,
@@ -83,7 +83,7 @@ class EmployeeViewSet(SoftHardDeleteMixin, viewsets.ModelViewSet):
     pagination_class = type('LargePagePagination', (PageNumberPagination,), {'page_size_query_param': 'page_size'})
 
     def _is_management(self):
-        return _role(self.request.user) == 'MANAGEMENT'
+        return _role(self.request.user) in ('MANAGEMENT', 'GENERAL_MANAGER')
 
     def get_serializer_class(self):
         if self.action in ('list', 'retrieve'):
@@ -92,9 +92,9 @@ class EmployeeViewSet(SoftHardDeleteMixin, viewsets.ModelViewSet):
 
     def get_queryset(self):
         qs = super().get_queryset()
-        # MANAGEMENT: read-only scope to direct reports (Employee.manager).
+        # MANAGEMENT/GENERAL_MANAGER: read-only scope to their team (Employee.manager hierarchy).
         if self._is_management():
-            report_ids = direct_report_ids(self.request.user)
+            report_ids = team_scope_ids(self.request.user)
             return qs.filter(id__in=report_ids)
         q = self.request.query_params.get('search')
         if q:
@@ -137,6 +137,14 @@ class EmployeeViewSet(SoftHardDeleteMixin, viewsets.ModelViewSet):
             position__role=Position.ROLE_MANAGEMENT,
             employment_status='ACTIVE',
         ).select_related('position')
+        # General Managers are also valid Reporting To candidates, regardless of
+        # department (GM may oversee multiple departments).
+        gm_ids = list(
+            Employee.objects.filter(
+                user__role__key='GENERAL_MANAGER', employment_status='ACTIVE'
+            ).values_list('id', flat=True)
+        )
+        qs = (qs | Employee.objects.filter(id__in=gm_ids)).distinct()
         if exclude_id:
             qs = qs.exclude(pk=exclude_id)
         data = [
@@ -668,13 +676,15 @@ class DashboardManagementView(APIView):
         from apps.leaves.models import LeaveRequest
 
         role = _role(request.user)
-        if role != 'MANAGEMENT':
+        if role not in ('MANAGEMENT', 'GENERAL_MANAGER'):
             return Response({'detail': 'Hanya untuk peran Manajemen.'}, status=status.HTTP_403_FORBIDDEN)
         employee = getattr(getattr(request.user, 'personnel', None), 'employee', None)
         if employee is None:
             return Response({'detail': 'Akun tidak terhubung ke data karyawan.'}, status=status.HTTP_404_NOT_FOUND)
 
-        team = Employee.objects.filter(manager=employee)
+        from .permissions import team_scope_ids
+
+        team = Employee.objects.filter(id__in=team_scope_ids(request.user))
         active = team.filter(employment_status='ACTIVE').count()
         from django.db.models import Count
 

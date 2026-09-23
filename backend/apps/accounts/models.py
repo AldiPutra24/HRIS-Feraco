@@ -10,12 +10,14 @@ class Role(models.Model):
     HR_LEAD = 'HR_LEAD'
     EMPLOYEE = 'EMPLOYEE'
     MANAGEMENT = 'MANAGEMENT'
+    GENERAL_MANAGER = 'GENERAL_MANAGER'
     ROLE_CHOICES = [
         (ADMIN, 'Admin'),
         (HR_STAFF, 'HR Staff'),
         (HR_LEAD, 'HR Lead'),
         (EMPLOYEE, 'Employee'),
         (MANAGEMENT, 'Management'),
+        (GENERAL_MANAGER, 'General Manager'),
     ]
 
     key = models.CharField(max_length=32, choices=ROLE_CHOICES, unique=True)

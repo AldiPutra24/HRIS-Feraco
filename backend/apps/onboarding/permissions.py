@@ -3,7 +3,7 @@ from rest_framework.permissions import BasePermission, SAFE_METHODS
 from apps.personnel.permissions import _role
 
 ONBOARDING_ADMIN_ROLES = {'ADMIN', 'HR_STAFF', 'HR_LEAD'}
-ONBOARDING_VIEW_ROLES = {'ADMIN', 'HR_STAFF', 'HR_LEAD', 'MANAGEMENT'}
+ONBOARDING_VIEW_ROLES = {'ADMIN', 'HR_STAFF', 'HR_LEAD', 'MANAGEMENT', 'GENERAL_MANAGER'}
 
 
 class IsOnboardingAdmin(BasePermission):

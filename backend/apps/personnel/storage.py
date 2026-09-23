@@ -4,11 +4,24 @@ Uses the service-role key server-side only. Binary files live in a private
 bucket; the DB stores only metadata (path, content_type, size, version).
 """
 import os
+from urllib.parse import quote
 
 import requests
 from django.conf import settings
 
 _UPLOAD_CHUNK = 1024 * 1024  # 1 MiB
+
+
+def _quoted_path(path):
+    """Percent-encode a bucket object path for use in the storage URL.
+
+    Spaces alone are auto-encoded by `requests`, but characters like '%', '#',
+    '&' and '?' in user-supplied filenames are NOT — they corrupt the URL
+    ('%' is read as a percent-escape, '#'/'&' truncate the path) and Supabase
+    then rejects the request with 400, surfacing as an unhandled 500 upstream.
+    Slash separators must survive, hence safe='/'.
+    """
+    return quote(path, safe='/')
 
 
 def _headers():
@@ -24,7 +37,7 @@ def _storage_base():
 
 def upload_bytes(bucket, path, data: bytes, content_type='application/octet-stream'):
     """Upload raw bytes to a private bucket path. Returns storage path."""
-    url = f'{_storage_base()}/{bucket}/{path}'
+    url = f'{_storage_base()}/{bucket}/{_quoted_path(path)}'
     res = requests.post(
         url,
         headers={**_headers(), 'Content-Type': content_type, 'x-upsert': 'false'},
@@ -37,14 +50,14 @@ def upload_bytes(bucket, path, data: bytes, content_type='application/octet-stre
 
 
 def delete_object(bucket, path):
-    url = f'{_storage_base()}/{bucket}/{path}'
+    url = f'{_storage_base()}/{bucket}/{_quoted_path(path)}'
     res = requests.delete(url, headers=_headers(), timeout=30)
     return res.status_code in (200, 204)
 
 
 def signed_url(bucket, path, expires_in=3600):
     """Create a short-lived signed URL for private object access."""
-    url = f'{_storage_base()}/sign/{bucket}/{path}'
+    url = f'{_storage_base()}/sign/{bucket}/{_quoted_path(path)}'
     res = requests.post(url, headers=_headers(), json={'expiresIn': expires_in}, timeout=30)
     if res.status_code != 200:
         raise RuntimeError(f'Signed URL failed ({res.status_code})')

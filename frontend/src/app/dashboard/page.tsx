@@ -12,7 +12,7 @@ export default function Dashboard() {
   useEffect(() => {
     if (isLoading) return;
     if (user?.role === 'employee') router.replace('/dashboard/employee');
-    else if (user?.role === 'management') router.replace('/dashboard/management/overview');
+    else if (user?.role === 'management' || user?.role === 'general_manager') router.replace('/dashboard/management/overview');
     else if (user?.role === 'hr_staff') {
       const mode = readMode();
       if (mode === 'hris') router.replace('/dashboard/overview');

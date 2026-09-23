@@ -41,7 +41,7 @@ export default function AppSidebar() {
   const { user, logout } = useAuth();
   const router = useRouter();
   const isEmployee = user?.role === 'employee';
-  const isManagement = user?.role === 'management';
+  const isManagement = user?.role === 'management' || user?.role === 'general_manager';
   const isHrStaff = user?.role === 'hr_staff';
   const [hrMode, setHrMode] = React.useState<'hris' | 'employee' | null>(null);
 

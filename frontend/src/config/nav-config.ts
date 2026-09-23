@@ -83,7 +83,8 @@ export const employeeNavGroups: NavGroup[] = [
   }
 ];
 
-// Management role: monitoring-only nav (direct-report scope enforced by backend).
+// Management & General Manager role: monitoring-only nav (team scope enforced
+// by backend — direct reports for Management, full hierarchy for GM).
 export const managementNavGroups: NavGroup[] = [
   {
     label: 'Management',
@@ -230,7 +231,7 @@ export const navGroups: NavGroup[] = [
         url: '/dashboard/management/overview',
         icon: 'teams',
         isActive: false,
-        access: { role: 'management' },
+        access: { roles: ['management', 'general_manager'] },
         items: [
           {
             title: 'Overview',

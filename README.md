@@ -5,6 +5,17 @@ Internal Human Resource Information System.
 - **Frontend** - Next.js 16 (App Router), TypeScript, Tailwind CSS v4, shadcn/ui on Base UI. See `frontend/`.
 - **Backend** - Django + Django REST Framework, PostgreSQL, session/cookie auth, RBAC, audit log. See `backend/`.
 
+## Bugfix — Upload CV 500 (recruitment-cvs)
+- Root cause: storage URL dibangun dari path tanpa percent-encoding. Filename dengan `%`, `#`, `&`, `?` (mis. "CV 100%.pdf", "CV & Portfolio#1.pdf") merusak URL Supabase Storage → Supabase 400 → `RuntimeError` tak tertangani → HTTP 500. File dengan nama sederhana lolos — cocok dengan gejala "sebagian berhasil".
+- Fix minimal: `_quoted_path()` di `personnel/storage.py` (quote dengan safe='/') untuk upload/delete/sign; validasi CV (PDF/DOC/DOCX, max 10MB, cek sebelum 503 storage); storage error kini 502 dengan pesan jelas (bukan 500 diam); cleanup object orphan bila DB gagal setelah storage sukses.
+- Tests: `CvUploadValidationTests` (4) — recruitment 50 OK, freelance 49 OK.
+
+## Role GENERAL_MANAGER (General Manager)
+- Role baru `GENERAL_MANAGER` (Role choices + migration `accounts/0004` + seed_roles); login masuk ke dashboard Management yang sama (`/dashboard/management/overview`), sidebar `managementNavGroups`.
+- Scope backend via `team_scope_ids()`: MANAGEMENT = direct reports; GENERAL_MANAGER = hierarki reporting penuh di bawahnya (BFS transitive via `Employee.manager`). Employee list, dashboard, leave, payroll semuanya ter-scope di backend — bukan frontend-only.
+- GM bisa dipilih sebagai Reporting To (langsung Aktif, bebas department); Management boleh reporting ke GM. Reporting existing tidak diubah.
+- Tests: `GeneralManagerRoleTests` (7) OK; leaves 38 OK; payroll 130 OK; personnel 116 (1 error pre-existing `test_import_xlsx`). tsc + build bersih.
+
 ## Employee Contract — Urutan PKWT
 - Field `pkwt_sequence` (PositiveIntegerField, nullable) pada `EmployeeContract` + migration `personnel/0016`; kontrak lama tanpa nilai tetap kompatibel.
 - Form `+ Add Contract`: input numerik **Ke- / PKWT** terpisah dari No. Kontrak (Tipe | Ke- / PKWT | No. Kontrak); validasi integer ≥ 1, PKWT-only, tidak boleh ≤ urutan kontrak sebelumnya (server-side di `EmployeeViewSet.contracts` + client-side).

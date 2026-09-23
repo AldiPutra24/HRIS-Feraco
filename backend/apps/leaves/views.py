@@ -82,8 +82,11 @@ class LeaveRequestViewSet(viewsets.ModelViewSet):
             return qs
         if employee is None:
             return qs.none()
-        if role == 'MANAGEMENT':
-            return qs.filter(Q(employee__manager_id=employee.id) | Q(employee_id=employee.id))
+        if role in ('MANAGEMENT', 'GENERAL_MANAGER'):
+            from apps.personnel.permissions import team_scope_ids
+
+            scope = team_scope_ids(self.request.user) | {employee.id}
+            return qs.filter(employee_id__in=scope)
         return qs.filter(employee_id=employee.id)
 
     def perform_create(self, serializer):

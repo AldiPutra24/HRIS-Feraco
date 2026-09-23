@@ -9,6 +9,7 @@ from django.utils import timezone
 
 from .models import Department, Employee, EmployeeContract, EmploymentHistory, Position
 from .services import contract_accumulation, set_current_contract, sync_contract_status
+from .views import next_employee_id
 
 User = get_user_model()
 
@@ -1058,3 +1059,109 @@ class ContractPkwtSequenceTests(TestCase):
         })
         self.assertEqual(r.status_code, 201)
         self.assertIsNone(r.data['pkwt_sequence'])
+
+
+class GeneralManagerRoleTests(TestCase):
+    """GENERAL_MANAGER role: hierarchy scope, reporting-to, dashboard access."""
+
+    def setUp(self):
+        from apps.accounts.models import Role
+
+        self.gm_role, _ = Role.objects.get_or_create(key='GENERAL_MANAGER', defaults={'name': 'General Manager'})
+        self.mgmt_role, _ = Role.objects.get_or_create(key='MANAGEMENT', defaults={'name': 'Management'})
+        self.dept = Department.objects.create(name='Ops')
+        self.mgmt_pos = Position.objects.create(name='Manager', department=self.dept, role='MANAGEMENT')
+        self.emp_pos = Position.objects.create(name='Staff', department=self.dept, role='EMPLOYEE')
+
+        self.gm_user = make_user('GENERAL_MANAGER')
+        self.gm = Employee.objects.create(
+            employee_id=next_employee_id(),
+            full_name='Pak GM', department=self.dept, position=self.mgmt_pos,
+            join_date='2020-01-01', employment_status='ACTIVE',
+        )
+        self.gm.user = self.gm_user
+        self.gm.save()
+
+        self.mgr_user = make_user('MANAGEMENT')
+        self.mgr = Employee.objects.create(
+            employee_id=next_employee_id(),
+            full_name='Bu Manager', department=self.dept, position=self.mgmt_pos,
+            join_date='2021-01-01', employment_status='ACTIVE', manager=self.gm,
+        )
+        self.mgr.user = self.mgr_user
+        self.mgr.save()
+
+        self.staff = Employee.objects.create(
+            employee_id=next_employee_id(),
+            full_name='Staff A', department=self.dept, position=self.emp_pos,
+            join_date='2022-01-01', employment_status='ACTIVE', manager=self.mgr,
+        )
+        self.outsider = Employee.objects.create(
+            employee_id=next_employee_id(),
+            full_name='Outside Budi', department=self.dept, position=self.emp_pos,
+            join_date='2022-01-01', employment_status='ACTIVE',
+        )
+
+    def test_gm_scope_includes_full_hierarchy(self):
+        from apps.personnel.permissions import team_scope_ids
+
+        scope = team_scope_ids(self.gm_user)
+        self.assertIn(self.mgr.id, scope)
+        self.assertIn(self.staff.id, scope)
+        self.assertNotIn(self.outsider.id, scope)
+        self.assertNotIn(self.gm.id, scope)
+
+    def test_management_scope_is_direct_only(self):
+        from apps.personnel.permissions import team_scope_ids
+
+        scope = team_scope_ids(self.mgr_user)
+        self.assertEqual(scope, {self.staff.id})
+        self.assertNotIn(self.gm.id, scope)
+
+    def test_gm_dashboard(self):
+        self.client.force_login(self.gm_user)
+        res = self.client.get(reverse('dashboard-management'))
+        self.assertEqual(res.status_code, 200)
+        names = {m['full_name'] for m in res.data['team_members']}
+        self.assertEqual(names, {'Bu Manager', 'Staff A'})
+
+    def test_gm_employee_list_scoped(self):
+        self.client.force_login(self.gm_user)
+        res = self.client.get(reverse('employee-list'))
+        names = {r['full_name'] for r in res.data['results']}
+        self.assertEqual(names, {'Bu Manager', 'Staff A'})
+
+    def test_gm_as_reporting_candidate(self):
+        self.client.force_login(make_user('ADMIN'))
+        res = self.client.get(reverse('employee-reporting-candidates'), {'position': self.emp_pos.id})
+        ids = {c['id'] for c in res.data}
+        self.assertIn(self.gm.id, ids)
+        self.assertIn(self.mgr.id, ids)
+
+    def test_management_reports_to_gm(self):
+        self.client.force_login(make_user('ADMIN'))
+        other = Employee.objects.create(
+            employee_id=next_employee_id(),
+            full_name='New Staff', department=self.dept, position=self.emp_pos,
+            join_date='2023-01-01', employment_status='ACTIVE',
+        )
+        res = self.client.patch(
+            reverse('employee-detail', args=[other.pk]),
+            {'manager': self.gm.id}, content_type='application/json',
+        )
+        self.assertEqual(res.status_code, 200, res.content)
+        other.refresh_from_db()
+        self.assertEqual(other.manager_id, self.gm.id)
+
+    def test_gm_dashboard_denied_for_employee(self):
+        emp_user = make_user('EMPLOYEE')
+        e = Employee.objects.create(
+            employee_id=next_employee_id(),
+            full_name='Plain Emp', department=self.dept, position=self.emp_pos,
+            join_date='2023-01-01', employment_status='ACTIVE',
+        )
+        e.user = emp_user
+        e.save()
+        self.client.force_login(emp_user)
+        res = self.client.get(reverse('dashboard-management'))
+        self.assertEqual(res.status_code, 403)

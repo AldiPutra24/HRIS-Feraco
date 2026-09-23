@@ -56,7 +56,7 @@ function Field({ label, value }: { label: string; value: React.ReactNode }) {
 export function EmployeeDetail({ id }: { id: number }) {
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin';
-  const isManagement = user?.role === 'management';
+  const isManagement = user?.role === 'management' || user?.role === 'general_manager';
   const [employee, setEmployee] = useState<Employee | null>(null);
   const [contracts, setContracts] = useState<Contract[]>([]);
   const [history, setHistory] = useState<History[]>([]);

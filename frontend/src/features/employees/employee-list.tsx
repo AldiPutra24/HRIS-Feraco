@@ -36,7 +36,7 @@ function StatusBadge({ status }: { status: string }) {
 
 export function EmployeeList() {
   const { user } = useAuth();
-  const isManagement = user?.role === 'management';
+  const isManagement = user?.role === 'management' || user?.role === 'general_manager';
   // MANAGEMENT: view-only (backend enforces direct-report scope + 403 on writes).
   const canDelete = !isManagement && (user?.role === 'admin' || user?.role === 'hr_lead');
   const [employees, setEmployees] = useState<Employee[]>([]);
