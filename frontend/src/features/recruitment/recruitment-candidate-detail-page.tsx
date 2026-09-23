@@ -7,7 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
-import { getCandidate, getCandidateCv, transitionCandidate, hardDeleteCandidate, type Candidate } from '@/lib/recruitment';
+import { acceptCandidateFreelance, getCandidate, getCandidateCv, transitionCandidate, hardDeleteCandidate, type Candidate } from '@/lib/recruitment';
 import { PIPELINE, statusLabel } from '@/features/recruitment/candidate-pipeline';
 import { useAuth } from '@/lib/auth/auth-provider';
 
@@ -64,6 +64,7 @@ export function RecruitmentCandidateDetailPage({ id }: { id: string }) {
   const [loading, setLoading] = useState(true);
   const [cvLoading, setCvLoading] = useState(false);
   const [transitioning, setTransitioning] = useState(false);
+  const [movingToPool, setMovingToPool] = useState(false);
   const [note, setNote] = useState('');
 
   function load() {
@@ -107,6 +108,20 @@ export function RecruitmentCandidateDetailPage({ id }: { id: string }) {
     }
   }
 
+  async function handleMoveToPool() {
+    if (!candidate) return;
+    setMovingToPool(true);
+    try {
+      await acceptCandidateFreelance(candidate.id);
+      toast.success('Kandidat berhasil dipindahkan ke Freelance / Talent Pool.');
+      router.push('/dashboard/freelance');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Gagal memindahkan kandidat.');
+    } finally {
+      setMovingToPool(false);
+    }
+  }
+
   async function handleDelete() {
     if (!candidate) return;
     if (!window.confirm(`Hapus permanen kandidat "${candidate.full_name}"? Tidak dapat dibatalkan.`)) return;
@@ -130,6 +145,8 @@ export function RecruitmentCandidateDetailPage({ id }: { id: string }) {
 
   if (!candidate) return null;
 
+  const isFreelance = candidate.recruitment_type === 'FREELANCE';
+  const alreadyInPool = isFreelance && candidate.talent_pool_freelancer_id != null;
   const isTerminal = candidate.status === 'REJECTED' || candidate.status === 'WITHDRAWN';
   const nextStatuses: string[] = candidate.next_statuses ?? [];
   const normalNext = nextStatuses.filter((s) => s !== 'REJECTED' && s !== 'WITHDRAWN');
@@ -154,7 +171,31 @@ export function RecruitmentCandidateDetailPage({ id }: { id: string }) {
         </div>
       </div>
 
-      {/* Pipeline */}
+      {/* Freelance flow: no pipeline — single move-to-pool action. */}
+      {isFreelance ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Status Kandidat</CardTitle>
+            <CardDescription>Kandidat Freelance</CardDescription>
+          </CardHeader>
+          <CardContent className='flex items-center gap-3'>
+            <Badge variant='secondary'>Kandidat Freelance</Badge>
+            {alreadyInPool ? (
+              <Button size='sm' variant='outline' disabled>
+                Sudah di Talent Pool
+              </Button>
+            ) : isTerminal ? (
+              <p className='text-sm text-muted-foreground'>
+                Kandidat telah {statusLabel(candidate.status).toLowerCase()}.
+              </p>
+            ) : (
+              <Button size='sm' onClick={handleMoveToPool} disabled={movingToPool}>
+                Pindahkan ke Freelance / Talent Pool
+              </Button>
+            )}
+          </CardContent>
+        </Card>
+      ) : (
       <Card>
         <CardHeader>
           <CardTitle>Pipeline</CardTitle>
@@ -217,6 +258,7 @@ export function RecruitmentCandidateDetailPage({ id }: { id: string }) {
           )}
         </CardContent>
       </Card>
+      )}
 
       {/* Profile */}
       <Card>

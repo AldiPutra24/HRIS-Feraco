@@ -45,6 +45,12 @@ def accept_candidate_to_talent_pool(candidate: Candidate, request):
         'phone': candidate.phone or '',
         'whatsapp': candidate.phone or '',
     }
+    # Map job location -> domicile and free-text position -> skill tag when available.
+    job = candidate.job
+    domicile = (job.location or '').strip()
+    if domicile:
+        defaults['domicile'] = domicile
+    position_name = (job.position_text or (job.position.name if job.position else '') or '').strip()
     if existing:
         # Update only empty fields; do not overwrite curated data.
         for field, value in defaults.items():
@@ -55,6 +61,16 @@ def accept_candidate_to_talent_pool(candidate: Candidate, request):
     else:
         freelancer = Freelancer.objects.create(**defaults)
         created = True
+
+    # Map the job's position (free-text or FK name, e.g. 'MC') to a Skill tag so
+    # the freelancer is searchable by role in the Talent Pool.
+    if position_name:
+        from apps.freelance.models import FreelancerSkill, Skill
+
+        skill = Skill.objects.filter(name__iexact=position_name).first()
+        if skill is None:
+            skill = Skill.objects.create(name=position_name)
+        FreelancerSkill.objects.get_or_create(freelancer=freelancer, skill=skill)
 
     # Move the CV into the freelancer's document list (metadata only; the
     # binary stays in the same recruitment-cvs bucket path).

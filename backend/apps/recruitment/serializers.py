@@ -90,16 +90,27 @@ class CandidateSerializer(serializers.ModelSerializer):
     applied_at = serializers.DateTimeField(source='created_at', read_only=True)
     next_statuses = serializers.SerializerMethodField()
     status_history = CandidateStatusHistorySerializer(many=True, read_only=True)
+    talent_pool_freelancer_id = serializers.SerializerMethodField()
 
     class Meta:
         model = Candidate
         fields = (
             'id', 'job', 'job_title', 'recruitment_type', 'full_name', 'email', 'phone',
             'cv_name', 'cv_url', 'source', 'status',
-            'next_statuses', 'status_history',
+            'next_statuses', 'status_history', 'talent_pool_freelancer_id',
             'applied_at', 'created_at', 'updated_at',
         )
         read_only_fields = ('id', 'job_title', 'cv_name', 'cv_url', 'source', 'status', 'next_statuses', 'status_history', 'applied_at', 'created_at', 'updated_at')
+
+    def get_talent_pool_freelancer_id(self, obj):
+        """Freelancer id if this candidate is already in the Talent Pool (matched by the
+        same email/phone rules as accept_candidate_to_talent_pool), else None."""
+        if obj.job.recruitment_type != 'FREELANCE':
+            return None
+        from .talent_pool import _find_existing_freelancer
+
+        fl = _find_existing_freelancer(obj)
+        return fl.id if fl else None
 
     def get_next_statuses(self, obj):
         return sorted(Candidate.TRANSITIONS.get(obj.status, set()))

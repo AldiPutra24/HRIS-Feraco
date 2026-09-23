@@ -101,6 +101,7 @@ export type Candidate = {
   status: string;
   next_statuses: string[];
   status_history: CandidateStatusHistory[];
+  talent_pool_freelancer_id: number | null;
   applied_at: string;
   created_at: string;
 };
