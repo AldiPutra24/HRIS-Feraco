@@ -82,10 +82,13 @@ export function PublicJobPage({ slug }: { slug: string }) {
               {job.position_name && (
                 <span className='text-muted-foreground text-sm'>· {job.position_name}</span>
               )}
+              {job.position_text && (
+                <span className='text-muted-foreground text-sm'>· {job.position_text}</span>
+              )}
             </div>
             <CardTitle className='text-2xl font-bold tracking-tight'>{job.title}</CardTitle>
             <CardDescription>
-              {employmentLabel(job.employment_type)}
+              {job.recruitment_type === 'FREELANCE' ? 'Freelance' : employmentLabel(job.employment_type)}
               {job.location ? ` · ${job.location}` : ''}
               {' · '}
               {job.open_date} {job.close_date ? `– ${job.close_date}` : ''}

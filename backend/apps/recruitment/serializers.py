@@ -12,7 +12,7 @@ class JobSerializer(serializers.ModelSerializer):
         model = Job
         fields = (
             'id', 'title', 'slug', 'department', 'department_name',
-            'position', 'position_name', 'description', 'requirements',
+            'position', 'position_name', 'position_text', 'description', 'requirements',
             'employment_type', 'recruitment_type', 'location', 'open_date', 'close_date',
             'status', 'created_by', 'created_at', 'updated_at',
             'applications_count',
@@ -27,10 +27,22 @@ class JobSerializer(serializers.ModelSerializer):
     def get_applications_count(self, obj):
         return obj.applications.count()
 
+    # Fields required for a job to be considered complete. INHOUSE needs the
+    # master-data fields; FREELANCE skips department/position FK/employment_type
+    # and requires the free-text position instead.
+    REQUIRED_FIELDS_BY_TYPE = {
+        'INHOUSE': Job.REQUIRED_FIELDS,
+        'FREELANCE': [
+            'title', 'position_text', 'description', 'requirements', 'location', 'open_date',
+        ],
+    }
+
     def _merged(self, data, instance=None):
+        rtype = data.get('recruitment_type', getattr(instance, 'recruitment_type', None)) or 'INHOUSE'
+        required = self.REQUIRED_FIELDS_BY_TYPE.get(rtype, Job.REQUIRED_FIELDS)
         if instance is None:
-            return {f: data.get(f) for f in Job.REQUIRED_FIELDS}
-        return {f: data.get(f, getattr(instance, f, None)) for f in Job.REQUIRED_FIELDS}
+            return {f: data.get(f) for f in required}
+        return {f: data.get(f, getattr(instance, f, None)) for f in required}
 
     def create(self, validated_data):
         # status is backend-managed: complete -> OPEN, else DRAFT
@@ -55,7 +67,7 @@ class JobPublicSerializer(serializers.ModelSerializer):
     class Meta:
         model = Job
         fields = (
-            'id', 'title', 'slug', 'department_name', 'position_name',
+            'id', 'title', 'slug', 'department_name', 'position_name', 'position_text',
             'description', 'requirements', 'employment_type', 'recruitment_type', 'location',
             'open_date', 'close_date',
         )

@@ -59,6 +59,7 @@ const emptyForm: JobInput = {
   title: '',
   department: null,
   position: null,
+  position_text: '',
   description: '',
   requirements: '',
   employment_type: 'FULL_TIME',
@@ -127,8 +128,9 @@ export function RecruitmentJobsPage() {
     setEditing(job);
     setForm({
       title: job.title,
-      department: job.department,
-      position: job.position,
+      department: job.recruitment_type === 'FREELANCE' ? null : job.department,
+      position: job.recruitment_type === 'FREELANCE' ? null : job.position,
+      position_text: job.position_text ?? '',
       description: job.description,
       requirements: job.requirements,
       employment_type: job.employment_type,
@@ -149,7 +151,21 @@ export function RecruitmentJobsPage() {
       toast.error('Open date wajib diisi.');
       return;
     }
-    const payload = { ...form, close_date: form.close_date || null };
+    // Freelance: skip hidden master-data fields; Inhouse: skip free-text position.
+    const isFreelance = form.recruitment_type === 'FREELANCE';
+    if (isFreelance && !form.position_text?.trim()) {
+      toast.error('Position wajib diisi.');
+      return;
+    }
+    const payload: JobInput = isFreelance
+      ? {
+          ...form,
+          department: null,
+          position: null,
+          employment_type: 'FREELANCE',
+          close_date: form.close_date || null
+        }
+      : { ...form, position_text: '', close_date: form.close_date || null };
     try {
       const saved = editing ? await updateJob(editing.id, payload) : await createJob(payload);
       toast.success(editing ? 'Job diperbarui.' : 'Job dibuat.');
@@ -385,6 +401,7 @@ export function RecruitmentJobsPage() {
                     onChange={(e) => setForm({ ...form, title: e.target.value })}
                   />
                 </div>
+                {form.recruitment_type === 'INHOUSE' && (
                 <div>
                   <Label className='text-xs'>Department</Label>
                   <select
@@ -406,20 +423,29 @@ export function RecruitmentJobsPage() {
                     ))}
                   </select>
                 </div>
+                )}
                 <div>
                   <Label className='text-xs'>Position</Label>
-                  <select
-                    className='border-input h-9 w-full rounded-lg border bg-transparent px-2.5 text-sm'
-                    value={form.position ?? ''}
-                    onChange={(e) => setForm({ ...form, position: e.target.value ? Number(e.target.value) : null })}
-                  >
-                    <option value=''>-</option>
-                    {deptPositions.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.name}
-                      </option>
-                    ))}
-                  </select>
+                  {form.recruitment_type === 'FREELANCE' ? (
+                    <Input
+                      placeholder='Contoh: MC, Photographer, Event Crew'
+                      value={form.position_text ?? ''}
+                      onChange={(e) => setForm({ ...form, position_text: e.target.value })}
+                    />
+                  ) : (
+                    <select
+                      className='border-input h-9 w-full rounded-lg border bg-transparent px-2.5 text-sm'
+                      value={form.position ?? ''}
+                      onChange={(e) => setForm({ ...form, position: e.target.value ? Number(e.target.value) : null })}
+                    >
+                      <option value=''>-</option>
+                      {deptPositions.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.name}
+                        </option>
+                      ))}
+                    </select>
+                  )}
                 </div>
                 <div>
                   <Label className='text-xs'>Recruitment Type</Label>
@@ -435,20 +461,22 @@ export function RecruitmentJobsPage() {
                     ))}
                   </select>
                 </div>
-                <div>
-                  <Label className='text-xs'>Employment Type</Label>
-                  <select
-                    className='border-input h-9 w-full rounded-lg border bg-transparent px-2.5 text-sm'
-                    value={form.employment_type}
-                    onChange={(e) => setForm({ ...form, employment_type: e.target.value })}
-                  >
-                    {EMPLOYMENT_OPTIONS.map((t) => (
-                      <option key={t} value={t}>
-                        {employmentLabel(t)}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                {form.recruitment_type === 'INHOUSE' && (
+                  <div>
+                    <Label className='text-xs'>Employment Type</Label>
+                    <select
+                      className='border-input h-9 w-full rounded-lg border bg-transparent px-2.5 text-sm'
+                      value={form.employment_type}
+                      onChange={(e) => setForm({ ...form, employment_type: e.target.value })}
+                    >
+                      {EMPLOYMENT_OPTIONS.map((t) => (
+                        <option key={t} value={t}>
+                          {employmentLabel(t)}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
                 <div>
                   <Label className='text-xs'>Location</Label>
                   <Input
