@@ -1125,11 +1125,26 @@ class GeneralManagerRoleTests(TestCase):
         names = {m['full_name'] for m in res.data['team_members']}
         self.assertEqual(names, {'Bu Manager', 'Staff A'})
 
-    def test_gm_employee_list_scoped(self):
+    def test_gm_employee_list_unscoped(self):
+        """GM sees ALL employees on /dashboard/karyawan (read-only still enforced)."""
         self.client.force_login(self.gm_user)
         res = self.client.get(reverse('employee-list'))
         names = {r['full_name'] for r in res.data['results']}
-        self.assertEqual(names, {'Bu Manager', 'Staff A'})
+        self.assertEqual(
+            names,
+            {'Pak GM', 'Bu Manager', 'Staff A', 'Outside Budi'},
+        )
+        # Search/filter tetap bekerja atas seluruh data.
+        res = self.client.get(reverse('employee-list'), {'search': 'Outside'})
+        names = {r['full_name'] for r in res.data['results']}
+        self.assertEqual(names, {'Outside Budi'})
+        # Write tetap ditolak untuk GM.
+        res = self.client.post(
+            reverse('employee-list'),
+            {'full_name': 'X', 'employee_id': 'X-1'},
+            content_type='application/json',
+        )
+        self.assertEqual(res.status_code, 403)
 
     def test_gm_as_reporting_candidate(self):
         self.client.force_login(make_user('ADMIN'))
