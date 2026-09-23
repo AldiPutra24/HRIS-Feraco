@@ -15,6 +15,11 @@ Internal Human Resource Information System.
 - Fix minimal: `_quoted_path()` di `personnel/storage.py` (quote dengan safe='/') untuk upload/delete/sign; validasi CV (PDF/DOC/DOCX, max 10MB, cek sebelum 503 storage); storage error kini 502 dengan pesan jelas (bukan 500 diam); cleanup object orphan bila DB gagal setelah storage sukses.
 - Tests: `CvUploadValidationTests` (4) — recruitment 50 OK, freelance 49 OK.
 
+## Freelance — Akses General Manager (READ-ONLY)
+- `IsFreelanceManager` (`apps/freelance/permissions.py`): GENERAL_MANAGER hanya boleh method GET/HEAD/OPTIONS — semua mutation (create/update/delete freelancer, skill & kategori, event, assignment, performance/rating/recommendation, blacklist via update, upload/delete dokumen) ditolak 403 di backend. GM tetap bisa list/detail/search/filter + document download, scope tetap semua freelancer (bukan Employee hierarchy).
+- Frontend (`/dashboard/freelance`): `readOnly` saat role `general_manager` — Quick Add, tombol Hapus, Edit, hapus skill, form upload/dokumen, dan Tambah/Edit/Hapus riwayat event disembunyikan. Role lain tidak berubah.
+- Tests: `GeneralManagerFreelanceAccessTests` (5, termasuk matrix 403 semua endpoint mutation) — freelance 55 OK; tsc + build bersih.
+
 ## Freelance — Akses General Manager
 - Role GENERAL_MANAGER kini termasuk `FREELANCE_ROLES` (`apps/freelance/permissions.py`): GM dapat melihat seluruh Freelancer/Talent Pool via endpoint existing `/api/freelance/freelancers/` (tanpa endpoint baru). Scope GM = semua data freelancer — Freelancer bukan Employee sehingga `team_scope_ids()`/hierarchy reporting tidak berlaku; queryset tetap penuh, filter/search/sort existing bekerja normal.
 - Scope Management/HR/Admin/Employee tidak berubah. GM tidak mendapat akses modul lain (permission di-add hanya di Freelance).
