@@ -1,7 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { Badge } from '@/components/ui/badge';
+import { useEffect, useState } from 'react';import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
@@ -187,18 +186,34 @@ export function UserList() {
   const selectedRoleKey = roles.find((r) => String(r.id) === form.role)?.key ?? null;
   const isEmployeeRole = selectedRoleKey === 'EMPLOYEE';
   const isManagementRole = selectedRoleKey === 'MANAGEMENT';
+  const isGmRole = selectedRoleKey === 'GENERAL_MANAGER';
   const isHrRole = selectedRoleKey === 'HR_STAFF' || selectedRoleKey === 'HR_LEAD';
-  const showEmployeeSelect = isEmployeeRole || isManagementRole || isHrRole;
-  // Filter by Position.role (EMPLOYEE/MANAGEMENT) or HR department. Employees
-  // without a Position are excluded (position_role is null).
+  const showEmployeeSelect = isEmployeeRole || isManagementRole || isHrRole || isGmRole;
+  // Filter by Position.role (EMPLOYEE/MANAGEMENT), HR department, or for GM:
+  // Department 'General Management' + Position 'General Manager' + ACTIVE.
   let selectableEmployees = employees;
-  if (isHrRole) {
+  if (isGmRole) {
+    selectableEmployees = employees.filter(
+      (e) =>
+        e.department_name === 'General Management' &&
+        e.position_name === 'General Manager' &&
+        e.employment_status === 'ACTIVE'
+    );
+  } else if (isHrRole) {
     selectableEmployees = employees.filter((e) => e.department_name === 'HR & Finance');
   } else if (isEmployeeRole) {
     selectableEmployees = employees.filter((e) => e.position_role === 'EMPLOYEE');
   } else if (isManagementRole) {
     selectableEmployees = employees.filter((e) => e.position_role === 'MANAGEMENT');
   }
+  // GM: auto-select when exactly one employee matches.
+  useEffect(() => {
+    if (isGmRole && selectableEmployees.length === 1) {
+      const emp = selectableEmployees[0];
+      setForm((f) => (f.employee === String(emp.id) ? f : { ...f, employee: String(emp.id) }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isGmRole, form.role, employees]);
   // Edit mode: keep the currently-linked employee visible even if it no longer
   // matches the selected role (so the mismatch is shown, not silently dropped).
   const linkedEmp = employees.find((e) => String(e.id) === form.employee);
@@ -206,7 +221,11 @@ export function UserList() {
     ? [...selectableEmployees, linkedEmp]
     : selectableEmployees;
   const employeeMismatch =
-    !!linkedEmp && (isEmployeeRole || isManagementRole) && linkedEmp.position_role !== selectedRoleKey;
+    !!linkedEmp && (isEmployeeRole || isManagementRole || isGmRole) && (
+      (isGmRole && !(linkedEmp.department_name === 'General Management' && linkedEmp.position_name === 'General Manager')) ||
+      (!isGmRole && linkedEmp.position_role !== selectedRoleKey)
+    );
+  const gmEmpty = isGmRole && selectableEmployees.length === 0;
 
   return (
     <div className='flex flex-1 flex-col gap-4 p-4 md:p-6'>
@@ -287,6 +306,11 @@ export function UserList() {
                       </option>
                     ))}
                   </select>
+                  {gmEmpty && (
+                    <p className='text-amber-600 text-xs'>
+                      Tidak ada employee General Manager (Departemen General Management, Aktif). Buat employee tersebut terlebih dahulu di modul Karyawan.
+                    </p>
+                  )}
                   {employeeMismatch && (
                     <p className='text-destructive text-xs'>
                       Karyawan terhubung ({linkedEmp?.full_name}) memiliki Position role {linkedEmp?.position_role}, tidak sesuai dengan role {selectedRoleKey}. Pilih ulang karyawan yang sesuai atau ubah role user.

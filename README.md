@@ -5,6 +5,11 @@ Internal Human Resource Information System.
 - **Frontend** - Next.js 16 (App Router), TypeScript, Tailwind CSS v4, shadcn/ui on Base UI. See `frontend/`.
 - **Backend** - Django + Django REST Framework, PostgreSQL, session/cookie auth, RBAC, audit log. See `backend/`.
 
+## User Form — Binding Role General Manager
+- Dropdown Karyawan untuk role GENERAL_MANAGER hanya menampilkan employee Departemen "General Management" + Position "General Manager" + ACTIVE; auto-select bila tepat 1 match, empty state jelas bila tidak ada; reset saat role diganti (behavior existing EMPLOYEE/MANAGEMENT/HR tidak berubah).
+- Backend `UserAdminSerializer.validate`: GM wajib terhubung employee GM (General Management + Position "General Manager" + ACTIVE) — employee lain ditolak 400, GM tanpa employee juga ditolak.
+- Tests: `GeneralManagerUserBindingTests` (4) — accounts 18 OK; tsc + build bersih.
+
 ## Bugfix — Upload CV 500 (recruitment-cvs)
 - Root cause: storage URL dibangun dari path tanpa percent-encoding. Filename dengan `%`, `#`, `&`, `?` (mis. "CV 100%.pdf", "CV & Portfolio#1.pdf") merusak URL Supabase Storage → Supabase 400 → `RuntimeError` tak tertangani → HTTP 500. File dengan nama sederhana lolos — cocok dengan gejala "sebagian berhasil".
 - Fix minimal: `_quoted_path()` di `personnel/storage.py` (quote dengan safe='/') untuk upload/delete/sign; validasi CV (PDF/DOC/DOCX, max 10MB, cek sebelum 503 storage); storage error kini 502 dengan pesan jelas (bukan 500 diam); cleanup object orphan bila DB gagal setelah storage sukses.
