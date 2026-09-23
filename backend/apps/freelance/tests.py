@@ -98,6 +98,33 @@ class FreelancerTests(TestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(len(resp.json()['results']), 1)
 
+    def test_event_filter(self):
+        from .models import Event
+        ev1 = Event.objects.create(name='Wedding Expo')
+        ev2 = Event.objects.create(name='Corporate Gala')
+        f1 = make_freelancer(full_name='Dengan Event')
+        make_freelancer(full_name='Tanpa Event')
+        EventAssignment.objects.create(freelancer=f1, event=ev1)
+        # Semua (tanpa filter)
+        resp = self.client.get('/api/freelance/freelancers/')
+        self.assertEqual(len(resp.json()['results']), 2)
+        # filter event ev1
+        resp = self.client.get(f'/api/freelance/freelancers/?event={ev1.id}')
+        names = [f['full_name'] for f in resp.json()['results']]
+        self.assertEqual(names, ['Dengan Event'])
+        # filter event ev2 (tidak ada assignment)
+        resp = self.client.get(f'/api/freelance/freelancers/?event={ev2.id}')
+        self.assertEqual(len(resp.json()['results']), 0)
+        # kombinasi event + search
+        resp = self.client.get(f'/api/freelance/freelancers/?event={ev1.id}&search=Dengan')
+        self.assertEqual(len(resp.json()['results']), 1)
+        resp = self.client.get(f'/api/freelance/freelancers/?event={ev1.id}&search=Tanpa')
+        self.assertEqual(len(resp.json()['results']), 0)
+        # list serializer exposes events
+        data = resp.json()['results']
+        row = [f for f in self.client.get('/api/freelance/freelancers/').json()['results'] if f['full_name'] == 'Dengan Event'][0]
+        self.assertEqual(row['events'], [{'id': ev1.id, 'name': 'Wedding Expo'}])
+
 
 class SkillTests(TestCase):
     def setUp(self):

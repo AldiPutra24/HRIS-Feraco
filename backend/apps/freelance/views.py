@@ -112,6 +112,9 @@ class FreelancerViewSet(viewsets.ModelViewSet):
         recommendation = params.get('recommendation')
         if recommendation:
             qs = qs.filter(assignments__performance__recommendation=recommendation)
+        event = params.get('event')
+        if event:
+            qs = qs.filter(assignments__event_id=event)
         return qs.distinct()
 
     def perform_create(self, serializer):

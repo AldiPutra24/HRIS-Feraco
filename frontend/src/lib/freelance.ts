@@ -120,6 +120,7 @@ export type Freelancer = {
   avg_rating: number | null;
   recommendation: Recommendation | '';
   last_event: string | null;
+  events: Array<{ id: number; name: string }>;
   created_at: string;
   updated_at: string;
 };
