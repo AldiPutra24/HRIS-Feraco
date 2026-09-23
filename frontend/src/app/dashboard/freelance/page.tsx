@@ -2,6 +2,7 @@
 
 import { Fragment, useCallback, useEffect, useState } from 'react';
 import { toast } from 'react-toastify';
+import { useAuth } from '@/lib/auth/auth-provider';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -432,6 +433,9 @@ function EditFreelancerModal({
 }
 
 export default function FreelancePage() {
+  const { user } = useAuth();
+  // GENERAL_MANAGER is read-only on the Freelance module (backend enforces 403).
+  const readOnly = user?.role === 'general_manager';
   const [items, setItems] = useState<Freelancer[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -528,9 +532,11 @@ export default function FreelancePage() {
           <Button variant='outline' onClick={() => setSkillModalOpen(true)}>
             <Icons.adjustments className='mr-1' size={16} /> Skill &amp; Kategori
           </Button>
-          <Button onClick={() => setQuickAddOpen(true)}>
-            <Icons.add className='mr-1' size={16} /> Quick Add
-          </Button>
+          {!readOnly && (
+            <Button onClick={() => setQuickAddOpen(true)}>
+              <Icons.add className='mr-1' size={16} /> Quick Add
+            </Button>
+          )}
         </div>
       </div>
 
@@ -721,6 +727,7 @@ export default function FreelancePage() {
                           <Button size='sm' variant='ghost' onClick={() => openDetail(f.id)}>
                             Detail
                           </Button>
+                          {!readOnly && (
                           <Button
                             size='sm'
                             variant='destructive'
@@ -737,6 +744,7 @@ export default function FreelancePage() {
                           >
                             Hapus
                           </Button>
+                          )}
                         </div>
                       </TableCell>
                     </TableRow>
@@ -754,6 +762,7 @@ export default function FreelancePage() {
                                 freelancer={detail}
                                 skills={skills}
                                 events={events}
+                                readOnly={readOnly}
                                 onClose={() => { setDetailId(null); setDetail(null); }}
                                 onChanged={async () => {
                                   const d = await getFreelancer(detail.id);
@@ -1081,6 +1090,7 @@ function FreelancerDetailView({
   freelancer,
   skills,
   events,
+  readOnly = false,
   onChanged,
   onSkillAdded,
   onSkillRemoved,
@@ -1092,6 +1102,7 @@ function FreelancerDetailView({
   freelancer: FreelancerDetail;
   skills: Skill[];
   events: FreelanceEvent[];
+  readOnly?: boolean;
   onChanged: () => void | Promise<void>;
   onSkillAdded: (skillId: number, note: string) => void | Promise<void>;
   onSkillRemoved: (skillId: number) => void | Promise<void>;
@@ -1137,9 +1148,11 @@ function FreelancerDetailView({
           </div>
         </div>
         <div className='flex shrink-0 gap-2'>
-          <Button variant='outline' size='sm' onClick={onEdit}>
-            <Icons.edit size={14} /> Edit
-          </Button>
+          {!readOnly && (
+            <Button variant='outline' size='sm' onClick={onEdit}>
+              <Icons.edit size={14} /> Edit
+            </Button>
+          )}
           <Button variant='ghost' size='sm' onClick={onClose}>
             <Icons.close size={14} /> Tutup
           </Button>
@@ -1190,57 +1203,61 @@ function FreelancerDetailView({
             {freelancer.skills.map((s) => (
               <Badge key={s.id} variant='outline' className='max-w-full gap-1 py-1'>
                 <span className='truncate'>{s.skill_name}</span>
-                <button
-                  type='button'
-                  className='shrink-0 hover:text-destructive'
-                  onClick={async (e) => {
-                    e.stopPropagation();
-                    if (!window.confirm(`Hapus skill "${s.skill_name}"?`)) return;
-                    try {
-                      await onSkillRemoved(s.skill);
-                    } catch (err) {
-                      toast.error(err instanceof Error ? err.message : 'Gagal hapus skill.');
-                    }
-                  }}
-                  aria-label={`Hapus ${s.skill_name}`}
-                >
-                  <Icons.close size={12} />
-                </button>
+                {!readOnly && (
+                  <button
+                    type='button'
+                    className='shrink-0 hover:text-destructive'
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      if (!window.confirm(`Hapus skill "${s.skill_name}"?`)) return;
+                      try {
+                        await onSkillRemoved(s.skill);
+                      } catch (err) {
+                        toast.error(err instanceof Error ? err.message : 'Gagal hapus skill.');
+                      }
+                    }}
+                    aria-label={`Hapus ${s.skill_name}`}
+                  >
+                    <Icons.close size={12} />
+                  </button>
+                )}
               </Badge>
             ))}
             {freelancer.skills.length === 0 && <span className='text-muted-foreground text-sm'>Belum ada skill.</span>}
           </div>
-          <div className='mt-3 flex max-w-sm gap-2'>
-            <select
-              className='border-input h-9 min-w-0 flex-1 rounded-lg border bg-transparent px-2.5 text-sm'
-              value={newSkill}
-              onChange={(e) => setNewSkill(e.target.value)}
-            >
-              <option value=''>Tambah skill...</option>
-              {skills.filter((s) => !assignedSkillIds.has(s.id)).map((s) => (
-                <option key={s.id} value={s.id}>{s.name}</option>
-              ))}
-            </select>
-            <Button
-              size='sm'
-              className='shrink-0'
-              disabled={!newSkill || addingSkill}
-              onClick={async () => {
-                if (!newSkill || addingSkill) return;
-                setAddingSkill(true);
-                try {
-                  await onSkillAdded(Number(newSkill), '');
-                  setNewSkill('');
-                } catch (err) {
-                  toast.error(err instanceof Error ? err.message : 'Gagal tambah skill.');
-                } finally {
-                  setAddingSkill(false);
-                }
-              }}
-            >
-              {addingSkill ? <Icons.spinner className='animate-spin' size={16} /> : <Icons.add size={16} />}
-            </Button>
-          </div>
+          {!readOnly && (
+            <div className='mt-3 flex max-w-sm gap-2'>
+              <select
+                className='border-input h-9 min-w-0 flex-1 rounded-lg border bg-transparent px-2.5 text-sm'
+                value={newSkill}
+                onChange={(e) => setNewSkill(e.target.value)}
+              >
+                <option value=''>Tambah skill...</option>
+                {skills.filter((s) => !assignedSkillIds.has(s.id)).map((s) => (
+                  <option key={s.id} value={s.id}>{s.name}</option>
+                ))}
+              </select>
+              <Button
+                size='sm'
+                className='shrink-0'
+                disabled={!newSkill || addingSkill}
+                onClick={async () => {
+                  if (!newSkill || addingSkill) return;
+                  setAddingSkill(true);
+                  try {
+                    await onSkillAdded(Number(newSkill), '');
+                    setNewSkill('');
+                  } catch (err) {
+                    toast.error(err instanceof Error ? err.message : 'Gagal tambah skill.');
+                  } finally {
+                    setAddingSkill(false);
+                  }
+                }}
+              >
+                {addingSkill ? <Icons.spinner className='animate-spin' size={16} /> : <Icons.add size={16} />}
+              </Button>
+            </div>
+          )}
         </section>
 
         <section className='rounded-xl border p-4'>
@@ -1296,6 +1313,7 @@ function FreelancerDetailView({
                     >
                       {viewingDocId === d.id ? <Icons.spinner className='animate-spin' size={14} /> : <Icons.externalLink size={14} />}
                     </button>
+                    {!readOnly && (
                     <button
                       type='button'
                       className='text-muted-foreground hover:text-destructive'
@@ -1317,11 +1335,13 @@ function FreelancerDetailView({
                     >
                       {deletingDocId === d.id ? <Icons.spinner className='animate-spin' size={14} /> : <Icons.trash size={14} />}
                     </button>
+                    )}
                   </span>
                 </li>
               ))}
             </ul>
           )}
+          {!readOnly && (
           <div className='mt-3 rounded-lg border border-dashed p-3'>
             <p className='text-muted-foreground mb-2 text-xs font-medium'>Tambah dokumen</p>
             <div className='grid grid-cols-1 gap-2 sm:grid-cols-2'>
@@ -1366,14 +1386,17 @@ function FreelancerDetailView({
               </Button>
             </div>
           </div>
+          )}
         </section>
 
         <section className='rounded-xl border p-4'>
           <div className='mb-3 flex items-center justify-between gap-2'>
             <h4 className='text-xs font-semibold uppercase tracking-wide text-muted-foreground'>Riwayat Event &amp; Performa</h4>
+            {!readOnly && (
             <Button variant='outline' size='sm' className='shrink-0' onClick={() => { setHistoryEdit(null); setHistoryOpen(true); }}>
               <Icons.add size={14} /> Tambah
             </Button>
+            )}
           </div>
           {freelancer.assignments.length === 0 ? (
             <div className='flex flex-col items-center gap-1 rounded-lg border border-dashed py-6 text-center'>
@@ -1392,6 +1415,7 @@ function FreelancerDetailView({
                         {a.role || '-'}{a.assigned_at ? ` · ${a.assigned_at}` : ''}
                       </p>
                     </div>
+                    {!readOnly && (
                     <div className='flex shrink-0 items-center gap-1'>
                       <button
                         type='button'
@@ -1422,6 +1446,7 @@ function FreelancerDetailView({
                         {historyDeletingId === a.id ? <Icons.spinner className='animate-spin' size={14} /> : <Icons.trash size={14} />}
                       </button>
                     </div>
+                    )}
                   </div>
                   {a.pic && <p className='text-muted-foreground mt-1 text-xs'>PIC: {a.pic}</p>}
                   {a.performance && (

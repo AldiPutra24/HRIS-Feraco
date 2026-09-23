@@ -650,6 +650,66 @@ class GeneralManagerFreelanceAccessTests(TestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(len(resp.json()['results']), 3)
 
+    def test_gm_read_only_all_mutations_403(self):
+        """GM: GET ok, semua mutation 403 (freelancer, skill, event,
+        assignment, performance, document, blacklist via update)."""
+        from .models import Skill
+        self.client.force_login(self.gm)
+        base = '/api/freelance'
+
+        def post(url, data):
+            return self.client.post(url, data, content_type='application/json')
+
+        # --- Freelancer create / update / delete ---
+        self.assertEqual(post(f'{base}/freelancers/', {
+            'full_name': 'X', 'whatsapp': '080',
+        }).status_code, 403)
+        f = self.f1
+        self.assertEqual(
+            self.client.put(
+                f'{base}/freelancers/{f.id}/', {'full_name': 'Hacked', 'is_blacklisted': True},
+                content_type='application/json',
+            ).status_code, 403)
+        self.assertEqual(
+            self.client.delete(f'{base}/freelancers/{f.id}/').status_code, 403)
+
+        # --- Skill & kategori mutation ---
+        self.assertEqual(post(f'{base}/skill-categories/', {'name': 'Cat'}).status_code, 403)
+        self.assertEqual(post(f'{base}/skills/', {'name': 'Skill'}).status_code, 403)
+        skill = Skill.objects.create(name='MC')
+        self.assertEqual(
+            post(f'{base}/freelancers/{f.id}/skills/', {'skill': skill.id}).status_code, 403)
+        self.assertEqual(
+            self.client.delete(f'{base}/freelancers/{f.id}/skills/?skill={skill.id}').status_code, 403)
+
+        # --- Event / assignment / performance ---
+        self.assertEqual(post(f'{base}/events/', {'name': 'Ev'}).status_code, 403)
+        ev = Event.objects.create(name='Ev A')
+        asg = self.client.get(f'{base}/assignments/?freelancer={f.id}')
+        asg = post(f'{base}/assignments/', {'freelancer': f.id, 'event': ev.id})
+        self.assertEqual(asg.status_code, 403)
+        # performance mutation on an existing assignment
+        from .models import EventAssignment
+        a = EventAssignment.objects.create(freelancer=f, event=ev)
+        self.assertEqual(post(f'{base}/assignments/{a.id}/performance/', {
+            'rating': 5, 'recommendation': 'RECOMMENDED',
+        }).status_code, 403)
+        self.assertEqual(
+            self.client.delete(f'{base}/assignments/{a.id}/').status_code, 403)
+
+        # --- Document upload / delete (download tetap boleh: GET) ---
+        self.assertEqual(
+            self.client.post(f'{base}/freelancers/{f.id}/documents/', {
+                'doc_type': 'CV', 'name': 'CV', 'url': 'https://x.com/cv.pdf',
+            }, content_type='application/json').status_code, 403)
+
+        # --- GET tetap boleh: list, detail, filter, download ---
+        self.assertEqual(self.client.get(f'{base}/freelancers/').status_code, 200)
+        self.assertEqual(self.client.get(f'{base}/freelancers/{f.id}/').status_code, 200)
+        self.assertEqual(self.client.get(f'{base}/freelancers/?search=0811').status_code, 200)
+        self.assertEqual(self.client.get(f'{base}/events/').status_code, 200)
+        self.assertEqual(self.client.get(f'{base}/assignments/?event={ev.id}').status_code, 200)
+
 
 class TaskReminderRegressionTests(TestCase):
     """Regression harness: reminder tests that ended up after the GM tests.

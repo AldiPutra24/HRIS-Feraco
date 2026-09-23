@@ -1,8 +1,9 @@
 import { NavGroup } from '@/types';
 
+// Employee dashboard: Overview → People → Operations → Finance & Reporting → Knowledge.
 export const employeeNavGroups: NavGroup[] = [
   {
-    label: 'Employee',
+    label: 'Overview',
     items: [
       {
         title: 'Overview',
@@ -10,14 +11,24 @@ export const employeeNavGroups: NavGroup[] = [
         icon: 'dashboard',
         isActive: false,
         items: []
-      },
+      }
+    ]
+  },
+  {
+    label: 'People',
+    items: [
       {
         title: 'Profile',
         url: '/dashboard/employee/profile',
         icon: 'profile',
         isActive: false,
         items: []
-      },
+      }
+    ]
+  },
+  {
+    label: 'Operations',
+    items: [
       {
         title: 'Izin & Cuti',
         url: '/dashboard/employee/leave',
@@ -64,14 +75,24 @@ export const employeeNavGroups: NavGroup[] = [
         icon: 'page',
         isActive: false,
         items: []
-      },
+      }
+    ]
+  },
+  {
+    label: 'Finance & Reporting',
+    items: [
       {
         title: 'Slip Gaji',
         url: '/dashboard/employee/payslip',
         icon: 'wallet',
         isActive: false,
         items: []
-      },
+      }
+    ]
+  },
+  {
+    label: 'Knowledge',
+    items: [
       {
         title: 'Knowledge / KMS',
         url: '/kms',
@@ -85,9 +106,11 @@ export const employeeNavGroups: NavGroup[] = [
 
 // Management & General Manager role: monitoring-only nav (team scope enforced
 // by backend — direct reports for Management, full hierarchy for GM).
+// Group labels are kept consistent with the HR/Admin sidebar; leave approval
+// and payroll routes are shared so the same groups work for both roles.
 export const managementNavGroups: NavGroup[] = [
   {
-    label: 'Management',
+    label: 'Overview',
     items: [
       {
         title: 'Dashboard',
@@ -95,7 +118,12 @@ export const managementNavGroups: NavGroup[] = [
         icon: 'dashboard',
         isActive: false,
         items: []
-      },
+      }
+    ]
+  },
+  {
+    label: 'People',
+    items: [
       {
         title: 'Karyawan',
         url: '/dashboard/karyawan',
@@ -104,7 +132,19 @@ export const managementNavGroups: NavGroup[] = [
         items: []
       },
       {
-        title: 'Leave',
+        title: 'Freelance / Talent Pool',
+        url: '/dashboard/freelance',
+        icon: 'freelancer',
+        isActive: false,
+        items: []
+      }
+    ]
+  },
+  {
+    label: 'Operations',
+    items: [
+      {
+        title: 'Izin & Cuti',
         url: '/dashboard/management/leave',
         icon: 'leave',
         isActive: false,
@@ -129,28 +169,36 @@ export const managementNavGroups: NavGroup[] = [
             items: []
           }
         ]
-      },
+      }
+    ]
+  },
+  {
+    label: 'Finance & Reporting',
+    items: [
       {
         title: 'Payroll',
-        url: '/dashboard/management/payroll',
+        url: '/dashboard/payroll',
         icon: 'wallet',
         isActive: false,
         items: []
-      },
-      {
-        title: 'Freelance / Talent Pool',
-        url: '/dashboard/freelance',
-        icon: 'freelancer',
-        isActive: false,
-        items: []
-      },
+      }
+    ]
+  },
+  {
+    label: 'Knowledge',
+    items: [
       {
         title: 'Knowledge / KMS',
         url: '/kms',
         icon: 'books',
         isActive: false,
         items: []
-      },
+      }
+    ]
+  },
+  {
+    label: 'Personal',
+    items: [
       {
         title: 'Profile',
         url: '/dashboard/settings/account',
@@ -170,8 +218,8 @@ export const navGroups: NavGroup[] = [
         title: 'Dashboard',
         url: '/dashboard/overview',
         icon: 'dashboard',
-        isActive: false,
         shortcut: ['d', 'd'],
+        isActive: false,
         items: []
       }
     ]
