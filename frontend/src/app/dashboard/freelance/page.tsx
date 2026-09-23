@@ -440,6 +440,7 @@ export default function FreelancePage() {
   const [fRating, setFRating] = useState('');
   const [fRec, setFRec] = useState('');
   const [fBlacklist, setFBlacklist] = useState('');
+  const [fEvent, setFEvent] = useState('');
 
   const [skills, setSkills] = useState<Skill[]>([]);
   const [categories, setCategories] = useState<SkillCategory[]>([]);
@@ -462,6 +463,7 @@ export default function FreelancePage() {
     if (fRating) params.rating = fRating;
     if (fRec) params.recommendation = fRec;
     if (fBlacklist) params.is_blacklisted = fBlacklist;
+    if (fEvent) params.event = fEvent;
     try {
       const data = await listFreelancers(params);
       setItems(data);
@@ -470,7 +472,7 @@ export default function FreelancePage() {
     } finally {
       setLoading(false);
     }
-  }, [search, fStatus, fSkill, fRating, fRec, fBlacklist]);
+  }, [search, fStatus, fSkill, fRating, fRec, fBlacklist, fEvent]);
 
   // eslint-disable-next-line react/set-state-in-effect -- data fetch on filter change
   useEffect(() => {
@@ -510,6 +512,7 @@ export default function FreelancePage() {
     setFRating('');
     setFRec('');
     setFBlacklist('');
+    setFEvent('');
   }
 
   return (
@@ -536,7 +539,7 @@ export default function FreelancePage() {
           <CardTitle>Filter</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className='grid grid-cols-1 gap-3 md:grid-cols-3 lg:grid-cols-6'>
+          <div className='grid grid-cols-1 gap-3 md:grid-cols-3 lg:grid-cols-7'>
             <div className='lg:col-span-2'>
               <Label className='text-xs'>Cari</Label>
               <Input
@@ -609,6 +612,19 @@ export default function FreelancePage() {
                 <option value='false'>Tidak</option>
               </select>
             </div>
+            <div>
+              <Label className='text-xs'>Event / Project</Label>
+              <select
+                className='border-input h-9 w-full rounded-lg border bg-transparent px-2.5 text-sm'
+                value={fEvent}
+                onChange={(e) => setFEvent(e.target.value)}
+              >
+                <option value=''>Semua</option>
+                {events.map((ev) => (
+                  <option key={ev.id} value={ev.id}>{ev.name}</option>
+                ))}
+              </select>
+            </div>
             <div className='flex items-end'>
               <Button variant='ghost' onClick={resetFilters}>Reset</Button>
             </div>
@@ -637,6 +653,7 @@ export default function FreelancePage() {
                     <TableHead>Nama</TableHead>
                     <TableHead>Domisili</TableHead>
                     <TableHead>Skill</TableHead>
+                    <TableHead>Event</TableHead>
                     <TableHead>Rate</TableHead>
                     <TableHead>Rating</TableHead>
                     <TableHead>Recommendation</TableHead>
@@ -667,6 +684,17 @@ export default function FreelancePage() {
                           ))}
                           {f.skills.length > 3 && (
                             <Badge variant='outline'>+{f.skills.length - 3}</Badge>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className='flex flex-wrap gap-1'>
+                          {f.events.length === 0 ? (
+                            <span className='text-muted-foreground'>-</span>
+                          ) : (
+                            f.events.map((ev) => (
+                              <Badge key={ev.id} variant='outline'>{ev.name}</Badge>
+                            ))
                           )}
                         </div>
                       </TableCell>
@@ -714,7 +742,7 @@ export default function FreelancePage() {
                     </TableRow>
                     {detailId === f.id && (
                       <TableRow className='hover:bg-transparent'>
-                        <TableCell colSpan={8} className='p-0'>
+                        <TableCell colSpan={9} className='p-0'>
                           <div className='border-t bg-muted/30 p-4 md:p-6'>
                             {detailLoading && detail?.id !== f.id ? (
                               <div className='space-y-3'>

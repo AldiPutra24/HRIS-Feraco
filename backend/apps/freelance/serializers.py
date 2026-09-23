@@ -215,6 +215,7 @@ class FreelancerListSerializer(serializers.ModelSerializer):
     avg_rating = serializers.SerializerMethodField()
     recommendation = serializers.SerializerMethodField()
     last_event = serializers.SerializerMethodField()
+    events = serializers.SerializerMethodField()
 
     class Meta:
         model = Freelancer
@@ -222,7 +223,7 @@ class FreelancerListSerializer(serializers.ModelSerializer):
             'id', 'full_name', 'whatsapp', 'personal_email', 'domicile', 'status',
             'rate', 'rate_type', 'rate_min', 'rate_max',
             'is_blacklisted', 'blacklist_reason',
-            'skills', 'avg_rating', 'recommendation', 'last_event',
+            'skills', 'avg_rating', 'recommendation', 'last_event', 'events',
             'created_at', 'updated_at',
         )
 
@@ -258,6 +259,12 @@ class FreelancerListSerializer(serializers.ModelSerializer):
     def get_last_event(self, obj):
         a = obj.assignments.order_by('-assigned_at', '-event__event_date').first()
         return a.event.name if a else None
+
+    def get_events(self, obj):
+        return [
+            {'id': a.event_id, 'name': a.event.name}
+            for a in obj.assignments.select_related('event').order_by('-assigned_at', '-event__event_date')
+        ]
 
 
 class FreelancerDetailSerializer(serializers.ModelSerializer):
