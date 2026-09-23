@@ -3,7 +3,10 @@ from rest_framework.permissions import BasePermission
 from apps.personnel.permissions import _role
 
 # HR/Admin/User/PIC who manage the freelance database.
-FREELANCE_ROLES = {'ADMIN', 'HR_STAFF', 'HR_LEAD', 'MANAGEMENT', 'EMPLOYEE'}
+# GENERAL_MANAGER: read access to the full Freelancer/Talent Pool list —
+# deliberately NOT team-scoped (freelancers are not Employees, so the
+# reporting hierarchy does not apply). No other module gains access.
+FREELANCE_ROLES = {'ADMIN', 'HR_STAFF', 'HR_LEAD', 'MANAGEMENT', 'EMPLOYEE', 'GENERAL_MANAGER'}
 
 
 class IsFreelanceManager(BasePermission):
