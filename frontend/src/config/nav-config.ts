@@ -108,6 +108,8 @@ export const employeeNavGroups: NavGroup[] = [
 // by backend — direct reports for Management, full hierarchy for GM).
 // Group labels are kept consistent with the HR/Admin sidebar; leave approval
 // and payroll routes are shared so the same groups work for both roles.
+// Note: no Freelance / Talent Pool — MANAGEMENT has no Freelance access;
+// the Payroll link shows only the user's own payslips for Management.
 export const managementNavGroups: NavGroup[] = [
   {
     label: 'Overview',
@@ -136,6 +138,9 @@ export const managementNavGroups: NavGroup[] = [
         url: '/dashboard/freelance',
         icon: 'freelancer',
         isActive: false,
+        // GM only: read-only Talent Pool access (enforced by backend);
+        // MANAGEMENT has no Freelance access at all.
+        access: { roles: ['general_manager'] },
         items: []
       }
     ]
@@ -232,14 +237,6 @@ export const navGroups: NavGroup[] = [
         url: '/dashboard/karyawan',
         icon: 'employee',
         shortcut: ['k', 'k'],
-        isActive: false,
-        items: []
-      },
-      {
-        title: 'Freelance / Talent Pool',
-        url: '/dashboard/freelance',
-        icon: 'freelancer',
-        shortcut: ['f', 'f'],
         isActive: false,
         items: []
       }
