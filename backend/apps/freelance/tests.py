@@ -40,6 +40,54 @@ def make_freelancer(**kwargs):
     return Freelancer.objects.create(**defaults)
 
 
+class FreelancerInitialListPaginationTests(TestCase):
+    """Regression: freelancers mapped from Candidate Freelance must appear in
+    the default list WITHOUT search. Root cause was default pagination
+    (PAGE_SIZE=20): the frontend only renders page 1, so a new freelancer
+    ordered beyond position 20 was invisible until searched.
+    """
+
+    def setUp(self):
+        self.admin = make_user('ADMIN', 'admin@test.com')
+        self.client.force_login(self.admin)
+        # Fill past the old default page size with freelancers sorting FIRST
+        # alphabetically so the mapped candidate would land on page 2.
+        for i in range(24):
+            make_freelancer(full_name=f'AAA Filler {i:02d}', whatsapp=f'081230{i:03d}')
+        # The candidate->talent-pool mapping creates a freelancer with a name
+        # sorted after the fillers (like a real candidate name would).
+        self.mapped = make_freelancer(full_name='Zaki Candidate', whatsapp='089999', personal_email='zaki@cand.id')
+
+    def test_mapped_freelancer_in_initial_list_without_search(self):
+        resp = self.client.get('/api/freelance/freelancers/?page_size=1000')
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertEqual(data['count'], 25)
+        self.assertEqual(len(data['results']), 25)
+        names = [r['full_name'] for r in data['results']]
+        self.assertIn('Zaki Candidate', names)
+
+    def test_search_still_finds_mapped_freelancer(self):
+        resp = self.client.get('/api/freelance/freelancers/?page_size=1000&search=Zaki')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual([r['full_name'] for r in resp.json()['results']], ['Zaki Candidate'])
+
+    def test_filters_still_work(self):
+        self.mapped.status = 'INACTIVE'
+        self.mapped.save(update_fields=['status'])
+        resp = self.client.get('/api/freelance/freelancers/?page_size=1000&status=INACTIVE')
+        self.assertEqual([r['full_name'] for r in resp.json()['results']], ['Zaki Candidate'])
+        resp = self.client.get('/api/freelance/freelancers/?page_size=1000&status=ACTIVE')
+        self.assertNotIn('Zaki Candidate', [r['full_name'] for r in resp.json()['results']])
+
+    def test_unpaginated_request_still_returns_a_page(self):
+        """Without page_size the endpoint remains paginated (page 1 = 20)."""
+        resp = self.client.get('/api/freelance/freelancers/')
+        data = resp.json()
+        self.assertEqual(data['count'], 25)
+        self.assertEqual(len(data['results']), 20)
+
+
 class FreelancerTests(TestCase):
     def setUp(self):
         self.admin = make_user('ADMIN', 'admin@test.com')

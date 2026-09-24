@@ -173,8 +173,10 @@ function unwrapList<T>(data: T[] | Page<T>): T[] {
 }
 
 export function listFreelancers(params: Record<string, string> = {}): Promise<Freelancer[]> {
-  const qs = new URLSearchParams(params).toString();
-  return request<Freelancer[] | Page<Freelancer>>(`/freelancers/${qs ? `?${qs}` : ''}`).then(unwrapList);
+  // page_size=1000: fetch the whole pool in one request — the default page of
+  // 20 hid freelancers that were mapped from recruitment into the pool.
+  const qs = new URLSearchParams({ page_size: '1000', ...params }).toString();
+  return request<Freelancer[] | Page<Freelancer>>(`/freelancers/?${qs}`).then(unwrapList);
 }
 
 export function getFreelancer(id: number): Promise<FreelancerDetail> {
