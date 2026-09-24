@@ -2,6 +2,7 @@ from django.db.models import Q
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
+from rest_framework.pagination import PageNumberPagination
 from rest_framework.response import Response
 
 from apps.audit.services import log_event
@@ -88,6 +89,10 @@ class FreelancerViewSet(viewsets.ModelViewSet):
     search_fields = ['full_name', 'personal_email', 'whatsapp', 'domicile']
     ordering_fields = ['full_name', 'created_at', 'updated_at']
     filterset_fields = ['status', 'is_blacklisted']
+    # Honor ?page_size= so the frontend can fetch the full Talent Pool in one
+    # request; without it the default PAGE_SIZE=20 hides newer freelancers
+    # (e.g. candidates just mapped into the pool) behind page 2.
+    pagination_class = type('LargePagePagination', (PageNumberPagination,), {'page_size_query_param': 'page_size'})
 
     def get_serializer_class(self):
         if self.action == 'list':
