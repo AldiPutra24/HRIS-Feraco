@@ -239,6 +239,14 @@ export const navGroups: NavGroup[] = [
         shortcut: ['k', 'k'],
         isActive: false,
         items: []
+      },
+      {
+        title: 'Freelance / Talent Pool',
+        url: '/dashboard/freelance',
+        icon: 'freelancer',
+        shortcut: ['f', 'f'],
+        isActive: false,
+        items: []
       }
     ]
   },
