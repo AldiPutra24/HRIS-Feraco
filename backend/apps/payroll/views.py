@@ -21,7 +21,7 @@ from .models import (
     TaxConfig,
     TerBracket,
 )
-from .permissions import IsPayrollAdmin, PayrollPeriodPermission, SalaryStructurePermission, PAYROLL_ADMIN_ROLES, PAYROLL_VIEW_ROLES
+from .permissions import IsPayrollAdmin, PayrollSelfPermission, PayrollPeriodPermission, SalaryStructurePermission, PAYROLL_ADMIN_ROLES, PAYROLL_VIEW_ROLES
 from .serializers import (
     AnnualTaxBracketSerializer,
     EmployeeTaxProfileSerializer,
@@ -540,14 +540,14 @@ class PayrollViewSet(viewsets.ReadOnlyModelViewSet):
 
     queryset = Payroll.objects.select_related('employee', 'period').prefetch_related('items')
     serializer_class = PayrollSerializer
-    permission_classes = [IsPayrollAdmin]
+    permission_classes = [PayrollSelfPermission]
     filterset_fields = ['period', 'employee']
     search_fields = ['employee__full_name']
     pagination_class = None
 
     def get_queryset(self):
         qs = super().get_queryset()
-        if _role(self.request.user) in ('MANAGEMENT', 'GENERAL_MANAGER'):
+        if _role(self.request.user) in ('MANAGEMENT', 'GENERAL_MANAGER', 'EMPLOYEE'):
             personnel = getattr(self.request.user, 'personnel', None)
             employee = getattr(personnel, 'employee', None)
             if employee is None:
@@ -634,7 +634,7 @@ class PayrollViewSet(viewsets.ReadOnlyModelViewSet):
         role = _role(request.user)
         if role in PAYROLL_ADMIN_ROLES:
             return build_payslip_pdf(self.get_object())
-        if role == 'EMPLOYEE':
+        if role in ('EMPLOYEE', 'MANAGEMENT'):
             from apps.personnel.permissions import employee_for
 
             employee = employee_for(request.user)
@@ -646,7 +646,7 @@ class PayrollViewSet(viewsets.ReadOnlyModelViewSet):
     def my_payslips(self, request):
         """Employee self-service: own payroll records for PAID/LOCKED periods,
         newest period first. Never exposes another employee's payroll."""
-        if _role(request.user) not in PAYROLL_VIEW_ROLES | {'EMPLOYEE'}:
+        if _role(request.user) not in PAYROLL_VIEW_ROLES | {'EMPLOYEE', 'MANAGEMENT'}:
             return Response({'detail': 'Tidak berwenang.'}, status=403)
         personnel = getattr(request.user, 'personnel', None)
         employee = getattr(personnel, 'employee', None)

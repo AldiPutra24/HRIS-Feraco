@@ -638,11 +638,12 @@ class GeneralManagerFreelanceAccessTests(TestCase):
         names = [f['full_name'] for f in resp.json()['results']]
         self.assertEqual(names, ['Freelancer A'])
 
-    def test_management_behavior_unchanged(self):
+    def test_management_denied(self):
+        """MANAGEMENT tidak punya akses ke Freelance API (403).
+        Tidak diubah untuk GM/HR: keduanya tetap 200."""
         self.client.force_login(self.mgmt)
         resp = self.client.get('/api/freelance/freelancers/')
-        self.assertEqual(resp.status_code, 200)
-        self.assertEqual(len(resp.json()['results']), 3)
+        self.assertEqual(resp.status_code, 403)
 
     def test_hr_behavior_unchanged(self):
         self.client.force_login(self.hr)

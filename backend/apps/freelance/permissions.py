@@ -7,7 +7,8 @@ from apps.personnel.permissions import _role
 # (list, detail, search, filter, document download) but every mutation is
 # rejected with 403 by IsFreelanceManager. Deliberately NOT team-scoped
 # (freelancers are not Employees, so the reporting hierarchy does not apply).
-FREELANCE_ROLES = {'ADMIN', 'HR_STAFF', 'HR_LEAD', 'MANAGEMENT', 'EMPLOYEE', 'GENERAL_MANAGER'}
+# MANAGEMENT: no access — Talent Pool is managed by HR only.
+FREELANCE_ROLES = {'ADMIN', 'HR_STAFF', 'HR_LEAD', 'EMPLOYEE', 'GENERAL_MANAGER'}
 
 
 class IsFreelanceManager(BasePermission):

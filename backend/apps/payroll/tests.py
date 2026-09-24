@@ -82,12 +82,13 @@ class PayrollComponentTests(TestCase):
         res = self.client.post(reverse('payroll-component-list'), payload, format='json')
         self.assertEqual(res.status_code, 403)
 
-    def test_management_can_read_components(self):
+    def test_management_cannot_read_components(self):
+        """MANAGEMENT has no access to payment types configuration."""
         PayrollComponent.objects.create(code='BASIC', name='Gaji Pokok', category='EARNING_FIXED')
         mgmt = make_user('MANAGEMENT', 'mgmt@test.com')
         self.client.force_login(mgmt)
         res = self.client.get(reverse('payroll-component-list'))
-        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.status_code, 403)
 
     def test_seed_idempotent(self):
         from django.core.management import call_command
@@ -298,14 +299,15 @@ class PayrollPeriodTests(TestCase):
         res = self.client.post(reverse('payroll-period-list'), self.payload(), format='json')
         self.assertEqual(res.status_code, 403)
 
-    def test_management_read_only(self):
+    def test_management_denied_periods(self):
+        """MANAGEMENT has no access to payroll processing periods."""
         PayrollPeriod.objects.create(
             period_month=6, period_year=2026,
             period_start=date(2026, 6, 1), period_end=date(2026, 6, 30),
         )
         self.client.force_login(make_user('MANAGEMENT', 'mgmt@test.com'))
         res = self.client.get(reverse('payroll-period-list'))
-        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.status_code, 403)
 
 
 class PayrollCalculateTests(TestCase):
@@ -743,6 +745,49 @@ class ManagementPayrollScopeTests(TestCase):
         self.assertEqual(res.status_code, 200)
         ids = {p['id'] for p in res.json()}
         self.assertEqual(ids, {self.payroll_mgr.id, self.payroll_rep.id, self.payroll_out.id})
+
+    def test_management_denied_admin_endpoints(self):
+        """MANAGEMENT cannot reach payroll admin/configuration endpoints."""
+        self.client.force_login(self.mgr_user)
+        cases = [
+            'payroll-period-list',
+            'payroll-component-list',
+            'payroll-tax-config-list',
+            'payroll-tax-profile-list',
+        ]
+        for view in cases:
+            res = self.client.get(reverse(view))
+            self.assertEqual(res.status_code, 403, f'{view} should be 403 for MANAGEMENT')
+        # Salary structure list is self-scoped (only own structure, empty here).
+        res = self.client.get(reverse('salary-structure-list'))
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json()['results'], [])
+
+    def _walk_to_paid(self):
+        # Walk the state machine (DRAFT→CALCULATED→REVIEW→APPROVED→PAID).
+        self.period.status = PayrollPeriod.Status.CALCULATED
+        self.period.save(update_fields=['status'])
+        for target in (PayrollPeriod.Status.REVIEW, PayrollPeriod.Status.APPROVED,
+                       PayrollPeriod.Status.PAID):
+            self.period.status = target
+            self.period.save(update_fields=['status'])
+
+    def test_management_my_payslips_self_service(self):
+        """MANAGEMENT may use the self-service flow for their own slips only."""
+        self._walk_to_paid()
+        self.client.force_login(self.mgr_user)
+        res = self.client.get(reverse('payroll-my-payslips'))
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual([r['id'] for r in res.json()], [self.payroll_mgr.id])
+
+    def test_management_payslip_download_own_only(self):
+        self._walk_to_paid()
+        self.client.force_login(self.mgr_user)
+        res = self.client.get(reverse('payroll-payslip', args=[self.payroll_mgr.id]))
+        self.assertEqual(res.status_code, 200)
+        # Other employees' slips are outside the MANAGEMENT queryset -> 404.
+        res = self.client.get(reverse('payroll-payslip', args=[self.payroll_rep.id]))
+        self.assertEqual(res.status_code, 404)
 
 
 class EngineTahap3aTests(TestCase):
@@ -1694,34 +1739,13 @@ class PayrollReviewTests(APITestCase):
         self.assertEqual(row['basic_salary'], 5000000)
         self.assertIsInstance(row['items'], list)
 
-    def test_review_management_sees_only_own(self):
-        other = Employee.objects.create(
-            employee_id='E002', full_name='Jane', employment_status='ACTIVE',
-        )
-        SalaryStructure.objects.create(
-            employee=other, effective_from=date(2026, 1, 1), basic_salary=4000000,
-        )
-        # Recalculate with all employees (bypass one-way transition check).
-        PayrollPeriod.objects.filter(pk=self.period.pk).update(status='DRAFT')
-        self.period.refresh_from_db()
-        calculate_period(self.period)
-        mgr_emp = Employee.objects.create(
-            employee_id='E003', full_name='Boss', employment_status='ACTIVE',
-        )
-        SalaryStructure.objects.create(
-            employee=mgr_emp, effective_from=date(2026, 1, 1), basic_salary=10000000,
-        )
-        PayrollPeriod.objects.filter(pk=self.period.pk).update(status='DRAFT')
-        self.period.refresh_from_db()
-        calculate_period(self.period)
+    def test_review_management_denied(self):
+        """MANAGEMENT has no access to payroll processing review (403).
+        They use the self-service my-payslips flow instead."""
         mgr_user = make_user('MANAGEMENT', 'mgr@test.com')
-        mgr_emp.user = mgr_user
-        mgr_emp.save()
         self.client.force_login(mgr_user)
         res = self.client.get(reverse('payroll-period-review', args=[self.period.id]))
-        rows = res.json()['employees']
-        self.assertEqual(len(rows), 1)
-        self.assertEqual(rows[0]['employee_name'], 'Boss')
+        self.assertEqual(res.status_code, 403)
 
     def test_review_read_only_no_mutation(self):
         before = Payroll.objects.get(period=self.period, employee=self.emp)
@@ -1895,7 +1919,8 @@ class EmployeeSelfServicePayslipTests(TestCase):
     def test_employee_cannot_download_other_payslip(self):
         self._login_employee(self.emp)
         res = self.client.get(reverse('payroll-payslip', args=[self.other_payroll.id]))
-        self.assertEqual(res.status_code, 403)
+        # Rejected: 404 (outside self-scoped queryset) — never leaks the slip.
+        self.assertIn(res.status_code, (403, 404))
 
     def test_employee_payslip_blocked_on_draft_period(self):
         self._login_employee(self.emp)
