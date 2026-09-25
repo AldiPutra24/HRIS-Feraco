@@ -1529,6 +1529,109 @@ class Tahap3cTests(TestCase):
         res = self.client.get(reverse('payroll-period-recap', args=[self.period.id]))
         self.assertEqual(res.status_code, 403)
 
+    # -- Payslip template layout (FERACO official design) -----------------
+
+    def _pdf_text(self, content: bytes) -> str:
+        """Extract text from the single-page PDF for layout assertions."""
+        import io
+        from pypdf import PdfReader
+        reader = PdfReader(io.BytesIO(content))
+        self.assertEqual(len(reader.pages), 1, 'Payslip must be a single page')
+        return reader.pages[0].extract_text() or ''
+
+    def test_payslip_template_header_and_sections(self):
+        """Normal payslip: header, title bar, sections, terbilang, signature."""
+        self._to_paid()
+        res = self.client.get(reverse('payroll-payslip', args=[self.payroll.id]))
+        self.assertEqual(res.status_code, 200)
+        self.payroll.refresh_from_db()
+        text = self._pdf_text(res.content)
+        # Header company + address.
+        self.assertIn('PT FERY AGUNG CORINDOTAMA', text)
+        self.assertIn('PURI SENTRA NIAGA', text)
+        # Title with period + year.
+        self.assertIn('SLIP GAJI | Juni | 2026', text)
+        # Slip number boxed on the right (still rendered).
+        self.assertIn('001/HRGA/06/2026', text)
+        self.assertIn('Nomor', text)
+        # Sections.
+        self.assertIn('PENGHASILAN', text)
+        self.assertIn('JUMLAH PENGHASILAN', text)
+        self.assertIn('POTONGAN', text)
+        self.assertIn('JUMLAH POTONGAN', text)
+        self.assertIn('TAKE HOME PAY', text)
+        # Employee data.
+        self.assertIn('Nama Pegawai', text)
+        self.assertIn('John', text)
+        self.assertIn('Periode', text)
+        self.assertIn(f'{self.period.period_start} s/d {self.period.period_end}', text)
+        # Terbilang present.
+        self.assertIn('Terbilang', text)
+        self.assertIn('Empat Juta Sembilan Ratus Lima Puluh Ribu Rupiah', text)
+        # Notes + signature.
+        self.assertIn('Natura/Kenikmatan', text)
+        self.assertIn('PPh ditampilkan sebagai pajak terutang', text)
+        self.assertIn('HRGA DEPARTMENT', text)
+
+    def test_payslip_template_with_pph_dtp_manual_and_deduction(self):
+        """PPh + DTP + manual bonus + deduction all render; DTP note appears."""
+        from .models import PayrollComponent
+        bonus = PayrollComponent.objects.create(
+            code='BONUS', name='Bonus', category='EARNING_VARIABLE',
+            calculation_type='VARIABLE',
+        )
+        loan = PayrollComponent.objects.create(
+            code='KASBON', name='Kasbon', category='DEDUCTION',
+            calculation_type='VARIABLE',
+        )
+        from .models import PayrollItem
+        PayrollItem.objects.create(
+            payroll=self.payroll, payroll_component=bonus,
+            component_name='Bonus', component_code='BONUS',
+            category='EARNING_VARIABLE', amount=1000000, source='MANUAL',
+        )
+        PayrollItem.objects.create(
+            payroll=self.payroll, payroll_component=loan,
+            component_name='Kasbon', component_code='KASBON',
+            category='DEDUCTION', amount=500000, source='MANUAL',
+        )
+        from .services import refresh_payroll_totals
+        refresh_payroll_totals(self.payroll)
+        self._to_paid()
+        res = self.client.get(reverse('payroll-payslip', args=[self.payroll.id]))
+        self.assertEqual(res.status_code, 200)
+        text = self._pdf_text(res.content)
+        self.assertIn('Bonus', text)
+        self.assertIn('Kasbon', text)
+        self.assertIn('Potongan Pajak (PPh 21)', text)  # tax item rendered
+        self.assertIn('pajak terutang', text)
+
+    def test_payslip_dtp_note(self):
+        """DTP period renders the DTP explanation note (THP <= threshold)."""
+        from .models import TaxConfig, TerBracket
+        cfg = TaxConfig.objects.get(year=self.period.period_year)
+        cfg.dtp_threshold = '10000000'
+        cfg.save(update_fields=['dtp_threshold'])
+        self.period.status = PayrollPeriod.Status.DRAFT
+        self.period.save(update_fields=['status'])
+        calculate_period(self.period)
+        self.payroll = Payroll.objects.get(period=self.period, employee=self.emp)
+        self.assertTrue(self.payroll.is_dtp)
+        self._to_paid()
+        res = self.client.get(reverse('payroll-payslip', args=[self.payroll.id]))
+        self.assertEqual(res.status_code, 200)
+        text = self._pdf_text(res.content)
+        self.assertIn('DTP (Ditanggung Pemerintah)', text)
+
+    def test_payslip_single_page(self):
+        """Layout never overflows to a second page."""
+        self._to_paid()
+        res = self.client.get(reverse('payroll-payslip', args=[self.payroll.id]))
+        import io
+        from pypdf import PdfReader
+        reader = PdfReader(io.BytesIO(res.content))
+        self.assertEqual(len(reader.pages), 1)
+
 
 class SalaryStructureComponentsTests(APITestCase):
     """PRD Job 1: multi Payment Type salary structure."""

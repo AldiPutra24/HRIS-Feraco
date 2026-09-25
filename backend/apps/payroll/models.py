@@ -435,10 +435,16 @@ class PayrollItem(models.Model):
 
 
 class CompanyConfig(models.Model):
-    """Singleton company header data for payslip printing (PRD Section 6)."""
+    """Singleton company header data for payslip printing (PRD Section 6).
 
-    name = models.CharField(max_length=255, default='PT Feraco')
-    address = models.TextField(blank=True)
+    Defaults follow the official FERACO payslip template (company name,
+    Puri Sentra Niaga address) so a fresh install prints the standard header."""
+
+    name = models.CharField(max_length=255, default='PT FERY AGUNG CORINDOTAMA')
+    address = models.TextField(
+        default='PURI SENTRA NIAGA, JL. RAYA KALIMALANG B-42, RT.1/RW.7\n'
+               'JAKARTA TIMUR - DKI JAKARTA 13620',
+    )
     department_name = models.CharField(max_length=128, default='HRGA DEPARTMENT')
     updated_at = models.DateTimeField(auto_now=True)
 
