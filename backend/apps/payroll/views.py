@@ -480,7 +480,7 @@ class PayrollPeriodViewSet(viewsets.ModelViewSet):
             .prefetch_related('items')
         )
         role = _role(request.user)
-        if role in ('MANAGEMENT', 'GENERAL_MANAGER'):
+        if role in ('MANAGEMENT', 'HR_STAFF', 'EMPLOYEE', 'GENERAL_MANAGER'):
             personnel = getattr(request.user, 'personnel', None)
             employee = getattr(personnel, 'employee', None)
             if employee is None:
@@ -549,7 +549,7 @@ class PayrollViewSet(viewsets.ReadOnlyModelViewSet):
 
     def get_queryset(self):
         qs = super().get_queryset()
-        if _role(self.request.user) in ('MANAGEMENT', 'GENERAL_MANAGER', 'EMPLOYEE'):
+        if _role(self.request.user) in ('MANAGEMENT', 'HR_STAFF', 'EMPLOYEE', 'GENERAL_MANAGER'):
             personnel = getattr(self.request.user, 'personnel', None)
             employee = getattr(personnel, 'employee', None)
             if employee is None:
@@ -636,7 +636,7 @@ class PayrollViewSet(viewsets.ReadOnlyModelViewSet):
         role = _role(request.user)
         if role in PAYROLL_ADMIN_ROLES:
             return build_payslip_pdf(self.get_object())
-        if role in ('EMPLOYEE', 'MANAGEMENT', 'GENERAL_MANAGER'):
+        if role in ('EMPLOYEE', 'MANAGEMENT', 'HR_STAFF', 'GENERAL_MANAGER'):
             from apps.personnel.permissions import employee_for
 
             employee = employee_for(request.user)
@@ -648,7 +648,7 @@ class PayrollViewSet(viewsets.ReadOnlyModelViewSet):
     def my_payslips(self, request):
         """Employee self-service: own payroll records for PAID/LOCKED periods,
         newest period first. Never exposes another employee's payroll."""
-        if _role(request.user) not in PAYROLL_VIEW_ROLES | {'EMPLOYEE', 'MANAGEMENT'}:
+        if _role(request.user) not in PAYROLL_VIEW_ROLES | {'EMPLOYEE', 'MANAGEMENT', 'HR_STAFF'}:
             return Response({'detail': 'Tidak berwenang.'}, status=403)
         personnel = getattr(request.user, 'personnel', None)
         employee = getattr(personnel, 'employee', None)

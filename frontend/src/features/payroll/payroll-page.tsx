@@ -225,7 +225,7 @@ function ComponentForm({
   );
 }
 
-function ComponentsTable() {
+function ComponentsTable({ readOnly = false }: { readOnly?: boolean }) {
   const [components, setComponents] = useState<PayrollComponent[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -274,7 +274,7 @@ function ComponentsTable() {
     <div className='flex flex-col gap-4'>
       <div className='flex items-center justify-between'>
         <h3 className='text-lg font-semibold tracking-tight'>Payment Types</h3>
-        <Button onClick={openAdd}><Icons.add />Tambah</Button>
+        {!readOnly && <Button onClick={openAdd}><Icons.add />Tambah</Button>}
       </div>
 
       {showForm && (
@@ -343,8 +343,12 @@ function ComponentsTable() {
                     </TableCell>
                     <TableCell className='text-right'>
                       <div className='flex items-center justify-end gap-2'>
-                        <Button variant='ghost' size='sm' onClick={() => openEdit(c)}><Icons.edit />Edit</Button>
-                        <Button variant='ghost' size='sm' onClick={() => handleDelete(c)}><Icons.trash />Hapus</Button>
+                        {!readOnly && (
+                          <>
+                            <Button variant='ghost' size='sm' onClick={() => openEdit(c)}><Icons.edit />Edit</Button>
+                            <Button variant='ghost' size='sm' onClick={() => handleDelete(c)}><Icons.trash />Hapus</Button>
+                          </>
+                        )}
                       </div>
                     </TableCell>
                   </TableRow>
@@ -554,7 +558,7 @@ function StructureForm({
   );
 }
 
-function StructuresSection() {
+function StructuresSection({ readOnly = false }: { readOnly?: boolean }) {
   const [structures, setStructures] = useState<SalaryStructure[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [loading, setLoading] = useState(true);
@@ -626,7 +630,7 @@ function StructuresSection() {
     <div className='flex flex-col gap-4'>
       <div className='flex items-center justify-between'>
         <h3 className='text-lg font-semibold tracking-tight'>Struktur Gaji Karyawan</h3>
-        <Button onClick={() => setShowForm(true)}><Icons.add />Tambah</Button>
+        {!readOnly && <Button onClick={() => setShowForm(true)}><Icons.add />Tambah</Button>}
       </div>
 
       {showForm && <StructureForm onClose={closeForm} onSaved={() => { closeForm(); load(); }} />}
@@ -736,13 +740,13 @@ function StructuresSection() {
                           <Icons.clock />
                           Riwayat
                         </Button>
-                        {s.is_active && !s.effective_to && (
+                        {!readOnly && s.is_active && !s.effective_to && (
                           <Button variant='ghost' size='sm' onClick={() => handleDeactivate(s)}>
                             <Icons.close />
                             Nonaktifkan
                           </Button>
                         )}
-                        {isAdmin && (
+                        {isAdmin && !readOnly && (
                           <Button variant='ghost' size='sm' className='text-destructive' onClick={() => handleDelete(s)}>
                             <Icons.trash />
                             Hapus
@@ -1050,7 +1054,7 @@ function PeriodForm({ onClose, onSaved }: { onClose: () => void; onSaved: () => 
   );
 }
 
-function PayrollEmployeeTable({ period, refreshKey = 0, onManualChange }: { period: PayrollPeriod; refreshKey?: number; onManualChange: () => void }) {
+function PayrollEmployeeTable({ period, refreshKey = 0, onManualChange, readOnly = false }: { period: PayrollPeriod; refreshKey?: number; onManualChange: () => void; readOnly?: boolean }) {
   const [payrolls, setPayrolls] = useState<Payroll[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -1129,6 +1133,7 @@ function PayrollEmployeeTable({ period, refreshKey = 0, onManualChange }: { peri
                     onRemoveManual={handleRemoveManual}
                     periodPaid={period.status === 'PAID' || period.status === 'LOCKED'}
                     periodLabel={`${period.period_year}-${String(period.period_month).padStart(2, '0')}`}
+                    readOnly={readOnly}
                   />
                 ))}
                 {payrolls.length === 0 && (
@@ -1148,7 +1153,7 @@ function PayrollEmployeeTable({ period, refreshKey = 0, onManualChange }: { peri
 }
 
 function PayrollRow({
-  payroll, components, periodStatus, onAddManual, onRemoveManual, periodPaid, periodLabel,
+  payroll, components, periodStatus, onAddManual, onRemoveManual, periodPaid, periodLabel, readOnly = false,
 }: {
   payroll: Payroll;
   components: PayrollComponent[];
@@ -1157,6 +1162,7 @@ function PayrollRow({
   onRemoveManual: (id: number, code: string) => void;
   periodPaid: boolean;
   periodLabel: string;
+  readOnly?: boolean;
 }) {
   const [editingCode, setEditingCode] = useState('');
   const [amountInput, setAmountInput] = useState('');
@@ -1195,14 +1201,14 @@ function PayrollRow({
           {manualItems.map((item) => (
             <div key={item.id} className='flex items-center justify-end gap-1 text-xs'>
               <span>{item.component_code}: {Number(item.amount).toLocaleString('id')}</span>
-              {!isLocked && (
+              {!isLocked && !readOnly && (
                 <button onClick={() => removeManual(item.component_code)} className='text-destructive hover:underline'>
                   <Icons.close className='h-3 w-3' />
                 </button>
               )}
             </div>
           ))}
-          {!isLocked && (
+          {!isLocked && !readOnly && (
             <div className='flex items-center gap-1'>
               <select
                 value={editingCode}
@@ -1248,7 +1254,7 @@ function PayrollRow({
   );
 }
 
-function PayrollProcessingSection() {
+function PayrollProcessingSection({ readOnly = false }: { readOnly?: boolean }) {
   const [periods, setPeriods] = useState<PayrollPeriod[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -1322,9 +1328,11 @@ function PayrollProcessingSection() {
     <div className='flex flex-col gap-4'>
       <div className='flex items-center justify-between'>
         <h3 className='text-lg font-semibold tracking-tight'>Payroll Processing</h3>
-        <Button onClick={() => setShowForm(true)} disabled={showForm}>
-          <Icons.add />Buat Periode
-        </Button>
+        {!readOnly && (
+          <Button onClick={() => setShowForm(true)} disabled={showForm}>
+            <Icons.add />Buat Periode
+          </Button>
+        )}
       </div>
 
       {showForm && (
@@ -1347,6 +1355,7 @@ function PayrollProcessingSection() {
             period={selectedPeriod}
             refreshKey={reviewKey}
             onManualChange={() => setReviewKey((k) => k + 1)}
+            readOnly={readOnly}
           />
         </>
       ) : (
@@ -1382,18 +1391,18 @@ function PayrollProcessingSection() {
                       <TableCell className='text-xs text-slate-500'>{p.created_at?.slice(0, 10)}</TableCell>
                       <TableCell className='text-right'>
                         <div className='flex items-center justify-end gap-1'>
-                          {canRecalculate(p) && (
+                          {!readOnly && canRecalculate(p) && (
                             <Button variant='ghost' size='sm' onClick={() => handleRecalculate(p)}>
                               <Icons.refresh />Sync
                             </Button>
                           )}
-                          {nextAction(p) && !isLocked(p) && (
+                          {!readOnly && nextAction(p) && !isLocked(p) && (
                             <Button variant='ghost' size='sm' onClick={() => handleTransition(p, nextAction(p)!)}>
                               {nextAction(p) === 'calculate' ? <Icons.plusCircle /> : <Icons.check />}
                               {actionLabel(nextAction(p)!)}
                             </Button>
                           )}
-                          {(isAdmin || !isLocked(p)) && (
+                          {!readOnly && (isAdmin || !isLocked(p)) && (
                             <Button variant='ghost' size='sm' className='text-destructive' onClick={() => handleDelete(p)}>
                               <Icons.trash />
                             </Button>
@@ -1433,7 +1442,7 @@ function PayrollProcessingSection() {
 
 // ---------- (4) Tax Config (Tahap 3a/3b UI) ----------
 
-function TaxConfigSection() {
+function TaxConfigSection({ readOnly = false }: { readOnly?: boolean }) {
   const [configs, setConfigs] = useState<TaxConfig[]>([]);
   const [profiles, setProfiles] = useState<EmployeeTaxProfile[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
@@ -1504,7 +1513,7 @@ function TaxConfigSection() {
               <Badge variant='default'>Konfigurasi Aktif</Badge>
             )}
           </div>
-          {selected && <TaxConfigDetail config={selected} onChanged={load} />}
+          {selected && <TaxConfigDetail config={selected} onChanged={load} readOnly={readOnly} />}
           <TaxProfilesCard
             profiles={profiles}
             employees={employees}
@@ -1513,6 +1522,7 @@ function TaxConfigSection() {
             onlyMissing={onlyMissing}
             setOnlyMissing={setOnlyMissing}
             onChanged={load}
+            readOnly={readOnly}
           />
         </>
       )}
@@ -1520,7 +1530,7 @@ function TaxConfigSection() {
   );
 }
 
-function TaxConfigDetail({ config, onChanged }: { config: TaxConfig; onChanged: () => void }) {
+function TaxConfigDetail({ config, onChanged, readOnly = false }: { config: TaxConfig; onChanged: () => void; readOnly?: boolean }) {
   const [dtp, setDtp] = useState(String(Number(config.dtp_threshold)));
   const [layerLimits, setLayerLimits] = useState(
     (config.annual_layer_limits ?? []).map((v) => String(Number(v))),
@@ -1578,10 +1588,12 @@ function TaxConfigDetail({ config, onChanged }: { config: TaxConfig; onChanged: 
         <CardHeader>
           <CardTitle className='flex items-center justify-between'>
             <span>Umum — Tahun {config.year}</span>
-            <div className='flex items-center gap-2'>
-              <Switch checked={config.is_active} onCheckedChange={toggleActive} />
-              <Label className='text-sm'>Aktif</Label>
-            </div>
+            {!readOnly && (
+              <div className='flex items-center gap-2'>
+                <Switch checked={config.is_active} onCheckedChange={toggleActive} />
+                <Label className='text-sm'>Aktif</Label>
+              </div>
+            )}
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -1593,14 +1605,17 @@ function TaxConfigDetail({ config, onChanged }: { config: TaxConfig; onChanged: 
                 type='number'
                 min='0'
                 value={dtp}
+                disabled={readOnly}
                 onChange={(e) => setDtp(e.target.value)}
               />
             </div>
-            <div className='flex justify-end'>
-              <Button type='submit' disabled={saving}>
-                {saving ? 'Menyimpan...' : 'Simpan'}
-              </Button>
-            </div>
+            {!readOnly && (
+              <div className='flex justify-end'>
+                <Button type='submit' disabled={saving}>
+                  {saving ? 'Menyimpan...' : 'Simpan'}
+                </Button>
+              </div>
+            )}
           </form>
         </CardContent>
       </Card>
@@ -1621,6 +1636,7 @@ function TaxConfigDetail({ config, onChanged }: { config: TaxConfig; onChanged: 
                   type='number'
                   min='0'
                   value={v}
+                  disabled={readOnly}
                   onChange={(e) =>
                     setLayerLimits((prev) => prev.map((p, j) => (j === i ? e.target.value : p)))
                   }
@@ -1628,21 +1644,23 @@ function TaxConfigDetail({ config, onChanged }: { config: TaxConfig; onChanged: 
               </div>
             ))}
           </div>
-          <div className='flex justify-end'>
-            <Button onClick={saveLayers} disabled={saving}>
-              {saving ? 'Menyimpan...' : 'Simpan Batas'}
-            </Button>
-          </div>
+          {!readOnly && (
+            <div className='flex justify-end'>
+              <Button onClick={saveLayers} disabled={saving}>
+                {saving ? 'Menyimpan...' : 'Simpan Batas'}
+              </Button>
+            </div>
+          )}
         </CardContent>
       </Card>
 
-      <TerBracketsCard config={config} onChanged={onChanged} />
-      <AnnualBracketsCard config={config} onChanged={onChanged} />
+      <TerBracketsCard config={config} onChanged={onChanged} readOnly={readOnly} />
+      <AnnualBracketsCard config={config} onChanged={onChanged} readOnly={readOnly} />
     </div>
   );
 }
 
-function TerBracketsCard({ config, onChanged }: { config: TaxConfig; onChanged: () => void }) {
+function TerBracketsCard({ config, onChanged, readOnly = false }: { config: TaxConfig; onChanged: () => void; readOnly?: boolean }) {
   const [rows, setRows] = useState(
     config.ter_brackets.map((b) => ({
       ter_category: b.ter_category,
@@ -1703,9 +1721,11 @@ function TerBracketsCard({ config, onChanged }: { config: TaxConfig; onChanged: 
       <CardHeader>
         <CardTitle className='flex items-center justify-between'>
           <span>TER PPh 21 Bulanan (Kategori A/B/C)</span>
-          <Button variant='outline' size='sm' onClick={addRow}>
-            <Icons.add />Baris
-          </Button>
+          {!readOnly && (
+            <Button variant='outline' size='sm' onClick={addRow}>
+              <Icons.add />Baris
+            </Button>
+          )}
         </CardTitle>
       </CardHeader>
         <CardContent className='space-y-3'>
@@ -1716,6 +1736,7 @@ function TerBracketsCard({ config, onChanged }: { config: TaxConfig; onChanged: 
                 <select
                   value={r.ter_category}
                   onChange={(e) => updateRow(i, { ter_category: e.target.value as 'A' | 'B' | 'C' })}
+                  disabled={readOnly}
                   className='border-input h-8 rounded-lg border bg-transparent px-2 text-sm'
                 >
                   {['A', 'B', 'C'].map((c) => <option key={c} value={c}>{c}</option>)}
@@ -1725,6 +1746,7 @@ function TerBracketsCard({ config, onChanged }: { config: TaxConfig; onChanged: 
                   min='0'
                   placeholder='Bruto ≥'
                   value={r.bruto_lower}
+                  disabled={readOnly}
                   onChange={(e) => updateRow(i, { bruto_lower: e.target.value })}
                 />
                 <Input
@@ -1732,6 +1754,7 @@ function TerBracketsCard({ config, onChanged }: { config: TaxConfig; onChanged: 
                   min='0'
                   placeholder='Bruto < (kosong = ∞)'
                   value={r.bruto_upper}
+                  disabled={readOnly}
                   onChange={(e) => updateRow(i, { bruto_upper: e.target.value })}
                 />
                 <Input
@@ -1740,11 +1763,14 @@ function TerBracketsCard({ config, onChanged }: { config: TaxConfig; onChanged: 
                   step='0.01'
                   placeholder='%'
                   value={r.rate_pct}
+                  disabled={readOnly}
                   onChange={(e) => updateRow(i, { rate_pct: e.target.value })}
                 />
-                <Button variant='ghost' size='sm' className='text-destructive' onClick={() => removeRow(i)}>
-                  <Icons.trash />
-                </Button>
+                {!readOnly && (
+                  <Button variant='ghost' size='sm' className='text-destructive' onClick={() => removeRow(i)}>
+                    <Icons.trash />
+                  </Button>
+                )}
               </div>
             ))}
             {rows.length === 0 && (
@@ -1753,17 +1779,19 @@ function TerBracketsCard({ config, onChanged }: { config: TaxConfig; onChanged: 
               </p>
             )}
           </div>
-          <div className='flex justify-end'>
-            <Button onClick={save} disabled={saving || rows.length === 0}>
-              {saving ? 'Menyimpan...' : rows.length === 0 ? 'Reset ke Statutory' : 'Simpan Semua (ganti total)'}
-            </Button>
-          </div>
+          {!readOnly && (
+            <div className='flex justify-end'>
+              <Button onClick={save} disabled={saving || rows.length === 0}>
+                {saving ? 'Menyimpan...' : rows.length === 0 ? 'Reset ke Statutory' : 'Simpan Semua (ganti total)'}
+              </Button>
+            </div>
+          )}
         </CardContent>
       </Card>
   );
 }
 
-function AnnualBracketsCard({ config, onChanged }: { config: TaxConfig; onChanged: () => void }) {
+function AnnualBracketsCard({ config, onChanged, readOnly = false }: { config: TaxConfig; onChanged: () => void; readOnly?: boolean }) {
   const [rows, setRows] = useState(
     config.annual_brackets.map((b) => ({
       layer_order: b.layer_order,
@@ -1827,9 +1855,11 @@ function AnnualBracketsCard({ config, onChanged }: { config: TaxConfig; onChange
       <CardHeader>
         <CardTitle className='flex items-center justify-between'>
           <span>Override Lapisan Tahunan (Pasal 17)</span>
-          <Button variant='outline' size='sm' onClick={addRow} disabled={rows.length >= 5}>
-            <Icons.add />Baris
-          </Button>
+          {!readOnly && (
+            <Button variant='outline' size='sm' onClick={addRow} disabled={rows.length >= 5}>
+              <Icons.add />Baris
+            </Button>
+          )}
         </CardTitle>
       </CardHeader>
         <CardContent className='space-y-3'>
@@ -1845,6 +1875,7 @@ function AnnualBracketsCard({ config, onChanged }: { config: TaxConfig; onChange
                   <select
                     value={r.layer_order}
                     onChange={(e) => updateRow(i, { layer_order: Number(e.target.value) })}
+                    disabled={readOnly}
                     className='border-input h-8 rounded-lg border bg-transparent px-2 text-sm'
                   >
                     {[1, 2, 3, 4, 5].map((l) => <option key={l} value={l}>Lapisan {l}</option>)}
@@ -1854,6 +1885,7 @@ function AnnualBracketsCard({ config, onChanged }: { config: TaxConfig; onChange
                     min='0'
                     placeholder='PKP ≥'
                     value={r.pkp_lower}
+                    disabled={readOnly}
                     onChange={(e) => updateRow(i, { pkp_lower: e.target.value })}
                   />
                   <Input
@@ -1861,6 +1893,7 @@ function AnnualBracketsCard({ config, onChanged }: { config: TaxConfig; onChange
                     min='0'
                     placeholder='PKP < (kosong = ∞)'
                     value={r.pkp_upper}
+                    disabled={readOnly}
                     onChange={(e) => updateRow(i, { pkp_upper: e.target.value })}
                   />
                   <Input
@@ -1869,20 +1902,25 @@ function AnnualBracketsCard({ config, onChanged }: { config: TaxConfig; onChange
                     step='0.01'
                     placeholder='%'
                     value={r.rate_pct}
+                    disabled={readOnly}
                     onChange={(e) => updateRow(i, { rate_pct: e.target.value })}
                   />
-                  <Button variant='ghost' size='sm' className='text-destructive' onClick={() => removeRow(i)}>
-                    <Icons.trash />
-                  </Button>
+                  {!readOnly && (
+                    <Button variant='ghost' size='sm' className='text-destructive' onClick={() => removeRow(i)}>
+                      <Icons.trash />
+                    </Button>
+                  )}
                 </div>
               ))}
             </div>
           )}
-          <div className='flex justify-end'>
-            <Button onClick={save} disabled={saving}>
-              {saving ? 'Menyimpan...' : rows.length === 0 ? 'Reset ke Statutory' : 'Simpan Override'}
-            </Button>
-          </div>
+          {!readOnly && (
+            <div className='flex justify-end'>
+              <Button onClick={save} disabled={saving}>
+                {saving ? 'Menyimpan...' : rows.length === 0 ? 'Reset ke Statutory' : 'Simpan Override'}
+              </Button>
+            </div>
+          )}
         </CardContent>
       </Card>
   );
@@ -1896,6 +1934,7 @@ function TaxProfilesCard({
   onlyMissing,
   setOnlyMissing,
   onChanged,
+  readOnly = false,
 }: {
   profiles: EmployeeTaxProfile[];
   employees: Employee[];
@@ -1904,6 +1943,7 @@ function TaxProfilesCard({
   onlyMissing: boolean;
   setOnlyMissing: (v: boolean) => void;
   onChanged: () => void;
+  readOnly?: boolean;
 }) {
   const [savingId, setSavingId] = useState<number | null>(null);
   const [error, setError] = useState('');
@@ -2003,7 +2043,7 @@ function TaxProfilesCard({
                   <select
                     value={profile?.ptkp_status ?? ''}
                     onChange={(e) => save(employee.id, { ptkp_status: e.target.value })}
-                    disabled={savingId === employee.id}
+                    disabled={savingId === employee.id || readOnly}
                     className='border-input h-8 rounded-lg border bg-transparent px-2 text-sm'
                   >
                     <option value=''>TK/0 (default)</option>
@@ -2017,7 +2057,7 @@ function TaxProfilesCard({
                   <select
                     value={profile?.tax_scheme ?? 'NORMAL'}
                     onChange={(e) => save(employee.id, { tax_scheme: e.target.value })}
-                    disabled={savingId === employee.id}
+                    disabled={savingId === employee.id || readOnly}
                     className='border-input h-8 rounded-lg border bg-transparent px-2 text-sm'
                   >
                     <option value='NORMAL'>NORMAL</option>
@@ -2025,7 +2065,7 @@ function TaxProfilesCard({
                   </select>
                 </TableCell>
                 <TableCell className='text-right'>
-                  {profile && (
+                  {!readOnly && profile && (
                     <Button
                       variant='ghost'
                       size='sm'
@@ -2061,7 +2101,7 @@ function terCategoryFor(ptkp: string): 'A' | 'B' | 'C' {
 
 // ---------- Main Page ----------
 
-export function PayrollPage() {
+export function PayrollPage({ readOnly = false }: { readOnly?: boolean }) {
   const [tab, setTab] = useState<'components' | 'structures' | 'processing' | 'tax'>('components');
 
   return (
@@ -2070,7 +2110,9 @@ export function PayrollPage() {
         <div>
           <h2 className='text-2xl font-bold tracking-tight'>Payroll</h2>
           <p className='text-muted-foreground text-sm'>
-            Kelola payment type dan struktur gaji karyawan.
+            {readOnly
+              ? 'Mode lihat saja (read-only).'
+              : 'Kelola payment type dan struktur gaji karyawan.'}
           </p>
         </div>
       </div>
@@ -2119,13 +2161,13 @@ export function PayrollPage() {
       </div>
 
       {tab === 'components' ? (
-        <ComponentsTable />
+        <ComponentsTable readOnly={readOnly} />
       ) : tab === 'structures' ? (
-        <StructuresSection />
+        <StructuresSection readOnly={readOnly} />
       ) : tab === 'processing' ? (
-        <PayrollProcessingSection />
+        <PayrollProcessingSection readOnly={readOnly} />
       ) : (
-        <TaxConfigSection />
+        <TaxConfigSection readOnly={readOnly} />
       )}
     </div>
   );

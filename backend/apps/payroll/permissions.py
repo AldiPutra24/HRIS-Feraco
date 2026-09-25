@@ -3,12 +3,11 @@ from rest_framework.permissions import BasePermission, SAFE_METHODS
 from apps.personnel.permissions import _role
 
 PAYROLL_ADMIN_ROLES = {'ADMIN', 'HR_LEAD'}
-# HR_STAFF is deliberately excluded: HR Staff has no access to the Payroll
-# module at all (all endpoints 403). MANAGEMENT is also excluded: Management
-# may only access their own payroll via the self-service endpoints
-# (my-payslips / own payslip) — never the admin/configuration endpoints.
-# GENERAL_MANAGER is read-only: it appears only in VIEW_ROLES, never in
-# ADMIN_ROLES, so every mutation is rejected.
+# HR_STAFF is excluded from payroll ADMIN: no payment types, structures,
+# processing or tax configuration. HR_STAFF only keeps SELF-SERVICE access
+# (own payslips via my-payslips / own payslip / own salary structure).
+# MANAGEMENT likewise self-service only.
+# GENERAL_MANAGER is strictly READ-ONLY: in VIEW_ROLES only, every mutation 403.
 PAYROLL_VIEW_ROLES = {'ADMIN', 'HR_LEAD', 'GENERAL_MANAGER'}
 
 
@@ -24,16 +23,16 @@ class IsPayrollAdmin(BasePermission):
 
 
 class PayrollSelfPermission(BasePermission):
-    """Payroll records: ADMIN/HR_LEAD read all; GM read-only; MANAGEMENT/EMPLOYEE
+    """Payroll records: ADMIN/HR_LEAD/GM read all; MANAGEMENT/EMPLOYEE/HR_STAFF
     only via self-scoped queryset (get_queryset filters to their own employee).
-    Writes stay ADMIN/HR_LEAD-only. Admin/configuration viewsets use
-    IsPayrollAdmin and therefore reject MANAGEMENT, HR_STAFF and GM."""
+    Writes: ADMIN/HR_LEAD only (GM read-only). Admin/configuration viewsets use
+    IsPayrollAdmin and therefore reject MANAGEMENT, HR_STAFF, EMPLOYEE, GM."""
 
     def has_permission(self, request, view):
         if not request.user.is_authenticated:
             return False
         if request.method in SAFE_METHODS:
-            return _role(request.user) in PAYROLL_VIEW_ROLES | {'EMPLOYEE', 'MANAGEMENT'}
+            return _role(request.user) in PAYROLL_VIEW_ROLES | {'EMPLOYEE', 'MANAGEMENT', 'HR_STAFF'}
         return _role(request.user) in PAYROLL_ADMIN_ROLES
 
 
