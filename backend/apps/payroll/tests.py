@@ -830,12 +830,13 @@ class PayrollRoleAccessTests(TestCase):
             self.assertEqual(self.period.status, target)
 
     def test_gm_read_only(self):
-        """GENERAL_MANAGER can read payroll but every mutation is 403."""
+        """GENERAL_MANAGER: view all payroll data, every mutation 403."""
         gm = make_user('GENERAL_MANAGER', 'gm@test.com')
         self.client.force_login(gm)
         self.assertEqual(self.client.get(reverse('payroll-period-list')).status_code, 200)
         self.assertEqual(self.client.get(reverse('payroll-list')).status_code, 200)
         self.assertEqual(self.client.get(reverse('payroll-component-list')).status_code, 200)
+        self.assertEqual(self.client.get(reverse('payroll-tax-config-list')).status_code, 200)
         # Mutations: 403 (nothing changed).
         res = self.client.post(reverse('payroll-period-calculate', args=[self.period.id]))
         self.assertEqual(res.status_code, 403)
@@ -858,28 +859,45 @@ class PayrollRoleAccessTests(TestCase):
         self.assertEqual(self.period.status, 'DRAFT')
         self.assertEqual(PayrollComponent.objects.count(), 0)
 
-    def test_hr_staff_denied(self):
-        """HR_STAFF has NO access to payroll endpoints (403 everywhere)."""
-        hr = make_user('HR_STAFF', 'hr@test.com')
-        self.client.force_login(hr)
+    def test_hr_staff_self_service_only(self):
+        """HR_STAFF: admin/configuration endpoints 403, but own payslips work."""
+        hr_user = make_user('HR_STAFF', 'hr@test.com')
+        emp = Employee.objects.create(
+            employee_id='EHR1', full_name='HR Person', employment_status='ACTIVE',
+        )
+        emp.user = hr_user
+        emp.save()
+        self.period.status = PayrollPeriod.Status.PAID
+        PayrollPeriod.objects.filter(pk=self.period.pk).update(status=PayrollPeriod.Status.PAID)
+        payroll = Payroll.objects.create(
+            period=self.period, employee=emp,
+            basic_salary=5000000, gross_salary=5000000, net_salary=5000000,
+        )
+        self.client.force_login(hr_user)
         for view in (
             'payroll-period-list', 'payroll-component-list',
             'payroll-tax-config-list', 'payroll-tax-profile-list',
-            'payroll-list',
         ):
             res = self.client.get(reverse(view))
             self.assertEqual(res.status_code, 403, f'{view} should be 403 for HR_STAFF')
-        # Salary structure list returns 200 but empty (self-scoped, no employee).
-        res = self.client.get(reverse('salary-structure-list'))
-        self.assertEqual(res.json()['results'], [])
+        # payroll-list is self-scoped: only their own payroll row.
+        res = self.client.get(reverse('payroll-list'))
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual([r['id'] for r in res.json()], [payroll.id])
         res = self.client.post(reverse('payroll-period-calculate', args=[self.period.id]))
         self.assertEqual(res.status_code, 403)
         res = self.client.post(
             reverse('payroll-component-list'),
-            {'code': 'X', 'name': 'X', 'category': 'EARNING_FIXED'},
+            {'code': 'HRS', 'name': 'HRS', 'category': 'EARNING_FIXED'},
             format='json',
         )
         self.assertEqual(res.status_code, 403)
+        # Self-service: own payslips + own slip PDF.
+        res = self.client.get(reverse('payroll-my-payslips'))
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual([r['id'] for r in res.json()], [payroll.id])
+        res = self.client.get(reverse('payroll-payslip', args=[payroll.id]))
+        self.assertEqual(res.status_code, 200)
 
 
 class EngineTahap3aTests(TestCase):
@@ -2022,10 +2040,14 @@ class EmployeeSelfServicePayslipTests(TestCase):
         self.assertEqual(res.status_code, 400)
 
     def test_hr_lead_payslip_access(self):
-        """HR_LEAD (payroll admin) can download any payslip; HR_STAFF is denied."""
+        """HR_LEAD (payroll admin) can download any payslip; other roles without
+        ownership (HR_STAFF, GM) are denied."""
         self.client.force_login(make_user('HR_LEAD', 'lead@test.com'))
         res = self.client.get(reverse('payroll-payslip', args=[self.other_payroll.id]))
         self.assertEqual(res.status_code, 200)
         self.client.force_login(make_user('HR_STAFF', 'hr@test.com'))
+        res = self.client.get(reverse('payroll-payslip', args=[self.other_payroll.id]))
+        self.assertEqual(res.status_code, 403)
+        self.client.force_login(make_user('GENERAL_MANAGER', 'gm@test.com'))
         res = self.client.get(reverse('payroll-payslip', args=[self.other_payroll.id]))
         self.assertEqual(res.status_code, 403)

@@ -376,8 +376,8 @@ export const navGroups: NavGroup[] = [
         url: '/dashboard/payroll',
         icon: 'wallet',
         isActive: false,
-        // Payroll admin console: HR_LEAD & ADMIN only. HR_STAFF has no
-        // payroll access (backend denies all payroll endpoints).
+        // Payroll admin console: ADMIN/HR_LEAD only. GM/HR_STAFF/MANAGEMENT see
+        // read-only self-service payslips via /dashboard/employee/payslip.
         access: { roles: ['admin', 'hr_lead'] },
         items: []
       },

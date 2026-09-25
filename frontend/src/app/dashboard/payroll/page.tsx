@@ -5,12 +5,13 @@ import { PayrollPage } from '@/features/payroll/payroll-page';
 import { EmployeePayslip } from '@/features/payroll/employee-payslip';
 import { Skeleton } from '@/components/ui/skeleton';
 
-// ADMIN/HR_LEAD see the full payroll admin console (components, structures,
-// processing, tax). HR_STAFF has no payroll access at all (backend 403).
-// MANAGEMENT/GENERAL_MANAGER (and any other role without payroll-admin access)
-// get the self-service view: their own payslips only — matching the backend
-// scope enforced in apps/payroll.
+// ADMIN/HR_LEAD get the full payroll admin console (read + write).
+// GENERAL_MANAGER gets a READ-ONLY view of the same console: payment types,
+// struktur gaji, payroll processing, konfigurasi pajak — semua tombol
+// mutation disembunyikan (backend juga menolak setiap mutation dengan 403).
+// HR_STAFF/MANAGEMENT/EMPLOYEE get the self-service view: their own payslips.
 const PAYROLL_ADMIN_ROLES = ['admin', 'hr_lead'];
+const PAYROLL_READONLY_ROLES = ['general_manager'];
 
 export default function PayrollDashboardPage() {
   const { user, isLoading } = useAuth();
@@ -24,8 +25,12 @@ export default function PayrollDashboardPage() {
     );
   }
 
-  if (user && PAYROLL_ADMIN_ROLES.includes(user.role ?? '')) {
+  const role = user?.role ?? '';
+  if (PAYROLL_ADMIN_ROLES.includes(role)) {
     return <PayrollPage />;
+  }
+  if (PAYROLL_READONLY_ROLES.includes(role)) {
+    return <PayrollPage readOnly />;
   }
   return <EmployeePayslip />;
 }
