@@ -349,3 +349,120 @@ class KmsAttachmentTests(BaseKmsTests):
         res = self.client.delete(f'{ARTICLES_URL}{self.art.id}/')
         self.assertIn(res.status_code, (200, 204))
         self.assertFalse(KnowledgeArticle.objects.filter(pk=self.art.pk).exists())
+
+
+class KmsVisibilityTests(BaseKmsTests):
+    """Privacy / Target Audience: ALL, ROLE, DEPARTMENT, USER, PRIVATE."""
+
+    def setUp(self):
+        super().setUp()
+        self.client.force_login(self.hr)
+        from apps.personnel.models import Department, Employee
+        self.dept_it = Department.objects.create(name='IT')
+        self.dept_hr = Department.objects.create(name='HR & Finance')
+        # Link emp (EMPLOYEE) + mgmt (MANAGEMENT) to departments.
+        Employee.objects.create(
+            employee_id='E-IT', full_name='Emp IT', employment_status='ACTIVE',
+            department=self.dept_it, user=self.emp,
+        )
+        Employee.objects.create(
+            employee_id='E-HR', full_name='Mgmt HR', employment_status='ACTIVE',
+            department=self.dept_hr, user=self.mgmt,
+        )
+        # Unlinked employee.
+        self.emp2 = make_user('emp2@t', 'EMPLOYEE')
+
+    def _publish(self, **over):
+        payload = {
+            'title': 'Artikel', 'summary': 's', 'content': '<p>isi</p>',
+            'category': self.cat.id, 'status': 'PUBLISHED',
+        }
+        payload.update(over)
+        res = self.client.post(ARTICLES_URL, *body(payload))
+        self.assertEqual(res.status_code, 201, res.data)
+        return res.data
+
+    def test_all_visible_to_everyone(self):
+        art = self._publish()
+        for u in (self.emp, self.mgmt, self.emp2):
+            self.client.force_login(u)
+            res = self.client.get(f'{ARTICLES_URL}{art["id"]}/')
+            self.assertEqual(res.status_code, 200)
+
+    def test_role_visibility(self):
+        art = self._publish(visibility='ROLE', role_targets=['MANAGEMENT'])
+        self.client.force_login(self.mgmt)
+        self.assertIn(art['id'], [a['id'] for a in self.client.get(ARTICLES_URL).data['results']])
+        self.assertEqual(self.client.get(f'{ARTICLES_URL}{art["id"]}/').status_code, 200)
+        # Employee (wrong role) cannot read.
+        self.client.force_login(self.emp)
+        self.assertNotIn(art['id'], [a['id'] for a in self.client.get(ARTICLES_URL).data['results']])
+        self.assertEqual(self.client.get(f'{ARTICLES_URL}{art["id"]}/').status_code, 404)
+
+    def test_department_visibility(self):
+        art = self._publish(visibility='DEPARTMENT', department_targets=[self.dept_it.id])
+        self.client.force_login(self.emp)  # IT
+        self.assertIn(art['id'], [a['id'] for a in self.client.get(ARTICLES_URL).data['results']])
+        self.assertEqual(self.client.get(f'{ARTICLES_URL}{art["id"]}/').status_code, 200)
+        self.client.force_login(self.mgmt)  # HR & Finance
+        self.assertNotIn(art['id'], [a['id'] for a in self.client.get(ARTICLES_URL).data['results']])
+        self.assertEqual(self.client.get(f'{ARTICLES_URL}{art["id"]}/').status_code, 404)
+        self.client.force_login(self.emp2)  # no department
+        self.assertNotIn(art['id'], [a['id'] for a in self.client.get(ARTICLES_URL).data['results']])
+
+    def test_user_visibility(self):
+        art = self._publish(visibility='USER', user_targets=[self.emp2.id])
+        self.client.force_login(self.emp2)
+        self.assertIn(art['id'], [a['id'] for a in self.client.get(ARTICLES_URL).data['results']])
+        self.assertEqual(self.client.get(f'{ARTICLES_URL}{art["id"]}/').status_code, 200)
+        self.client.force_login(self.emp)
+        self.assertNotIn(art['id'], [a['id'] for a in self.client.get(ARTICLES_URL).data['results']])
+        self.assertEqual(self.client.get(f'{ARTICLES_URL}{art["id"]}/').status_code, 404)
+
+    def test_private_owner_and_manager_only(self):
+        # Owner = self.hr (creator), KMS manager = self.admin.
+        art = self._publish(visibility='PRIVATE')
+        self.client.force_login(self.hr)
+        self.assertIn(art['id'], [a['id'] for a in self.client.get(ARTICLES_URL).data['results']])
+        self.client.force_login(self.admin)
+        self.assertIn(art['id'], [a['id'] for a in self.client.get(ARTICLES_URL).data['results']])
+        # Regular users (even management) cannot read.
+        for u in (self.emp, self.mgmt):
+            self.client.force_login(u)
+            self.assertNotIn(art['id'], [a['id'] for a in self.client.get(ARTICLES_URL).data['results']])
+            self.assertEqual(self.client.get(f'{ARTICLES_URL}{art["id"]}/').status_code, 404)
+
+    def test_private_creator_can_edit(self):
+        art = self._publish(visibility='PRIVATE')
+        res = self.client.patch(f'{ARTICLES_URL}{art["id"]}/', *body({'title': 'Baru'}))
+        self.assertEqual(res.status_code, 200)
+
+    def test_search_respects_visibility(self):
+        self._publish(title='Khusus Management', visibility='ROLE', role_targets=['MANAGEMENT'])
+        art_all = self._publish(title='Khusus Semua')
+        self.client.force_login(self.emp)
+        res = self.client.get(f'{ARTICLES_URL}?search=Khusus')
+        ids = [a['id'] for a in res.data['results']]
+        self.assertIn(art_all['id'], ids)
+        self.assertNotIn('Khusus Management', str([a['title'] for a in res.data['results'] if a['id'] in ids]))
+
+    def test_managers_role_targets_still_apply_to_non_manager_roles(self):
+        """HR managers see all (manage permission), targets gate other roles."""
+        art = self._publish(visibility='ROLE', role_targets=['EMPLOYEE'])
+        self.client.force_login(self.lead)
+        self.assertEqual(self.client.get(f'{ARTICLES_URL}{art["id"]}/').status_code, 200)
+        self.client.force_login(self.emp)
+        self.assertEqual(self.client.get(f'{ARTICLES_URL}{art["id"]}/').status_code, 200)
+        self.client.force_login(self.mgmt)
+        self.assertEqual(self.client.get(f'{ARTICLES_URL}{art["id"]}/').status_code, 404)
+
+    def test_validation_role_targets_required_for_role_visibility(self):
+        res = self.client.post(ARTICLES_URL, *body({
+            'title': 'X', 'summary': '', 'content': '<p>x</p>',
+            'category': self.cat.id, 'status': 'PUBLISHED', 'visibility': 'ROLE',
+        }))
+        self.assertEqual(res.status_code, 400)
+
+    def test_existing_articles_default_all(self):
+        art = self._publish()
+        self.assertEqual(art['visibility'], 'ALL')

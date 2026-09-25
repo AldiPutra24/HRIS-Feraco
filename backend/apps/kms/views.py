@@ -122,6 +122,8 @@ class KnowledgeArticleViewSet(viewsets.ModelViewSet):
         )
         if not is_manager:
             qs = qs.filter(status=STATUS_PUBLISHED)
+            # Privacy: only articles this user may read.
+            qs = KnowledgeArticle.accessible_to(user).filter(pk__in=qs.values('pk'))
         elif self.request.query_params.get('status') is None and self.kwargs.get('pk') is None:
             # Default listing for managers excludes ARCHIVED unless asked.
             qs = qs.exclude(status=STATUS_ARCHIVED)
@@ -157,9 +159,12 @@ class KnowledgeArticleViewSet(viewsets.ModelViewSet):
             return KnowledgeArticle.objects.select_related(
                 'category', 'subcategory', 'created_by', 'updated_by',
             )
+        # Privacy: published AND readable by this user (404 otherwise,
+        # matching the existing "outside manager queryset -> 404" convention).
+        visible = KnowledgeArticle.accessible_to(user)
         return KnowledgeArticle.objects.select_related(
             'category', 'subcategory', 'created_by', 'updated_by',
-        ).filter(status=STATUS_PUBLISHED)
+        ).filter(status=STATUS_PUBLISHED, pk__in=visible.values('pk'))
 
     def perform_create(self, serializer):
         obj = serializer.save(created_by=self.request.user, updated_by=self.request.user)
@@ -231,7 +236,9 @@ class KnowledgeArticleViewSet(viewsets.ModelViewSet):
     def related(self, request, pk=None):
         """Same-subcategory first, then same-category, published only."""
         article = self.get_object()
-        qs = KnowledgeArticle.objects.filter(status=STATUS_PUBLISHED).exclude(pk=article.pk)
+        qs = KnowledgeArticle.objects.filter(
+            status=STATUS_PUBLISHED, pk__in=KnowledgeArticle.accessible_to(request.user).values('pk'),
+        ).exclude(pk=article.pk)
         if article.subcategory_id:
             base = qs.filter(subcategory_id=article.subcategory_id)
         else:

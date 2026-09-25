@@ -3,7 +3,15 @@ from rest_framework import serializers
 from apps.accounts.models import User
 from apps.notifications.sanitize import sanitize_html
 
-from .models import KnowledgeArticle, KnowledgeCategory, STATUS_CHOICES
+from .models import (
+    KnowledgeArticle,
+    KnowledgeArticleDepartment,
+    KnowledgeArticleRole,
+    KnowledgeArticleUser,
+    KnowledgeCategory,
+    STATUS_CHOICES,
+    VISIBILITY_CHOICES,
+)
 
 
 class KnowledgeCategorySerializer(serializers.ModelSerializer):
@@ -59,6 +67,18 @@ class KnowledgeArticleSerializer(serializers.ModelSerializer):
     created_by_name = serializers.CharField(source='created_by.username', read_only=True, default=None)
     updated_by_name = serializers.CharField(source='updated_by.username', read_only=True, default=None)
     has_attachment = serializers.SerializerMethodField()
+    visibility = serializers.ChoiceField(choices=VISIBILITY_CHOICES, required=False)
+    role_targets = serializers.SlugRelatedField(
+        slug_field='key', queryset=KnowledgeArticleRole._meta.get_field('role').related_model.objects.all(),
+        many=True, required=False,
+    )
+    department_targets = serializers.PrimaryKeyRelatedField(
+        queryset=KnowledgeArticleDepartment._meta.get_field('department').related_model.objects.all(),
+        many=True, required=False,
+    )
+    user_targets = serializers.PrimaryKeyRelatedField(
+        queryset=User.objects.all(), many=True, required=False,
+    )
 
     class Meta:
         model = KnowledgeArticle
@@ -69,6 +89,7 @@ class KnowledgeArticleSerializer(serializers.ModelSerializer):
             'attachment_name', 'attachment_content_type', 'attachment_size',
             'view_count', 'created_by_name', 'updated_by_name',
             'created_at', 'updated_at', 'published_at',
+            'visibility', 'role_targets', 'department_targets', 'user_targets',
         )
         read_only_fields = (
             'id', 'category_name', 'subcategory_name', 'has_attachment',
@@ -103,9 +124,36 @@ class KnowledgeArticleSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError({'subcategory': 'Subkategori harus berada di bawah kategori yang dipilih.'})
         return attrs
 
+    def _apply_targets(self, instance, validated_data):
+        """Replace visibility target rows to match the submitted arrays.
+        Empty arrays clear the targets (per visibility switching)."""
+        role_keys = validated_data.pop('role_targets', None)
+        dept_ids = validated_data.pop('department_targets', None)
+        user_ids = validated_data.pop('user_targets', None)
+        if role_keys is not None:
+            instance.role_links.all().delete()
+            KnowledgeArticleRole.objects.bulk_create([
+                KnowledgeArticleRole(article=instance, role=role) for role in role_keys
+            ])
+        if dept_ids is not None:
+            instance.department_links.all().delete()
+            KnowledgeArticleDepartment.objects.bulk_create([
+                KnowledgeArticleDepartment(article=instance, department=d) for d in dept_ids
+            ])
+        if user_ids is not None:
+            instance.user_links.all().delete()
+            KnowledgeArticleUser.objects.bulk_create([
+                KnowledgeArticleUser(article=instance, user=u) for u in user_ids
+            ])
+        return instance
+
 
 class KnowledgeArticleWriteSerializer(KnowledgeArticleSerializer):
-    """Create/update serializer: content required + sanitized, status managed."""
+    """Create/update serializer: content required + sanitized, status managed.
+
+    Visibility targets are applied after save via _apply_targets; each target
+    list is only updated when the key is present in the payload (partial
+    updates leave untouched lists alone)."""
 
     class Meta(KnowledgeArticleSerializer.Meta):
         read_only_fields = tuple(
@@ -125,3 +173,60 @@ class KnowledgeArticleWriteSerializer(KnowledgeArticleSerializer):
 
     def validate_summary(self, value):
         return (value or '').strip()
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        visibility = attrs.get(
+            'visibility',
+            getattr(self.instance, 'visibility', None),
+        )
+        if visibility == 'ROLE' and not (
+            attrs.get('role_targets')
+            or (self.instance is not None and 'role_targets' not in attrs and self.instance.role_links.exists())
+        ):
+            raise serializers.ValidationError(
+                {'role_targets': 'Pilih minimal satu role untuk visibility Role Tertentu.'}
+            )
+        if visibility == 'DEPARTMENT' and not (
+            attrs.get('department_targets')
+            or (self.instance is not None and 'department_targets' not in attrs and self.instance.department_links.exists())
+        ):
+            raise serializers.ValidationError(
+                {'department_targets': 'Pilih minimal satu departemen untuk visibility Departemen Tertentu.'}
+            )
+        if visibility == 'USER' and not (
+            attrs.get('user_targets')
+            or (self.instance is not None and 'user_targets' not in attrs and self.instance.user_links.exists())
+        ):
+            raise serializers.ValidationError(
+                {'user_targets': 'Pilih minimal satu user untuk visibility User Tertentu.'}
+            )
+        return attrs
+
+    def create(self, validated_data):
+        role_keys = validated_data.pop('role_targets', [])
+        dept_ids = validated_data.pop('department_targets', [])
+        user_ids = validated_data.pop('user_targets', [])
+        instance = super().create(validated_data)
+        serializer = KnowledgeArticleSerializer(instance)
+        serializer._apply_targets(
+            instance,
+            {'role_targets': role_keys, 'department_targets': dept_ids, 'user_targets': user_ids},
+        )
+        return instance
+
+    def update(self, instance, validated_data):
+        has_keys = any(
+            k in validated_data for k in ('role_targets', 'department_targets', 'user_targets')
+        )
+        role_keys = validated_data.pop('role_targets', None)
+        dept_ids = validated_data.pop('department_targets', None)
+        user_ids = validated_data.pop('user_targets', None)
+        instance = super().update(instance, validated_data)
+        if has_keys:
+            serializer = KnowledgeArticleSerializer(instance)
+            serializer._apply_targets(
+                instance,
+                {'role_targets': role_keys, 'department_targets': dept_ids, 'user_targets': user_ids},
+            )
+        return instance
