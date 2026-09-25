@@ -9,7 +9,12 @@ from apps.accounts.models import Role
 from apps.personnel.models import Employee
 
 from .models import LeaveBalance, LeaveRequest, LeaveType
-from .services import apply_approval_deduction, compute_total_days, get_balance
+from .services import (
+    apply_approval_deduction,
+    compute_annual_quota,
+    compute_total_days,
+    get_balance,
+)
 
 User = get_user_model()
 
@@ -569,3 +574,200 @@ class BusinessRuleTests(TestCase):
         )
         s = self._valid(personal, '2026-01-05', '2026-01-05')
         self.assertTrue(s.is_valid(), s.errors)
+
+
+class AnnualQuotaPolicyTests(TestCase):
+    """Regression tests for the 2026 Cuti Tahunan quota policy.
+
+    Policy: eligible after exactly 3 months (day-precision); first-year quota =
+    eligible-month..December (or contract end) x 1 day; later years = contract
+    duration x 1 day, basic 12 once cumulative service >= 12 months.
+    """
+
+    def setUp(self):
+        self.annual = LeaveType.objects.create(
+            name='Cuti Tahunan', code='ANNUAL', kind='LEAVE',
+            default_quota=12, min_tenure_months=3, carry_forward_max=3,
+        )
+
+    def _employee(self, eid='E900', join=None):
+        emp = Employee.objects.create(
+            employee_id=eid, full_name='Nana', employment_status='ACTIVE',
+        )
+        if join:
+            emp.join_date = join
+            emp.save(update_fields=['join_date'])
+        return emp
+
+    def _contract(self, emp, start, end, seq=None):
+        from apps.personnel.models import EmployeeContract
+        return EmployeeContract.objects.create(
+            employee=emp, contract_type='PKWT', start_date=start,
+            end_date=end, pkwt_sequence=seq, status='ACTIVE',
+        )
+
+    # -- 1. Eligibility (day-precision) -----------------------------------
+
+    def test_not_eligible_before_3_months(self):
+        emp = self._employee(join=date(2025, 10, 1))
+        self.assertEqual(compute_annual_quota(emp, 2025), 0)  # eligible 1 Jan 2026
+
+    def test_eligibility_day_precision(self):
+        emp = self._employee(join=date(2025, 12, 15))  # eligible 15 Mar 2026
+        # Quota exists only from the eligible year/month.
+        self.assertEqual(compute_annual_quota(emp, 2025), 0)
+        self.assertEqual(compute_annual_quota(emp, 2026), 10)  # Mar..Dec = 10 months
+
+    def test_month_clamp_day_overflow(self):
+        emp = self._employee(join=date(2025, 8, 31))  # eligible 30 Nov 2025 (clamped)
+        self.assertEqual(compute_annual_quota(emp, 2025), 2)  # Nov..Dec
+
+    # -- 2. First quota: eligible month..December (or contract end) --------
+
+    def test_nana_pkwt1_aug_dec_2025(self):
+        """Nana case: PKWT 1 Aug-Dec 2025, eligible Nov 2025 -> 2 days."""
+        emp = self._employee(join=date(2025, 8, 1))
+        self._contract(emp, date(2025, 8, 1), date(2025, 12, 31), seq=1)
+        self.assertEqual(compute_annual_quota(emp, 2025), 2)
+
+    def test_first_quota_prorated_even_if_eligible_next_year(self):
+        """Hire Oct/Nov/Dec 2025 -> eligible Jan/Feb/Mar 2026 -> prorated first quota."""
+        oct_hire = self._employee('E901', join=date(2025, 10, 1))
+        self.assertEqual(compute_annual_quota(oct_hire, 2026), 12)  # Jan..Dec
+
+        nov_hire = self._employee('E902', join=date(2025, 11, 1))
+        self.assertEqual(compute_annual_quota(nov_hire, 2026), 11)  # Feb..Dec
+
+        dec_hire = self._employee('E903', join=date(2025, 12, 1))
+        self.assertEqual(compute_annual_quota(dec_hire, 2026), 10)  # Mar..Dec
+
+    def test_first_quota_capped_at_contract_end(self):
+        """Contract ends before December -> first quota stops at contract end."""
+        emp = self._employee(join=date(2025, 8, 1))
+        self._contract(emp, date(2025, 8, 1), date(2025, 11, 15), seq=1)
+        # Eligible Nov, contract ends Nov -> 1 month (Nov).
+        self.assertEqual(compute_annual_quota(emp, 2025), 1)
+
+    # -- 3. Subsequent years: contract duration ----------------------------
+
+    def test_nana_pkwt2_jan_jun_2026(self):
+        """Nana case: PKWT 2 Jan-Jun 2026 -> 6 days + 2 carry = 8 allocated."""
+        emp = self._employee(join=date(2025, 8, 1))
+        self._contract(emp, date(2025, 8, 1), date(2025, 12, 31), seq=1)
+        self._contract(emp, date(2026, 1, 1), date(2026, 6, 30), seq=2)
+        self.assertEqual(compute_annual_quota(emp, 2026), 6)
+        # With carry-forward via get_balance: 2025 balance exists first (2 days
+        # unused), then 2026 = 6 + min(2, 3) = 8.
+        get_balance(emp, self.annual, 2025)
+        bal = get_balance(emp, self.annual, 2026)
+        self.assertEqual(bal.allocated_days, 8)
+
+    def test_nana_pkwt2_jan_aug_2026_basic_12(self):
+        """Nana case: PKWT 2 Jan-Aug 2026, cumulative 13 months -> 12 + 2 = 14."""
+        emp = self._employee(join=date(2025, 8, 1))
+        self._contract(emp, date(2025, 8, 1), date(2025, 12, 31), seq=1)
+        self._contract(emp, date(2026, 1, 1), date(2026, 8, 31), seq=2)
+        self.assertEqual(compute_annual_quota(emp, 2026), 12)
+        get_balance(emp, self.annual, 2025)  # 2 unused days -> carry
+        bal = get_balance(emp, self.annual, 2026)
+        self.assertEqual(bal.allocated_days, 14)  # 12 + carry 2
+
+    def test_short_contract_next_year(self):
+        """3-month contract in the next year (cumulative < 12 months) -> 3 days."""
+        emp = self._employee(join=date(2025, 9, 1))  # cumulative by Jun 2026 = 9 months
+        self._contract(emp, date(2025, 9, 1), date(2025, 12, 31), seq=1)
+        self._contract(emp, date(2026, 4, 1), date(2026, 6, 30), seq=2)
+        self.assertEqual(compute_annual_quota(emp, 2026), 3)
+
+    def test_cumulative_across_many_contracts_reaches_12(self):
+        """Several short contracts accumulating >= 12 months -> basic 12."""
+        emp = self._employee(join=date(2025, 1, 1))
+        self._contract(emp, date(2025, 1, 1), date(2025, 6, 30), seq=1)   # 6
+        self._contract(emp, date(2025, 7, 1), date(2025, 12, 31), seq=2)  # 6
+        self._contract(emp, date(2026, 2, 1), date(2026, 4, 30), seq=3)   # 3-month 2026 contract
+        self.assertEqual(compute_annual_quota(emp, 2026), 12)  # cumulative 14 >= 12
+
+    def test_contract_ending_midyear_caps_quota(self):
+        """Contract ending Jul 2026, cumulative >= 12 -> basic 12 (never less)."""
+        emp = self._employee(join=date(2024, 1, 1))
+        self._contract(emp, date(2026, 1, 1), date(2026, 7, 31), seq=1)
+        self.assertEqual(compute_annual_quota(emp, 2026), 12)
+
+    # -- 4. Carry-forward & integration ------------------------------------
+
+    def test_get_balance_no_balance_before_eligibility(self):
+        """Hire Jan 2026 (eligible Apr 2026): first quota = Apr..Dec = 9 days."""
+        emp = self._employee(join=date(2026, 1, 1))
+        bal = get_balance(emp, self.annual, 2026)
+        self.assertEqual(bal.allocated_days, 9)
+        self.assertEqual(bal.remaining_days, 9)
+
+    def test_zero_quota_entirely_before_eligible_year(self):
+        """Hire late 2026: 2026 quota is 0 because eligibility is in 2027."""
+        emp = self._employee(join=date(2026, 10, 1))
+        bal = get_balance(emp, self.annual, 2026)
+        self.assertEqual(bal.allocated_days, 0)
+        self.assertEqual(bal.remaining_days, 0)
+
+    def test_get_balance_flat_quota_for_other_types(self):
+        """Non-ANNUAL types keep default_quota (unaffected)."""
+        medical = LeaveType.objects.create(name='Cuti Berobat', code='MEDICAL', kind='LEAVE')
+        emp = self._employee(join=date(2026, 1, 1))
+        bal = get_balance(emp, medical, 2026)
+        self.assertEqual(bal.allocated_days, 0)  # medical default_quota=0
+
+    def test_existing_balance_not_overwritten(self):
+        """Backward compat: an existing LeaveBalance is never re-allocated."""
+        emp = self._employee(join=date(2025, 8, 1))
+        self._contract(emp, date(2025, 8, 1), date(2025, 12, 31), seq=1)
+        # HR previously granted a manual balance of 5 days.
+        LeaveBalance.objects.create(
+            employee=emp, leave_type=self.annual, year=2025,
+            allocated_days=5, used_days=1, remaining_days=4,
+        )
+        bal = get_balance(emp, self.annual, 2025)
+        self.assertEqual(bal.allocated_days, 5)
+        self.assertEqual(bal.used_days, 1)
+        self.assertEqual(bal.remaining_days, 4)
+
+    def test_carries_forward_from_prorated_first_year(self):
+        """Nana 2025: 2 allocated, 0 used -> 2026 carries 2 (Nana case end-to-end)."""
+        emp = self._employee(join=date(2025, 8, 1))
+        self._contract(emp, date(2025, 8, 1), date(2025, 12, 31), seq=1)
+        bal25 = get_balance(emp, self.annual, 2025)
+        self.assertEqual(bal25.allocated_days, 2)
+        self._contract(emp, date(2026, 1, 1), date(2026, 6, 30), seq=2)
+        bal26 = get_balance(emp, self.annual, 2026)
+        self.assertEqual(bal26.allocated_days, 8)  # 6 + carry 2
+
+    def test_no_join_date_flat_basic_quota(self):
+        """Legacy rows without join_date keep the flat basic quota."""
+        emp = self._employee('E999')
+        self.assertEqual(compute_annual_quota(emp, 2026), 12)
+
+    # -- 5. Submission eligibility (day-precision) --------------------------
+
+    def test_submission_before_eligible_date_rejected(self):
+        """Join 15 Des 2025: request on 5 Mar 2026 rejected; 15 Mar allowed."""
+        from types import SimpleNamespace
+
+        from .serializers import LeaveRequestSerializer
+
+        emp_user = make_user('EMPLOYEE', 'nana@test.com')
+        emp = self._employee('E910', join=date(2025, 12, 15))
+        emp.user = emp_user
+        emp.save(update_fields=['user'])
+        req = SimpleNamespace(user=emp_user)
+
+        data = {
+            'leave_type': self.annual.id, 'kind': 'LEAVE', 'reason': 'x',
+            'start_date': '2026-03-05', 'end_date': '2026-03-06',
+        }
+        s = LeaveRequestSerializer(data=data, context={'request': req})
+        self.assertFalse(s.is_valid())
+        self.assertIn('start_date', s.errors)
+
+        data['start_date'] = '2026-03-15'
+        data['end_date'] = '2026-03-16'
+        s2 = LeaveRequestSerializer(data=data, context={'request': req})
+        self.assertTrue(s2.is_valid(), s2.errors)

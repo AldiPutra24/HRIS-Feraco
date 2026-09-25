@@ -124,8 +124,21 @@ class LeaveRequestSerializer(serializers.ModelSerializer):
                 total = compute_total_days(start, end or start)
                 attrs['total_days'] = total
 
-                # Tenure eligibility (e.g. Cuti Tahunan: hak mulai setelah 3 bulan).
-                if leave_type.min_tenure_months and employee.join_date:
+                # Tenure eligibility for Cuti Tahunan: day-precision, eligible
+                # after exactly 3 months since join_date (policy 2026).
+                if leave_type.code == 'ANNUAL' and employee.join_date:
+                    from .services import _eligible_date
+
+                    if start < _eligible_date(employee.join_date):
+                        eligible = _eligible_date(employee.join_date)
+                        raise serializers.ValidationError(
+                            {'start_date': (
+                                f'Belum memenuhi masa kerja minimal '
+                                f'{leave_type.min_tenure_months or 3} bulan untuk {leave_type.name}.'
+                                f' Eligible mulai {eligible.isoformat()}.'
+                            )}
+                        )
+                elif leave_type.min_tenure_months and employee.join_date:
                     months = (start.year - employee.join_date.year) * 12 + (start.month - employee.join_date.month)
                     if months < leave_type.min_tenure_months:
                         raise serializers.ValidationError(
