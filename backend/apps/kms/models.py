@@ -1,5 +1,6 @@
 from django.conf import settings
 from django.db import models
+from django.db.models import Q
 from django.utils import timezone
 
 STATUS_DRAFT = 'DRAFT'
@@ -9,6 +10,19 @@ STATUS_CHOICES = [
     (STATUS_DRAFT, 'Draft'),
     (STATUS_PUBLISHED, 'Published'),
     (STATUS_ARCHIVED, 'Archived'),
+]
+
+VISIBILITY_ALL = 'ALL'
+VISIBILITY_ROLE = 'ROLE'
+VISIBILITY_DEPARTMENT = 'DEPARTMENT'
+VISIBILITY_USER = 'USER'
+VISIBILITY_PRIVATE = 'PRIVATE'
+VISIBILITY_CHOICES = [
+    (VISIBILITY_ALL, 'Semua Karyawan'),
+    (VISIBILITY_ROLE, 'Role Tertentu'),
+    (VISIBILITY_DEPARTMENT, 'Departemen Tertentu'),
+    (VISIBILITY_USER, 'User Tertentu'),
+    (VISIBILITY_PRIVATE, 'Private'),
 ]
 
 
@@ -127,6 +141,31 @@ class KnowledgeArticle(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
     published_at = models.DateTimeField(null=True, blank=True)
 
+    # -- Privacy / target audience -------------------------------------------
+    visibility = models.CharField(
+        max_length=12,
+        choices=VISIBILITY_CHOICES,
+        default=VISIBILITY_ALL,
+    )
+    role_targets = models.ManyToManyField(
+        'accounts.Role',
+        through='KnowledgeArticleRole',
+        blank=True,
+        related_name='kms_articles_targeted',
+    )
+    department_targets = models.ManyToManyField(
+        'personnel.Department',
+        through='KnowledgeArticleDepartment',
+        blank=True,
+        related_name='kms_articles_targeted',
+    )
+    user_targets = models.ManyToManyField(
+        settings.AUTH_USER_MODEL,
+        through='KnowledgeArticleUser',
+        blank=True,
+        related_name='kms_articles_targeted',
+    )
+
     class Meta:
         ordering = ['-updated_at']
         permissions = [('manage_kms', 'Can manage KMS categories and articles')]
@@ -139,3 +178,108 @@ class KnowledgeArticle(models.Model):
         if self.status == STATUS_PUBLISHED and self.published_at is None:
             self.published_at = timezone.now()
         super().save(*args, **kwargs)
+
+    def is_readable_by(self, user) -> bool:
+        """True if `user` may read this article per its visibility settings.
+
+        PRIVATE: only the creator and KMS managers. Managers do NOT get a
+        blanket read pass on other visibilities beyond who they are as a user
+        (their role/department/user targets still apply).
+        """
+        from apps.personnel.permissions import WRITE_ROLES, _role, employee_for
+
+        if _role(user) in WRITE_ROLES:
+            return True
+        if self.visibility == VISIBILITY_ALL:
+            return True
+        if self.visibility == VISIBILITY_PRIVATE:
+            return self.created_by_id == user.id
+        if self.visibility == VISIBILITY_ROLE:
+            return self.role_targets.filter(pk=user.pk).exists()
+        if self.visibility == VISIBILITY_DEPARTMENT:
+            employee = employee_for(user)
+            if employee is None or employee.department_id is None:
+                return False
+            return self.department_targets.filter(pk=employee.department_id).exists()
+        if self.visibility == VISIBILITY_USER:
+            return self.user_targets.filter(pk=user.pk).exists()
+        return False
+
+    @staticmethod
+    def accessible_to(user):
+        """QuerySet filter: only articles `user` may read (list/search).
+
+        KMS managers (WRITE_ROLES) see everything (existing behavior)."""
+        from apps.personnel.permissions import WRITE_ROLES, _role, employee_for
+
+        qs = KnowledgeArticle.objects.all()
+        if _role(user) in WRITE_ROLES:
+            return qs
+        if user.is_anonymous or not user.is_authenticated:
+            return qs.none()
+        employee = employee_for(user)
+        dept_ids = [employee.department_id] if employee and employee.department_id else []
+        return qs.filter(
+            Q(visibility=VISIBILITY_ALL)
+            | Q(visibility=VISIBILITY_PRIVATE, created_by=user)
+            | Q(visibility=VISIBILITY_ROLE, role_targets__key=_role(user))
+            | Q(visibility=VISIBILITY_USER, user_targets=user)
+            | (Q(visibility=VISIBILITY_DEPARTMENT, department_targets__in=dept_ids) if dept_ids else Q(pk__in=[]))
+        )
+
+
+class KnowledgeArticleRole(models.Model):
+    """ROLE-visibility target row: article readable by users with this role."""
+
+    article = models.ForeignKey(
+        KnowledgeArticle, on_delete=models.CASCADE, related_name='role_links',
+    )
+    role = models.ForeignKey(
+        'accounts.Role', on_delete=models.CASCADE, related_name='kms_article_links',
+    )
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=['article', 'role'], name='kms_article_role_unique'),
+        ]
+
+    def __str__(self):
+        return f'{self.article_id}:{self.role.key}'
+
+
+class KnowledgeArticleDepartment(models.Model):
+    """DEPARTMENT-visibility target row: readable by employees in this dept."""
+
+    article = models.ForeignKey(
+        KnowledgeArticle, on_delete=models.CASCADE, related_name='department_links',
+    )
+    department = models.ForeignKey(
+        'personnel.Department', on_delete=models.CASCADE, related_name='kms_article_links',
+    )
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=['article', 'department'], name='kms_article_department_unique'),
+        ]
+
+    def __str__(self):
+        return f'{self.article_id}:{self.department.name}'
+
+
+class KnowledgeArticleUser(models.Model):
+    """USER-visibility target row: readable by this specific user."""
+
+    article = models.ForeignKey(
+        KnowledgeArticle, on_delete=models.CASCADE, related_name='user_links',
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='kms_article_links',
+    )
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=['article', 'user'], name='kms_article_user_unique'),
+        ]
+
+    def __str__(self):
+        return f'{self.article_id}:{self.user_id}'

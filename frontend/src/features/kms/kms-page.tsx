@@ -22,6 +22,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { useAuth } from '@/lib/auth/auth-provider';
 import {
   KMS_STATUS_LABELS,
+  KMS_VISIBILITY_LABELS,
   getKmsCategoryTree,
   listKmsArticles,
   type KmsArticle,
@@ -36,6 +37,30 @@ import { CategoryManagerModal } from './kms-category-modal';
 
 // Mirrors backend WRITE_ROLES (AuthRole casing is lowercase client-side).
 const KMS_ROLES: ReadonlySet<string> = new Set(['admin', 'hr_staff', 'hr_lead']);
+
+const ROLE_LABELS: Record<string, string> = {
+  ADMIN: 'Admin',
+  HR_LEAD: 'HR Lead',
+  HR_STAFF: 'HR Staff',
+  GENERAL_MANAGER: 'General Manager',
+  MANAGEMENT: 'Management',
+  EMPLOYEE: 'Employee',
+};
+
+function visibilityLabel(article: KmsArticle): string {
+  switch (article.visibility) {
+    case 'ROLE':
+      return `Role: ${article.role_targets.map((r) => ROLE_LABELS[r] ?? r).join(', ')}`;
+    case 'DEPARTMENT':
+      return 'Departemen Tertentu';
+    case 'USER':
+      return 'User Tertentu';
+    case 'PRIVATE':
+      return 'Private';
+    default:
+      return KMS_VISIBILITY_LABELS[article.visibility];
+  }
+}
 
 function formatDate(iso: string | null): string {
   if (!iso) return '-';
@@ -328,6 +353,11 @@ export function KmsPage() {
                           <span className='bg-muted rounded px-1.5 py-0.5'>
                             {article.category_name}
                           </span>
+                          {article.visibility !== 'ALL' && (
+                            <span className='bg-muted rounded px-1.5 py-0.5'>
+                              {visibilityLabel(article)}
+                            </span>
+                          )}
                           {article.subcategory_name && (
                             <span className='bg-muted rounded px-1.5 py-0.5'>
                               {article.subcategory_name}

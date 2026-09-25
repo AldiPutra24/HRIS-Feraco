@@ -76,6 +76,16 @@ export type KmsCategoryNode = {
   }>;
 };
 
+export type KmsVisibility = 'ALL' | 'ROLE' | 'DEPARTMENT' | 'USER' | 'PRIVATE';
+
+export const KMS_VISIBILITY_LABELS: Record<KmsVisibility, string> = {
+  ALL: 'Semua Karyawan',
+  ROLE: 'Role Tertentu',
+  DEPARTMENT: 'Departemen Tertentu',
+  USER: 'User Tertentu',
+  PRIVATE: 'Private',
+};
+
 export type KmsArticle = {
   id: number;
   title: string;
@@ -96,6 +106,10 @@ export type KmsArticle = {
   created_at: string;
   updated_at: string;
   published_at: string | null;
+  visibility: KmsVisibility;
+  role_targets: string[];
+  department_targets: number[];
+  user_targets: number[];
 };
 
 export type KmsArticleInput = {
@@ -105,6 +119,10 @@ export type KmsArticleInput = {
   category: number;
   subcategory?: number | null;
   status: KmsStatus;
+  visibility?: KmsVisibility;
+  role_targets?: string[];
+  department_targets?: number[];
+  user_targets?: number[];
 };
 
 export type KmsPage<T> = { count: number; next: string | null; previous: string | null; results: T[] };
