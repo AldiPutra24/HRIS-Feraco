@@ -35,9 +35,15 @@ def _fmt(value) -> str:
 
 def build_payslip_pdf(payroll) -> HttpResponse:
     """Payslip PDF — layout per official FERACO template ( bordered company
-    header, tinted section bars, boxed slip number, notes footer, signature
-    block ). Business logic untouched: same items, same totals, same guard
-    (period must be PAID/LOCKED), same slip numbering and terbilang."""
+    header, tinted section bars, boxed slip number, wrapped notes footer,
+    signature block ). Business logic untouched: same items, same totals,
+    same guard (period must be PAID/LOCKED), same slip numbering, terbilang
+    and DTP rules.
+
+    Layout rules: A4 portrait, single page, everything inside the left/right
+    margins, no row overlap (each section bar reserves its own vertical slot),
+    notes wrap within the content width.
+    """
     period = payroll.period
     if period.status not in (PayrollPeriod.Status.PAID, PayrollPeriod.Status.LOCKED):
         return HttpResponse(
@@ -63,161 +69,173 @@ def build_payslip_pdf(payroll) -> HttpResponse:
     )
 
     # --- colors (light tints per template) ----------------------------------
-    GREEN_TINT = (0.855, 0.918, 0.827)   # title + PENGHASILAN bar
-    ORANGE_TINT = (0.996, 0.898, 0.812)  # POTONGAN bar
+    GREEN_TINT = (0.855, 0.918, 0.827)   # title + PENGHASILAN bars
+    ORANGE_TINT = (0.996, 0.898, 0.812)  # POTONGAN bars
     BLUE_TINT = (0.835, 0.902, 0.976)    # TAKE HOME PAY bar
     NUMBER_TINT = (0.906, 0.929, 0.969)  # slip number box
 
     p = canvas.Canvas(response, pagesize=A4)
     width, height = A4
-    left, right = 16 * mm, width - 16 * mm
-    y = height - 16 * mm
+    margin = 16 * mm
+    left, right = margin, width - margin
+    content_w = right - left
+    y = height - 15 * mm
 
-    def text(t, x, y_pos, font='Helvetica', size=9, bold=False, color=None):
-        p.setFont('Helvetica-Bold' if bold else font, size)
-        if color:
-            p.setFillColorRGB(*color)
-        p.drawString(x, y_pos, t)
-        p.setFillColorRGB(0, 0, 0)
+    BAR_H = 7 * mm          # section bar height
+    ROW_H = 5.2 * mm        # item row height (>= bar so nothing is overlapped)
+    BAR_PAD = 2.5 * mm      # gap after each bar/section
 
-    def bar(label, y_pos, tint, size=9.5):
-        """Full-width tinted section bar (PENGHASILAN / POTONGAN / THP)."""
+    def bar(label, y_pos, tint, size=9.5, value=None, value_size=9.5):
+        """Full-width tinted section bar occupying its own [y_pos-1.5mm .. y_pos+BAR_H-1.5mm] slot."""
         p.setFillColorRGB(*tint)
-        p.rect(left, y_pos - 1.5 * mm, right - left, 6.5 * mm, stroke=0, fill=1)
+        p.rect(left, y_pos - 2 * mm, content_w, BAR_H, stroke=0, fill=1)
         p.setFillColorRGB(0, 0, 0)
         p.setFont('Helvetica-Bold', size)
-        p.drawString(left + 2 * mm, y_pos, label)
+        p.drawString(left + 2.5 * mm, y_pos, label)
+        if value is not None:
+            p.setFont('Helvetica-Bold', value_size)
+            p.drawRightString(right - 2.5 * mm, y_pos, value)
 
-    # -- 1. Bordered company header ------------------------------------------
-    header_lines = [
-        company.name,
-        *((company.address or '').splitlines() or ['']),
-    ]
-    header_h = 6.5 * mm * len(header_lines) + 3 * mm
-    p.rect(left, y - header_h + 5 * mm, right - left, header_h, stroke=1, fill=0)
-    ty = y - 1 * mm
-    for idx, hl in enumerate(header_lines):
-        if idx == 0:
-            p.setFont('Helvetica-Bold', 10.5)
-            p.drawCentredString(width / 2, ty, hl)
-        else:
-            p.setFont('Helvetica', 8)
-            p.drawCentredString(width / 2, ty, hl)
-        ty -= 5.5 * mm
-    y -= header_h + 2 * mm
+    # -- 1. Bordered company header (compact, centered) -----------------------
+    name_line = company.name
+    addr_lines = (company.address or '').splitlines() or ['']
+    line_h = 4.6 * mm
+    header_h = line_h * (1 + len(addr_lines)) + 4 * mm
+    header_top = y
+    header_bottom = header_top - header_h
+    p.rect(left, header_bottom, content_w, header_h, stroke=1, fill=0)
+    ty = header_top - line_h + 1 * mm
+    p.setFont('Helvetica-Bold', 10.5)
+    p.drawCentredString(width / 2, ty, name_line)
+    ty -= line_h
+    p.setFont('Helvetica', 8)
+    for al in addr_lines:
+        p.drawCentredString(width / 2, ty, al)
+        ty -= line_h
+    y = header_bottom - 4 * mm
 
-    # -- 2. Title bar (light green) ------------------------------------------
+    # -- 2. Title bar (light green) -------------------------------------------
     p.setFillColorRGB(*GREEN_TINT)
-    p.rect(left, y - 2 * mm, right - left, 8 * mm, stroke=0, fill=1)
+    p.rect(left, y - 2 * mm, content_w, 7.5 * mm, stroke=0, fill=1)
     p.setFillColorRGB(0, 0, 0)
     p.setFont('Helvetica-Bold', 11)
-    p.drawCentredString(
-        width / 2, y,
-        f'SLIP GAJI | {month_name} | {period.period_year}',
-    )
-    y -= 8 * mm
+    p.drawCentredString(width / 2, y, f'SLIP GAJI | {month_name} | {period.period_year}')
+    y -= 7.5 * mm + 3 * mm
 
-    # -- 3. Company info (left) + slip number box (right) -------------------
+    # -- 3. Company info (left) + slip number box (right) ---------------------
     info_y = y
+    box_w = 50 * mm
+    box_h = 9.5 * mm
+    # Box first so its height defines the row; text sits to its left.
+    p.setFillColorRGB(*NUMBER_TINT)
+    p.rect(right - box_w, info_y - box_h + 2.5 * mm, box_w, box_h, stroke=0, fill=1)
+    p.setFillColorRGB(0, 0, 0)
+    p.setFont('Helvetica', 7.5)
+    p.drawString(right - box_w + 2 * mm, info_y - 1.4 * mm, 'Nomor')
+    p.setFont('Helvetica-Bold', 9)
+    p.drawCentredString(right - box_w / 2, info_y - 5.6 * mm, slip_number)
+
     p.setFont('Helvetica-Bold', 9.5)
     p.drawString(left, info_y, company.name)
-    p.setFont('Helvetica', 8)
-    addr_lines = (company.address or '').splitlines() or ['']
+    p.setFont('Helvetica', 7.8)
     ay = info_y - 4 * mm
     for al in addr_lines:
         p.drawString(left, ay, al)
-        ay -= 3.6 * mm
-    # Number box (right)
-    box_w = 52 * mm
-    box_h = 9 * mm
-    p.setFillColorRGB(*NUMBER_TINT)
-    p.rect(right - box_w, info_y - box_h + 3 * mm, box_w, box_h, stroke=0, fill=1)
-    p.setFillColorRGB(0, 0, 0)
-    p.setFont('Helvetica', 8)
-    p.drawString(right - box_w + 2 * mm, info_y - 2.2 * mm, 'Nomor')
-    p.setFont('Helvetica-Bold', 9)
-    p.drawCentredString(
-        right - box_w / 2, info_y - 6.5 * mm,
-        slip_number,
-    )
-    y = ay - 2 * mm
+        ay -= 3.5 * mm
+    y = min(ay, info_y - box_h + 1 * mm) - 2 * mm
 
-    # -- 4. Employee data -----------------------------------------------------
+    # -- 4. Employee data ------------------------------------------------------
     label_x = left
-    value_x = left + 22 * mm
+    value_x = left + 24 * mm
     rows = [
         ('Nama Pegawai', emp.full_name),
         ('Jabatan', emp.position.name if emp.position else None),
         ('Alamat', (emp.address or '').splitlines()[0] if emp.address else None),
         ('Periode', f'{period.period_start} s/d {period.period_end}'),
     ]
+    p.setFont('Helvetica', 9)
     for label, val in rows:
         if val is None:
-            continue  # don't render unavailable fields
-        p.setFont('Helvetica', 9)
+            continue  # conditional rendering: hide the whole row when unavailable
         p.drawString(label_x, y, label)
         p.drawString(value_x, y, f': {val}')
-        y -= 4.6 * mm
-    y -= 2 * mm
+        y -= 4.8 * mm
+    y -= 2.5 * mm
 
     # -- 5. PENGHASILAN section -----------------------------------------------
     bar('PENGHASILAN', y, GREEN_TINT)
-    y -= 6 * mm
+    y -= BAR_H - 2 * mm + ROW_H  # full bar slot + first row slot
     p.setFont('Helvetica', 9)
     for item in earnings:
-        p.drawString(left + 4 * mm, y, item.component_name)
-        p.drawRightString(right - 2 * mm, y, _fmt(item.amount))
-        y -= 4.6 * mm
-    # Jumlah Penghasilan bar (same tint, bold)
-    bar('JUMLAH PENGHASILAN', y, GREEN_TINT)
-    p.setFont('Helvetica-Bold', 9.5)
-    p.drawRightString(right - 2 * mm, y, _fmt(payroll.gross_salary))
-    y -= 9 * mm
+        p.drawString(left + 5 * mm, y, item.component_name)
+        p.drawRightString(right - 2.5 * mm, y, _fmt(item.amount))
+        y -= ROW_H
+    # Total bar occupies the slot right below the last item row.
+    bar('JUMLAH PENGHASILAN', y, GREEN_TINT,
+        value=_fmt(payroll.gross_salary))
+    y -= BAR_H + BAR_PAD
 
-    # -- 6. POTONGAN section ---------------------------------------------------
+    # -- 6. POTONGAN section ----------------------------------------------------
     bar('POTONGAN', y, ORANGE_TINT)
-    y -= 6 * mm
+    y -= BAR_H - 2 * mm + ROW_H
     p.setFont('Helvetica', 9)
     for item in deductions:
-        p.drawString(left + 4 * mm, y, item.component_name)
-        p.drawRightString(right - 2 * mm, y, _fmt(item.amount))
-        y -= 4.6 * mm
-    bar('JUMLAH POTONGAN', y, ORANGE_TINT)
-    p.setFont('Helvetica-Bold', 9.5)
-    p.drawRightString(right - 2 * mm, y, _fmt(payroll.total_deduction))
-    y -= 9 * mm
+        p.drawString(left + 5 * mm, y, item.component_name)
+        p.drawRightString(right - 2.5 * mm, y, _fmt(item.amount))
+        y -= ROW_H
+    bar('JUMLAH POTONGAN', y, ORANGE_TINT,
+        value=_fmt(payroll.total_deduction))
+    y -= BAR_H + BAR_PAD
 
-    # -- 7. TAKE HOME PAY section ----------------------------------------------
-    bar('TAKE HOME PAY', y, BLUE_TINT, size=10)
-    p.setFont('Helvetica-Bold', 11)
-    p.drawRightString(right - 2 * mm, y, f'Rp {_fmt(thp)}')
-    y -= 9 * mm
+    # -- 7. TAKE HOME PAY ---------------------------------------------------------
+    bar('TAKE HOME PAY', y, BLUE_TINT, size=10, value=f'Rp {_fmt(thp)}', value_size=11)
+    y -= BAR_H + BAR_PAD
 
-    # -- 8. Terbilang -----------------------------------------------------------
+    # -- 8. Terbilang ----------------------------------------------------------------
     p.setFont('Helvetica', 8.5)
     p.drawString(left, y, 'Terbilang :')
-    y -= 5 * mm
-    p.setFont('Helvetica-Oblique', 9)
+    y -= 5.5 * mm
+    p.setFont('Helvetica-Oblique', 9.5)
     p.drawCentredString(width / 2, y, terbilang(payroll.net_salary))
     y -= 8 * mm
 
-    # -- 9. Notes footer ----------------------------------------------------------
-    p.setFont('Helvetica-Oblique', 7.5)
+    # -- 9. Notes footer (word-wrapped inside margins) --------------------------------
+    p.setFont('Helvetica-Oblique', 8)
+    dtp_note = (
+        ' Pada periode ini PPh bersifat DTP (Ditanggung Pemerintah), sehingga'
+        ' pemotongan pajak hanya berlaku bagi karyawan dengan penghasilan di'
+        ' atas ambang DTP.'
+        if payroll.is_dtp else ''
+    )
     notes = [
-        '*) Penghasilan berupa Natura/Kenikmatan tidak ditambahkan karena bersifat non monetary.',
-        '*) PPh ditampilkan sebagai pajak terutang.'
-        + (
-            ' Pada periode ini PPh bersifat DTP (Ditanggung Pemerintah), sehingga'
-            ' pemotongan pajak hanya berlaku bagi karyawan dengan penghasilan di atas ambang DTP.'
-            if payroll.is_dtp else ''
-        ),
+        '*) Penghasilan berupa Natura/Kenikmatan tidak ditambahkan karena'
+        ' bersifat non monetary.',
+        '*) PPh ditampilkan sebagai pajak terutang.' + dtp_note,
     ]
-    for note in notes:
-        p.drawString(left, y, note)
-        y -= 4 * mm
-    y -= 2 * mm
 
-    # -- 10. Signature block --------------------------------------------------------
+    def wrap(text_str, max_w, font='Helvetica-Oblique', size=8):
+        p.setFont(font, size)
+        words = text_str.split()
+        lines, cur = [], ''
+        for w in words:
+            cand = f'{cur} {w}'.strip()
+            if p.stringWidth(cand, font, size) <= max_w:
+                cur = cand
+            else:
+                lines.append(cur)
+                cur = w
+        if cur:
+            lines.append(cur)
+        return lines
+
+    for note in notes:
+        for ln in wrap(note, content_w - 2 * mm):
+            p.drawString(left, y, ln)
+            y -= 3.8 * mm
+        y -= 1 * mm  # blank line between notes
+    y -= 4 * mm
+
+    # -- 10. Signature block (right, clear of the notes) -----------------------------
     p.setFont('Helvetica-Bold', 9)
     p.drawRightString(right, y, company.department_name)
     y -= 14 * mm
