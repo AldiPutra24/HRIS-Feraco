@@ -265,7 +265,7 @@ class PayrollPeriodTests(TestCase):
         self.assertEqual(PayrollPeriod.objects.count(), 0)
 
     def test_hr_can_delete_unlocked_period(self):
-        self.client.force_login(make_user('HR_STAFF', 'hr@test.com'))
+        self.client.force_login(make_user('HR_LEAD', 'lead@test.com'))
         period = PayrollPeriod.objects.create(
             period_month=6, period_year=2026,
             period_start=date(2026, 6, 1), period_end=date(2026, 6, 30),
@@ -274,7 +274,7 @@ class PayrollPeriodTests(TestCase):
         self.assertEqual(res.status_code, 204)
 
     def test_hr_cannot_delete_locked_period(self):
-        self.client.force_login(make_user('HR_STAFF', 'hr@test.com'))
+        self.client.force_login(make_user('HR_LEAD', 'lead@test.com'))
         period = PayrollPeriod.objects.create(
             period_month=6, period_year=2026,
             period_start=date(2026, 6, 1), period_end=date(2026, 6, 30),
@@ -738,8 +738,8 @@ class ManagementPayrollScopeTests(TestCase):
         self.assertEqual(res.status_code, 200)
         self.assertEqual(res.json(), [])
 
-    def test_hr_still_sees_all_payrolls(self):
-        hr = make_user('HR_STAFF', 'hr@test.com')
+    def test_hr_lead_still_sees_all_payrolls(self):
+        hr = make_user('HR_LEAD', 'lead@test.com')
         self.client.force_login(hr)
         res = self.client.get(reverse('payroll-list'))
         self.assertEqual(res.status_code, 200)
@@ -788,6 +788,98 @@ class ManagementPayrollScopeTests(TestCase):
         # Other employees' slips are outside the MANAGEMENT queryset -> 404.
         res = self.client.get(reverse('payroll-payslip', args=[self.payroll_rep.id]))
         self.assertEqual(res.status_code, 404)
+
+
+class PayrollRoleAccessTests(TestCase):
+    """Role matrix: HR_LEAD full, GM read-only, HR_STAFF denied, ADMIN full."""
+
+    def setUp(self):
+        make_tax_config()
+        self.emp = Employee.objects.create(
+            employee_id='E001', full_name='John', employment_status='ACTIVE',
+        )
+        SalaryStructure.objects.create(
+            employee=self.emp, effective_from=date(2026, 1, 1), basic_salary=5000000,
+        )
+        self.period = PayrollPeriod.objects.create(
+            period_month=6, period_year=2026,
+            period_start=date(2026, 6, 1), period_end=date(2026, 6, 30),
+        )
+
+    def test_hr_lead_full_access(self):
+        """HR_LEAD can view AND mutate everything in payroll."""
+        self.client.force_login(make_user('HR_LEAD', 'lead@test.com'))
+        self.assertEqual(self.client.get(reverse('payroll-component-list')).status_code, 200)
+        self.assertEqual(self.client.get(reverse('salary-structure-list')).status_code, 200)
+        self.assertEqual(self.client.get(reverse('payroll-period-list')).status_code, 200)
+        self.assertEqual(self.client.get(reverse('payroll-list')).status_code, 200)
+        res = self.client.post(reverse('payroll-period-calculate', args=[self.period.id]))
+        self.assertEqual(res.status_code, 200)
+        self.period.refresh_from_db()
+        self.assertEqual(self.period.status, 'CALCULATED')
+        for target in ('REVIEW', 'APPROVED', 'PAID', 'LOCKED'):
+            url = {
+                'REVIEW': 'payroll-period-review',
+                'APPROVED': 'payroll-period-approve',
+                'PAID': 'payroll-period-mark-paid',
+                'LOCKED': 'payroll-period-lock',
+            }[target]
+            res = self.client.post(reverse(url, args=[self.period.id]))
+            self.assertEqual(res.status_code, 200)
+            self.period.refresh_from_db()
+            self.assertEqual(self.period.status, target)
+
+    def test_gm_read_only(self):
+        """GENERAL_MANAGER can read payroll but every mutation is 403."""
+        gm = make_user('GENERAL_MANAGER', 'gm@test.com')
+        self.client.force_login(gm)
+        self.assertEqual(self.client.get(reverse('payroll-period-list')).status_code, 200)
+        self.assertEqual(self.client.get(reverse('payroll-list')).status_code, 200)
+        self.assertEqual(self.client.get(reverse('payroll-component-list')).status_code, 200)
+        # Mutations: 403 (nothing changed).
+        res = self.client.post(reverse('payroll-period-calculate', args=[self.period.id]))
+        self.assertEqual(res.status_code, 403)
+        res = self.client.post(reverse('payroll-period-review', args=[self.period.id]))
+        self.assertEqual(res.status_code, 403)
+        res = self.client.post(
+            reverse('salary-structure-list'),
+            {'employee': self.emp.id, 'effective_from': '2026-07-01',
+             'basic_salary': '6000000', 'components': []},
+            format='json',
+        )
+        self.assertEqual(res.status_code, 403)
+        res = self.client.post(
+            reverse('payroll-component-list'),
+            {'code': 'X', 'name': 'X', 'category': 'EARNING_FIXED'},
+            format='json',
+        )
+        self.assertEqual(res.status_code, 403)
+        self.period.refresh_from_db()
+        self.assertEqual(self.period.status, 'DRAFT')
+        self.assertEqual(PayrollComponent.objects.count(), 0)
+
+    def test_hr_staff_denied(self):
+        """HR_STAFF has NO access to payroll endpoints (403 everywhere)."""
+        hr = make_user('HR_STAFF', 'hr@test.com')
+        self.client.force_login(hr)
+        for view in (
+            'payroll-period-list', 'payroll-component-list',
+            'payroll-tax-config-list', 'payroll-tax-profile-list',
+            'payroll-list',
+        ):
+            res = self.client.get(reverse(view))
+            self.assertEqual(res.status_code, 403, f'{view} should be 403 for HR_STAFF')
+        # Salary structure list returns 200 but empty (self-scoped, no employee).
+        res = self.client.get(reverse('salary-structure-list'))
+        self.assertEqual(res.json()['results'], [])
+        res = self.client.post(reverse('payroll-period-calculate', args=[self.period.id]))
+        self.assertEqual(res.status_code, 403)
+        res = self.client.post(
+            reverse('payroll-component-list'),
+            {'code': 'X', 'name': 'X', 'category': 'EARNING_FIXED'},
+            format='json',
+        )
+        self.assertEqual(res.status_code, 403)
 
 
 class EngineTahap3aTests(TestCase):
@@ -1837,7 +1929,7 @@ class PayrollEligibilityTests(TestCase):
         Employee.objects.create(
             employee_id='E003', full_name='Bob', employment_status='INACTIVE',
         )
-        self.client.force_login(make_user('HR_STAFF', 'hr@test.com'))
+        self.client.force_login(make_user('HR_LEAD', 'lead@test.com'))
         res = self.client.get(reverse('payroll-period-eligibility', args=[self.period.id]))
         self.assertEqual(res.status_code, 200)
         data = res.json()
@@ -1929,7 +2021,11 @@ class EmployeeSelfServicePayslipTests(TestCase):
         # Own employee but period not PAID/LOCKED -> rejected by the PDF guard.
         self.assertEqual(res.status_code, 400)
 
-    def test_hr_payslip_access_unchanged(self):
-        self.client.force_login(make_user('HR_STAFF', 'hr@test.com'))
+    def test_hr_lead_payslip_access(self):
+        """HR_LEAD (payroll admin) can download any payslip; HR_STAFF is denied."""
+        self.client.force_login(make_user('HR_LEAD', 'lead@test.com'))
         res = self.client.get(reverse('payroll-payslip', args=[self.other_payroll.id]))
         self.assertEqual(res.status_code, 200)
+        self.client.force_login(make_user('HR_STAFF', 'hr@test.com'))
+        res = self.client.get(reverse('payroll-payslip', args=[self.other_payroll.id]))
+        self.assertEqual(res.status_code, 403)

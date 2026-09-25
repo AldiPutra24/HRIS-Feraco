@@ -5,11 +5,12 @@ import { PayrollPage } from '@/features/payroll/payroll-page';
 import { EmployeePayslip } from '@/features/payroll/employee-payslip';
 import { Skeleton } from '@/components/ui/skeleton';
 
-// ADMIN/HR see the full payroll admin console (components, structures,
-// processing, tax). MANAGEMENT/GENERAL_MANAGER (and any other role without
-// payroll-admin access) get the self-service view: their own payslips only —
-// matching the backend scope enforced in apps/payroll.
-const PAYROLL_ADMIN_ROLES = ['admin', 'hr_staff', 'hr_lead'];
+// ADMIN/HR_LEAD see the full payroll admin console (components, structures,
+// processing, tax). HR_STAFF has no payroll access at all (backend 403).
+// MANAGEMENT/GENERAL_MANAGER (and any other role without payroll-admin access)
+// get the self-service view: their own payslips only — matching the backend
+// scope enforced in apps/payroll.
+const PAYROLL_ADMIN_ROLES = ['admin', 'hr_lead'];
 
 export default function PayrollDashboardPage() {
   const { user, isLoading } = useAuth();

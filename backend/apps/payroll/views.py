@@ -239,6 +239,8 @@ class SalaryStructureViewSet(viewsets.ModelViewSet):
         role = _role(self.request.user)
         if role in PAYROLL_ADMIN_ROLES:
             return qs
+        # Self-service only: own structure. Users without a linked employee
+        # (e.g. HR_STAFF) see nothing.
         personnel = getattr(self.request.user, 'personnel', None)
         employee = getattr(personnel, 'employee', None)
         if employee is None:
@@ -634,7 +636,7 @@ class PayrollViewSet(viewsets.ReadOnlyModelViewSet):
         role = _role(request.user)
         if role in PAYROLL_ADMIN_ROLES:
             return build_payslip_pdf(self.get_object())
-        if role in ('EMPLOYEE', 'MANAGEMENT'):
+        if role in ('EMPLOYEE', 'MANAGEMENT', 'GENERAL_MANAGER'):
             from apps.personnel.permissions import employee_for
 
             employee = employee_for(request.user)
