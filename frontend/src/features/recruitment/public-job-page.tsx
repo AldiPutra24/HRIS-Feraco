@@ -48,7 +48,7 @@ export function PublicJobPage({ slug }: { slug: string }) {
       return;
     }
     if (skillOptions.length > 0 && !skillId) {
-      toast.error('Pilih posisi yang dilamar.');
+      toast.error('Pilih posisi yang sesuai.');
       return;
     }
     setApplying(true);
@@ -150,7 +150,7 @@ export function PublicJobPage({ slug }: { slug: string }) {
                   {skillOptions.length > 0 && (
                     <div>
                       <Label className='text-xs' htmlFor='apply-skill'>
-                        Posisi yang Dilamar *
+                        Posisi yang Sesuai*
                       </Label>
                       <select
                         id='apply-skill'
