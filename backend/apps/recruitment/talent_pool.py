@@ -69,8 +69,13 @@ def accept_candidate_to_talent_pool(candidate: Candidate, request):
     from apps.freelance.models import FreelancerSkill, Skill
 
     applied = getattr(candidate, 'applied_skill', None)
+    job_skills = list(job.skills.all())
     if applied is not None:
         FreelancerSkill.objects.get_or_create(freelancer=freelancer, skill=applied.skill)
+    elif job_skills:
+        # Job-based freelance candidates: the job's selected master Skills.
+        for skill in job_skills:
+            FreelancerSkill.objects.get_or_create(freelancer=freelancer, skill=skill)
     elif position_name:
         skill = Skill.objects.filter(name__iexact=position_name).first()
         if skill is None:

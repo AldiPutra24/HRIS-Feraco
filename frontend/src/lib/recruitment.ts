@@ -40,6 +40,9 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 
 export type RecruitmentType = 'INHOUSE' | 'FREELANCE';
 
+/** Freelance job position from the freelance Skill master. */
+export type JobSkill = { id: number; name: string; category: string | null };
+
 export type Job = {
   id: number;
   title: string;
@@ -49,6 +52,8 @@ export type Job = {
   position: number | null;
   position_name: string;
   position_text?: string;
+  skills: number[];
+  skill_details: JobSkill[];
   description: string;
   requirements: string;
   employment_type: string;
@@ -132,6 +137,7 @@ export type JobInput = {
   department: number | null;
   position: number | null;
   position_text?: string;
+  skills?: number[];
   description: string;
   requirements: string;
   employment_type: string;

@@ -68,6 +68,8 @@ class SkillViewSet(viewsets.ModelViewSet):
     search_fields = ['name']
     ordering_fields = ['name', 'created_at']
     filterset_fields = ['category', 'is_active']
+    # Master list consumed whole by pickers (freelance, job form, apply forms).
+    pagination_class = None
 
     def perform_create(self, serializer):
         obj = serializer.save()

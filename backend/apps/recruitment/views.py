@@ -51,7 +51,7 @@ def _validate_cv(file):
 class JobViewSet(viewsets.ModelViewSet):
     """HR admin: manage job postings."""
 
-    queryset = Job.objects.select_related('department', 'position').prefetch_related('applications').all()
+    queryset = Job.objects.select_related('department', 'position').prefetch_related('applications', 'skills__category').all()
     serializer_class = JobSerializer
     permission_classes = [IsRecruitmentAdmin]
     filterset_fields = ['status', 'department', 'employment_type', 'recruitment_type']

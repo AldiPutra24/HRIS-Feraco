@@ -1007,3 +1007,141 @@ class FreelanceApplyFormHRTests(TestCase):
         self.assertEqual(Skill.objects.filter(name='MC').count(), 1)
         cand.refresh_from_db()
         self.assertEqual(cand.status, 'OFFER_ACCEPTED')
+
+
+class FreelanceJobSkillTests(TestCase):
+    """Add New Job (FREELANCE): positions picked from the existing freelance
+    Skill/Category master; INHOUSE flow untouched."""
+
+    def setUp(self):
+        from apps.freelance.models import Skill, SkillCategory
+
+        self.admin = make_user('ADMIN', 'admin@test.com')
+        self.client.force_login(self.admin)
+        self.department = Department.objects.create(name='Engineering')
+        self.position = Position.objects.create(name='Developer', department=self.department)
+        talent = SkillCategory.objects.create(name='Talent')
+        self.s_mc = Skill.objects.create(name='MC', category=talent)
+        self.s_usher = Skill.objects.create(name='Usher', category=talent)
+        self.s_old = Skill.objects.create(name='Old Skill', is_active=False)
+
+    def _freelance_payload(self, **overrides):
+        data = {
+            'title': 'Freelance Event Oktober',
+            'department': None,
+            'position': None,
+            'skills': [self.s_mc.id, self.s_usher.id],
+            'description': 'd',
+            'requirements': 'r',
+            'employment_type': 'FREELANCE',
+            'recruitment_type': 'FREELANCE',
+            'location': 'Jakarta',
+            'open_date': str(date.today()),
+            'close_date': None,
+        }
+        data.update(overrides)
+        return data
+
+    def test_create_freelance_job_with_multiple_skills(self):
+        from apps.freelance.models import Skill
+
+        before = Skill.objects.count()
+        resp = self.client.post('/api/recruitment/jobs/', self._freelance_payload(), content_type='application/json')
+        self.assertEqual(resp.status_code, 201, resp.content)
+        data = resp.json()
+        self.assertEqual(set(data['skills']), {self.s_mc.id, self.s_usher.id})
+        self.assertEqual({s['category'] for s in data['skill_details']}, {'Talent'})
+        self.assertEqual(data['status'], 'OPEN')
+        self.assertEqual(data['position_text'], 'MC, Usher')
+        job = Job.objects.get(pk=data['id'])
+        self.assertEqual(set(job.skills.values_list('pk', flat=True)), {self.s_mc.id, self.s_usher.id})
+        self.assertEqual(Skill.objects.count(), before)  # no new master rows
+
+    def test_freelance_without_skills_is_draft_not_400(self):
+        resp = self.client.post(
+            '/api/recruitment/jobs/', self._freelance_payload(skills=[]), content_type='application/json'
+        )
+        self.assertEqual(resp.status_code, 201, resp.content)
+        self.assertEqual(resp.json()['status'], 'DRAFT')
+
+    def test_inactive_or_unknown_skill_rejected(self):
+        resp = self.client.post(
+            '/api/recruitment/jobs/', self._freelance_payload(skills=[self.s_old.id]), content_type='application/json'
+        )
+        self.assertEqual(resp.status_code, 400)
+        resp = self.client.post(
+            '/api/recruitment/jobs/', self._freelance_payload(skills=[99999]), content_type='application/json'
+        )
+        self.assertEqual(resp.status_code, 400)
+
+    def test_inhouse_ignores_hidden_skills_field(self):
+        """Hidden freelance field never validated/stored for INHOUSE."""
+        resp = self.client.post('/api/recruitment/jobs/', _job_data(
+            self.department, self.position, title='Backend Dev', skills=[self.s_old.id],
+        ), content_type='application/json')
+        self.assertEqual(resp.status_code, 201, resp.content)
+        data = resp.json()
+        self.assertEqual(data['recruitment_type'], 'INHOUSE')
+        self.assertEqual(data['skills'], [])
+        self.assertEqual(data['status'], 'OPEN')
+
+    def test_switch_freelance_to_inhouse_clears_skills(self):
+        job_id = self.client.post(
+            '/api/recruitment/jobs/', self._freelance_payload(), content_type='application/json'
+        ).json()['id']
+        resp = self.client.put(f'/api/recruitment/jobs/{job_id}/', _job_data(
+            self.department, self.position, title='Now Inhouse', recruitment_type='INHOUSE',
+        ), content_type='application/json')
+        self.assertEqual(resp.status_code, 200, resp.content)
+        self.assertEqual(resp.json()['skills'], [])
+        self.assertFalse(Job.objects.get(pk=job_id).skills.exists())
+
+    def test_edit_skills_and_partial_update_keeps_them(self):
+        job_id = self.client.post(
+            '/api/recruitment/jobs/', self._freelance_payload(), content_type='application/json'
+        ).json()['id']
+        resp = self.client.patch(
+            f'/api/recruitment/jobs/{job_id}/', {'skills': [self.s_mc.id]}, content_type='application/json'
+        )
+        self.assertEqual(resp.json()['skills'], [self.s_mc.id])
+        resp = self.client.patch(
+            f'/api/recruitment/jobs/{job_id}/', {'title': 'Renamed'}, content_type='application/json'
+        )
+        self.assertEqual(resp.json()['skills'], [self.s_mc.id])
+        self.assertEqual(resp.json()['status'], 'OPEN')
+
+    def test_freelance_job_can_be_closed_and_reopened(self):
+        """open/reopen completeness uses freelance rules (no department/position)."""
+        job_id = self.client.post(
+            '/api/recruitment/jobs/', self._freelance_payload(), content_type='application/json'
+        ).json()['id']
+        self.assertEqual(self.client.post(f'/api/recruitment/jobs/{job_id}/close/').status_code, 200)
+        resp = self.client.post(f'/api/recruitment/jobs/{job_id}/reopen/')
+        self.assertEqual(resp.status_code, 200, resp.content)
+        self.assertEqual(resp.json()['status'], 'OPEN')
+
+    def test_accept_job_candidate_maps_job_skills_without_new_skill(self):
+        from apps.freelance.models import Freelancer, Skill
+
+        job_id = self.client.post(
+            '/api/recruitment/jobs/', self._freelance_payload(), content_type='application/json'
+        ).json()['id']
+        cand = Candidate.objects.create(
+            job_id=job_id, full_name='Rina', email='rina@test.com', phone='081234567890'
+        )
+        before = Skill.objects.count()
+        resp = self.client.post(f'/api/recruitment/candidates/{cand.id}/accept-freelance/')
+        self.assertEqual(resp.status_code, 200, resp.content)
+        fl = Freelancer.objects.get(personal_email='rina@test.com')
+        self.assertEqual({fs.skill_id for fs in fl.freelancer_skills.all()}, {self.s_mc.id, self.s_usher.id})
+        self.assertEqual(Skill.objects.count(), before)
+
+    def test_skill_master_list_not_truncated(self):
+        from apps.freelance.models import Skill
+
+        for i in range(25):
+            Skill.objects.create(name=f'Skill {i:02d}')
+        resp = self.client.get('/api/freelance/skills/')
+        self.assertEqual(resp.status_code, 200)
+        self.assertIsInstance(resp.json(), list)
+        self.assertEqual(len(resp.json()), Skill.objects.count())

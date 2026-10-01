@@ -16,13 +16,17 @@ class FreelancePositionSerializer(serializers.ModelSerializer):
 class JobSerializer(serializers.ModelSerializer):
     department_name = serializers.CharField(source='department.name', read_only=True)
     position_name = serializers.CharField(source='position.name', read_only=True)
+    # FREELANCE positions: existing freelance.Skill master (never created here).
+    skills = serializers.PrimaryKeyRelatedField(many=True, queryset=Skill.objects.all(), required=False)
+    skill_details = serializers.SerializerMethodField()
     applications_count = serializers.SerializerMethodField()
 
     class Meta:
         model = Job
         fields = (
             'id', 'title', 'slug', 'department', 'department_name',
-            'position', 'position_name', 'position_text', 'description', 'requirements',
+            'position', 'position_name', 'position_text', 'skills', 'skill_details',
+            'description', 'requirements',
             'employment_type', 'recruitment_type', 'location', 'open_date', 'close_date',
             'status', 'created_by', 'created_at', 'updated_at',
             'applications_count',
@@ -34,40 +38,77 @@ class JobSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError('Recruitment type tidak valid.')
         return value
 
+    def validate(self, attrs):
+        instance = self.instance
+        rtype = attrs.get('recruitment_type', getattr(instance, 'recruitment_type', None)) or 'INHOUSE'
+        if rtype != 'FREELANCE':
+            # Skills are a freelance-only (hidden) field for INHOUSE: never
+            # validated, always cleared so inhouse jobs keep master-data only.
+            attrs['skills'] = []
+            return attrs
+        if 'skills' in attrs:
+            current = set(instance.skills.values_list('pk', flat=True)) if instance else set()
+            inactive = [s.name for s in attrs['skills'] if not s.is_active and s.pk not in current]
+            if inactive:
+                raise serializers.ValidationError({'skills': f'Skill tidak aktif: {", ".join(inactive)}'})
+            if attrs['skills']:
+                # Readable label for list/public pages + legacy consumers.
+                attrs['position_text'] = ', '.join(s.name for s in attrs['skills'])[:255]
+        return attrs
+
+    def get_skill_details(self, obj):
+        return [
+            {'id': s.id, 'name': s.name, 'category': s.category.name if s.category_id else None}
+            for s in obj.skills.all()
+        ]
+
     def get_applications_count(self, obj):
         return obj.applications.count()
 
     # Fields required for a job to be considered complete. INHOUSE needs the
     # master-data fields; FREELANCE skips department/position FK/employment_type
-    # and requires the free-text position instead.
+    # and requires a position via skills (or legacy free-text position_text).
     REQUIRED_FIELDS_BY_TYPE = {
         'INHOUSE': Job.REQUIRED_FIELDS,
-        'FREELANCE': [
-            'title', 'position_text', 'description', 'requirements', 'location', 'open_date',
-        ],
+        'FREELANCE': Job.FREELANCE_REQUIRED_FIELDS,
     }
 
-    def _merged(self, data, instance=None):
+    def _is_complete(self, data, skills, instance=None):
         rtype = data.get('recruitment_type', getattr(instance, 'recruitment_type', None)) or 'INHOUSE'
         required = self.REQUIRED_FIELDS_BY_TYPE.get(rtype, Job.REQUIRED_FIELDS)
         if instance is None:
-            return {f: data.get(f) for f in required}
-        return {f: data.get(f, getattr(instance, f, None)) for f in required}
+            values = [data.get(f) for f in required]
+        else:
+            values = [data.get(f, getattr(instance, f, None)) for f in required]
+        if rtype == 'FREELANCE':
+            if skills is None:
+                skills = list(instance.skills.all()) if instance else []
+            position_text = data.get('position_text', getattr(instance, 'position_text', ''))
+            values.append(bool(skills) or bool(position_text))
+        return all(values)
 
     def create(self, validated_data):
         # status is backend-managed: complete -> OPEN, else DRAFT
         validated_data.pop('status', None)
-        validated_data['status'] = 'OPEN' if all(self._merged(validated_data).values()) else 'DRAFT'
-        return super().create(validated_data)
+        skills = validated_data.pop('skills', None)
+        validated_data['status'] = 'OPEN' if self._is_complete(validated_data, skills) else 'DRAFT'
+        job = super().create(validated_data)
+        if skills is not None:
+            job.skills.set(skills)
+        return job
 
     def update(self, instance, validated_data):
         validated_data.pop('status', None)
-        complete = all(self._merged(validated_data, instance).values())
+        skills = validated_data.pop('skills', None)
+        complete = self._is_complete(validated_data, skills, instance)
         if instance.status == 'CLOSED':
             validated_data['status'] = 'CLOSED'  # closed jobs never auto-reopen
         else:
             validated_data['status'] = 'OPEN' if complete else 'DRAFT'
-        return super().update(instance, validated_data)
+        job = super().update(instance, validated_data)
+        if skills is not None:
+            job.skills.set(skills)
+        return job
 
 
 class JobPublicSerializer(serializers.ModelSerializer):
