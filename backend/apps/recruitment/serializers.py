@@ -114,14 +114,25 @@ class JobSerializer(serializers.ModelSerializer):
 class JobPublicSerializer(serializers.ModelSerializer):
     department_name = serializers.CharField(source='department.name', read_only=True)
     position_name = serializers.CharField(source='position.name', read_only=True)
+    # FREELANCE: positions the applicant can choose from (active job skills).
+    skill_details = serializers.SerializerMethodField()
 
     class Meta:
         model = Job
         fields = (
             'id', 'title', 'slug', 'department_name', 'position_name', 'position_text',
+            'skill_details',
             'description', 'requirements', 'employment_type', 'recruitment_type', 'location',
             'open_date', 'close_date',
         )
+
+    def get_skill_details(self, obj):
+        if obj.recruitment_type != 'FREELANCE':
+            return []
+        return [
+            {'id': s.id, 'name': s.name, 'category': s.category.name if s.category_id else None}
+            for s in obj.skills.all() if s.is_active
+        ]
 
 
 class CandidateStatusHistorySerializer(serializers.ModelSerializer):
@@ -143,6 +154,9 @@ class CandidateSerializer(serializers.ModelSerializer):
     status_history = CandidateStatusHistorySerializer(many=True, read_only=True)
     talent_pool_freelancer_id = serializers.SerializerMethodField()
     notes = serializers.SerializerMethodField()
+    # FREELANCE apply: the ONE position (job Skill) chosen by the applicant.
+    skill_id = serializers.IntegerField(write_only=True, required=False, allow_null=True)
+    applied_skill = serializers.SerializerMethodField()
 
     class Meta:
         model = Candidate
@@ -150,6 +164,7 @@ class CandidateSerializer(serializers.ModelSerializer):
             'id', 'job', 'job_title', 'recruitment_type', 'full_name', 'email', 'phone',
             'cv_name', 'cv_url', 'source', 'status',
             'next_statuses', 'status_history', 'talent_pool_freelancer_id', 'notes',
+            'skill_id', 'applied_skill',
             'applied_at', 'created_at', 'updated_at',
         )
         read_only_fields = ('id', 'job_title', 'cv_name', 'cv_url', 'source', 'status', 'next_statuses', 'status_history', 'applied_at', 'created_at', 'updated_at')
@@ -163,6 +178,13 @@ class CandidateSerializer(serializers.ModelSerializer):
 
         fl = _find_existing_freelancer(obj)
         return fl.id if fl else None
+
+    def get_applied_skill(self, obj):
+        applied = getattr(obj, 'applied_skill', None)
+        if applied is None:
+            return None
+        s = applied.skill
+        return {'id': s.id, 'name': s.name, 'category': s.category.name if s.category_id else None}
 
     def get_next_statuses(self, obj):
         return sorted(Candidate.TRANSITIONS.get(obj.status, set()))
@@ -182,6 +204,27 @@ class CandidateSerializer(serializers.ModelSerializer):
         if not value.is_open():
             raise serializers.ValidationError('Lowongan ini sudah tidak menerima lamaran.')
         return value
+
+    def validate(self, attrs):
+        skill_id = attrs.pop('skill_id', None)
+        job = attrs.get('job')
+        # Position choice applies only when applying to a FREELANCE job that
+        # has Skill positions; ignored for INHOUSE/legacy (hidden field).
+        if self.instance is None and job is not None and job.recruitment_type == 'FREELANCE':
+            options = job.skills.filter(is_active=True)
+            if options.exists():
+                skill = options.filter(pk=skill_id).first() if skill_id else None
+                if skill is None:
+                    raise serializers.ValidationError({'skill_id': 'Pilih posisi yang tersedia pada lowongan ini.'})
+                attrs['_skill'] = skill
+        return attrs
+
+    def create(self, validated_data):
+        skill = validated_data.pop('_skill', None)
+        candidate = super().create(validated_data)
+        if skill is not None:
+            CandidateSkill.objects.create(candidate=candidate, skill=skill)
+        return candidate
 
 
 class FreelanceApplyFormSerializer(serializers.ModelSerializer):

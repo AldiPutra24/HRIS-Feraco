@@ -133,7 +133,7 @@ class JobViewSet(viewsets.ModelViewSet):
 class PublicJobViewSet(viewsets.ReadOnlyModelViewSet):
     """Public: list OPEN jobs, view job detail by slug."""
 
-    queryset = Job.objects.filter(status='OPEN').select_related('department', 'position').all()
+    queryset = Job.objects.filter(status='OPEN').select_related('department', 'position').prefetch_related('skills__category').all()
     serializer_class = JobPublicSerializer
     permission_classes = [AllowAny]
     lookup_field = 'slug'
@@ -152,7 +152,7 @@ class PublicJobViewSet(viewsets.ReadOnlyModelViewSet):
 class CandidateViewSet(viewsets.ModelViewSet):
     """HR: view candidates. Public: create via Apply."""
 
-    queryset = Candidate.objects.select_related('job').all()
+    queryset = Candidate.objects.select_related('job', 'applied_skill__skill__category').all()
     serializer_class = CandidateSerializer
     parser_classes = [JSONParser, FormParser, MultiPartParser]
     filterset_fields = ['job', 'source', 'status']

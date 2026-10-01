@@ -1145,3 +1145,74 @@ class FreelanceJobSkillTests(TestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertIsInstance(resp.json(), list)
         self.assertEqual(len(resp.json()), Skill.objects.count())
+
+
+class PublicJobSkillApplyTests(TestCase):
+    """Public /jobs/<slug> apply: FREELANCE applicants pick ONE position from
+    the job's Skill & Kategori; INHOUSE apply unchanged."""
+
+    def setUp(self):
+        from apps.freelance.models import Skill, SkillCategory
+
+        cat = SkillCategory.objects.create(name='Talent')
+        self.s_mc = Skill.objects.create(name='MC', category=cat)
+        self.s_usher = Skill.objects.create(name='Usher', category=cat)
+        self.s_other = Skill.objects.create(name='Photographer')
+        self.job = Job.objects.create(
+            title='Freelance Event', slug='freelance-event', description='d', requirements='r',
+            employment_type='FREELANCE', recruitment_type='FREELANCE', location='Jakarta',
+            open_date=date.today(), status='OPEN',
+        )
+        self.job.skills.set([self.s_mc, self.s_usher])
+        dept = Department.objects.create(name='Engineering')
+        pos = Position.objects.create(name='Developer', department=dept)
+        self.inhouse = Job.objects.create(
+            title='Inhouse Dev', slug='inhouse-dev', department=dept, position=pos,
+            description='d', requirements='r', employment_type='FULL_TIME', location='Jakarta',
+            open_date=date.today(), status='OPEN',
+        )
+
+    def _apply(self, job, **extra):
+        data = {'job': job.id, 'full_name': 'Rina', 'email': 'rina@test.com', 'phone': '0812345678'}
+        data.update(extra)
+        return self.client.post('/api/recruitment/candidates/', data, content_type='application/json')
+
+    def test_public_job_exposes_skill_options(self):
+        resp = self.client.get(f'/api/recruitment/public/jobs/{self.job.slug}/')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual({s['name'] for s in resp.json()['skill_details']}, {'MC', 'Usher'})
+        self.assertEqual(resp.json()['skill_details'][0]['category'], 'Talent')
+        resp = self.client.get(f'/api/recruitment/public/jobs/{self.inhouse.slug}/')
+        self.assertEqual(resp.json()['skill_details'], [])
+
+    def test_freelance_apply_with_skill_saved(self):
+        from .models import CandidateSkill
+
+        resp = self._apply(self.job, skill_id=self.s_usher.id)
+        self.assertEqual(resp.status_code, 201, resp.content)
+        cs = CandidateSkill.objects.get(candidate_id=resp.json()['id'])
+        self.assertEqual(cs.skill_id, self.s_usher.id)
+        self.assertIsNone(cs.form_id)
+
+    def test_freelance_apply_requires_valid_skill(self):
+        self.assertEqual(self._apply(self.job).status_code, 400)
+        self.assertEqual(self._apply(self.job, skill_id=self.s_other.id).status_code, 400)
+        self.assertFalse(Candidate.objects.exists())
+
+    def test_inhouse_apply_ignores_skill(self):
+        resp = self._apply(self.inhouse, skill_id=self.s_other.id)
+        self.assertEqual(resp.status_code, 201, resp.content)
+        self.assertFalse(hasattr(Candidate.objects.get(pk=resp.json()['id']), 'applied_skill'))
+
+    def test_accept_uses_chosen_skill_only(self):
+        from apps.freelance.models import Freelancer
+
+        cand_id = self._apply(self.job, skill_id=self.s_mc.id).json()['id']
+        admin = make_user('ADMIN', 'admin@test.com')
+        self.client.force_login(admin)
+        detail = self.client.get(f'/api/recruitment/candidates/{cand_id}/').json()
+        self.assertEqual(detail['applied_skill']['name'], 'MC')
+        resp = self.client.post(f'/api/recruitment/candidates/{cand_id}/accept-freelance/')
+        self.assertEqual(resp.status_code, 200, resp.content)
+        fl = Freelancer.objects.get(personal_email='rina@test.com')
+        self.assertEqual({fs.skill_id for fs in fl.freelancer_skills.all()}, {self.s_mc.id})

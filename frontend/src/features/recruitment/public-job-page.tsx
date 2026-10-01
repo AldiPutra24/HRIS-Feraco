@@ -21,6 +21,7 @@ export function PublicJobPage({ slug }: { slug: string }) {
   const [done, setDone] = useState(false);
   const [form, setForm] = useState({ full_name: '', email: '', phone: '' });
   const [cv, setCv] = useState<File | null>(null);
+  const [skillId, setSkillId] = useState('');
 
   useEffect(() => {
     getPublicJob(slug)
@@ -31,11 +32,23 @@ export function PublicJobPage({ slug }: { slug: string }) {
 
   if (notFoundState) notFound();
 
+  // FREELANCE job: applicant picks ONE position from the job's Skill & Kategori.
+  const skillOptions = job?.recruitment_type === 'FREELANCE' ? (job.skill_details ?? []) : [];
+  const skillGroups = skillOptions.reduce<Record<string, typeof skillOptions>>((acc, s) => {
+    const category = s.category || 'Lainnya';
+    (acc[category] ??= []).push(s);
+    return acc;
+  }, {});
+
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (!job) return;
     if (!form.full_name.trim() || !form.email.trim()) {
       toast.error('Nama dan email wajib diisi.');
+      return;
+    }
+    if (skillOptions.length > 0 && !skillId) {
+      toast.error('Pilih posisi yang dilamar.');
       return;
     }
     setApplying(true);
@@ -46,6 +59,7 @@ export function PublicJobPage({ slug }: { slug: string }) {
         email: form.email.trim(),
         phone: form.phone.trim(),
         source: 'PORTAL',
+        skill_id: skillOptions.length > 0 ? Number(skillId) : null,
         cv
       });
       setDone(true);
@@ -133,6 +147,30 @@ export function PublicJobPage({ slug }: { slug: string }) {
                       placeholder='email@contoh.com'
                     />
                   </div>
+                  {skillOptions.length > 0 && (
+                    <div>
+                      <Label className='text-xs' htmlFor='apply-skill'>
+                        Posisi yang Dilamar *
+                      </Label>
+                      <select
+                        id='apply-skill'
+                        className='border-input h-9 w-full rounded-lg border bg-transparent px-2.5 text-sm'
+                        value={skillId}
+                        onChange={(e) => setSkillId(e.target.value)}
+                      >
+                        <option value=''>Pilih posisi</option>
+                        {Object.entries(skillGroups).map(([category, items]) => (
+                          <optgroup key={category} label={category}>
+                            {items.map((s) => (
+                              <option key={s.id} value={s.id}>
+                                {s.name}
+                              </option>
+                            ))}
+                          </optgroup>
+                        ))}
+                      </select>
+                    </div>
+                  )}
                   <div>
                     <Label className='text-xs'>Telepon</Label>
                     <Input
