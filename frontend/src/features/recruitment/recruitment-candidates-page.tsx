@@ -204,7 +204,12 @@ export function RecruitmentCandidatesPage({
                   {items.map((c) => (
                     <TableRow key={c.id}>
                       <TableCell className='font-medium'>{c.full_name}</TableCell>
-                      <TableCell>{c.job_title}</TableCell>
+                      <TableCell>
+                        {c.job_title}
+                        {c.applied_skill && (
+                          <p className='text-muted-foreground text-xs'>Posisi: {c.applied_skill.name}</p>
+                        )}
+                      </TableCell>
                       <TableCell>{c.email}</TableCell>
                       <TableCell>{c.phone || '-'}</TableCell>
                       <TableCell>{new Date(c.applied_at).toLocaleDateString('id-ID')}</TableCell>

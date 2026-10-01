@@ -74,6 +74,7 @@ export type PublicJob = {
   department_name: string;
   position_name: string;
   position_text?: string;
+  skill_details?: JobSkill[];
   description: string;
   requirements: string;
   employment_type: string;
@@ -107,6 +108,7 @@ export type Candidate = {
   next_statuses: string[];
   status_history: CandidateStatusHistory[];
   talent_pool_freelancer_id: number | null;
+  applied_skill: JobSkill | null;
   applied_at: string;
   created_at: string;
 };
@@ -186,6 +188,7 @@ export type ApplyInput = {
   email: string;
   phone: string;
   source?: string;
+  skill_id?: number | null;
   cv?: File | null;
 };
 
@@ -199,6 +202,7 @@ export function applyJob(input: ApplyInput): Promise<Candidate> {
           fd.append('email', input.email);
           fd.append('phone', input.phone ?? '');
           if (input.source) fd.append('source', input.source);
+          if (input.skill_id) fd.append('skill_id', String(input.skill_id));
           fd.append('cv', input.cv);
           return fd;
         })()
