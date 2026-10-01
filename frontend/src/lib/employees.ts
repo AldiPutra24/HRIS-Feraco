@@ -80,6 +80,12 @@ export type Employee = {
   contract_accumulation: ContractAccumulation;
 };
 
+export type PhotoDownload = { url: string; filename: string };
+
+export function getPhotoDownload(id: number): Promise<PhotoDownload> {
+  return request<PhotoDownload>(`/employees/${id}/photo/download/`);
+}
+
 export type Contract = {
   id: number;
   employee: number;

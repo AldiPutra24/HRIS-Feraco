@@ -141,6 +141,46 @@ class Candidate(models.Model):
         return f'{self.full_name} -> {self.job.title}'
 
 
+class CandidateJob(models.Model):
+    """Freelance public-portal applications: positions a candidate applied for.
+
+    Candidate.job stays the primary/first position (existing pipeline relies on
+    it). This through table stores ADDITIONAL positions selected in the
+    /apply/freelance multi-select so talent_pool can tag every skill.
+    """
+
+    candidate = models.ForeignKey(
+        Candidate, on_delete=models.CASCADE, related_name='job_links'
+    )
+    job = models.ForeignKey(Job, on_delete=models.CASCADE, related_name='candidate_links')
+    is_primary = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('candidate', 'job')
+
+    def __str__(self):
+        return f'{self.candidate.full_name} -> {self.job.title}'
+
+
+class CandidateNote(models.Model):
+    """Free-form note on a candidate (extra public-application details, HR notes)."""
+
+    candidate = models.ForeignKey(Candidate, on_delete=models.CASCADE, related_name='notes')
+    note = models.TextField()
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='candidate_notes',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['created_at']
+
+    def __str__(self):
+        return f'Note on {self.candidate.full_name}'
+
+
 class CandidateStatusHistory(models.Model):
     """Audit trail of candidate status transitions."""
 

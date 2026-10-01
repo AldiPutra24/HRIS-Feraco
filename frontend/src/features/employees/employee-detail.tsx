@@ -40,6 +40,7 @@ import {
   type History
 } from '@/lib/employees';
 import { listAuditLogs, type AuditEntry } from '@/lib/audit';
+import { getPhotoDownload } from '@/lib/employees';
 
 const TABS = ['Overview', 'Employment', 'Contracts', 'History', 'Documents'] as const;
 type Tab = (typeof TABS)[number];
@@ -81,6 +82,24 @@ export function EmployeeDetail({ id }: { id: number }) {
   const [historyForm, setHistoryForm] = useState({ date: '', history_type: 'PROMOTION', notes: '' });
   const [uploading, setUploading] = useState(false);
   const [documentFile, setDocumentFile] = useState<File | null>(null);
+  const [photoPreview, setPhotoPreview] = useState(false);
+  const [downloadingPhoto, setDownloadingPhoto] = useState(false);
+
+  // HR-only (admin / hr_lead / hr_staff): download the ORIGINAL photo file via
+  // a backend-issued signed URL with a tidy download filename.
+  const canDownloadPhoto = !isManagement;
+
+  async function handleDownloadPhoto() {
+    if (!employee) return;
+    setDownloadingPhoto(true);
+    try {
+      const { url } = await getPhotoDownload(employee.id);
+      window.open(url, '_blank');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Gagal mengunduh foto.');
+    }
+    setDownloadingPhoto(false);
+  }
 
   const loadAll = useCallback(async () => {
     const [emp, ct, hs, docs] = await Promise.all([
@@ -307,11 +326,68 @@ export function EmployeeDetail({ id }: { id: number }) {
   return (
     <div className='flex flex-1 flex-col gap-4 p-4 md:p-6'>
       <div>
-        <h2 className='text-2xl font-bold tracking-tight'>{employee.full_name}</h2>
-        <p className='text-muted-foreground text-sm'>
-          {employee.position_name || '-'}
-        </p>
+        <div className='flex items-center gap-4'>
+          {employee.photo_url ? (
+            <button
+              type='button'
+              onClick={() => setPhotoPreview(true)}
+              className='overflow-hidden rounded-full ring-border ring-2 transition hover:opacity-80'
+              title='Klik untuk memperbesar foto'
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={employee.photo_url} alt={employee.full_name} className='h-16 w-16 object-cover' />
+            </button>
+          ) : (
+            <div className='bg-muted text-muted-foreground flex h-16 w-16 items-center justify-center rounded-full text-xl font-semibold'>
+              {employee.full_name
+                .split(' ')
+                .slice(0, 2)
+                .map((w) => w[0]?.toUpperCase() ?? '')
+                .join('')}
+            </div>
+          )}
+          <div>
+            <h2 className='text-2xl font-bold tracking-tight'>{employee.full_name}</h2>
+            <p className='text-muted-foreground text-sm'>
+              {employee.position_name || '-'}
+            </p>
+            {employee.photo_url && canDownloadPhoto && (
+              <div className='mt-1 flex gap-2'>
+                <Button variant='outline' size='sm' onClick={() => setPhotoPreview(true)}>
+                  <Icons.search />
+                  Lihat Foto
+                </Button>
+                <Button variant='outline' size='sm' onClick={handleDownloadPhoto} disabled={downloadingPhoto}>
+                  <Icons.download />
+                  {downloadingPhoto ? 'Mengunduh...' : 'Unduh Foto'}
+                </Button>
+              </div>
+            )}
+          </div>
+        </div>
       </div>
+
+      {photoPreview && employee.photo_url && (
+        <div
+          className='bg-background/80 fixed inset-0 z-50 flex items-center justify-center p-4'
+          onClick={() => setPhotoPreview(false)}
+        >
+          <div className='flex max-h-full max-w-full flex-col items-center gap-3'>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={employee.photo_url}
+              alt={employee.full_name}
+              className='max-h-[75vh] max-w-full rounded-lg object-contain shadow-2xl'
+            />
+            {canDownloadPhoto && (
+              <Button variant='outline' size='sm' onClick={handleDownloadPhoto} disabled={downloadingPhoto}>
+                <Icons.download />
+                {downloadingPhoto ? 'Mengunduh...' : 'Unduh Foto'}
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
 
       <div className='flex gap-2 border-b'>
         {TABS.map((t) => (

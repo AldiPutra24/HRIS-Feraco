@@ -14,7 +14,7 @@ export function middleware(request: NextRequest) {
   const host = (request.headers.get('host') ?? '').split(':')[0];
   const { pathname, search } = request.nextUrl;
 
-  if (host === RECRUITMENT_HOST && !pathname.startsWith('/jobs')) {
+  if (host === RECRUITMENT_HOST && !pathname.startsWith('/jobs') && !pathname.startsWith('/apply')) {
     return NextResponse.redirect(`https://${HRIS_HOST}${pathname}${search}`);
   }
 
