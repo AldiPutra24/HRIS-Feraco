@@ -1,51 +1,96 @@
 import { AUTH_API_BASE } from '@/lib/auth/auth-config';
 
-const BASE = `${AUTH_API_BASE}/api/recruitment/public/freelance`;
+const BASE = `${AUTH_API_BASE}/api/recruitment`;
 
-export type FreelancePosition = {
+export type FreelanceApplyForm = {
   id: number;
   title: string;
-  position_text: string;
-  location: string;
+  slug: string;
+  description: string;
+  skills: number[];
+  skill_details: { id: number; name: string; category: string | null }[];
+  is_active: boolean;
+  applications_count: number;
+  public_url: string;
+  created_at: string;
+  updated_at: string;
 };
 
-// No credentials / CSRF needed: these endpoints are session-less and public.
-export function listFreelancePositions(): Promise<FreelancePosition[]> {
-  return fetch(`${BASE}/positions/`).then(async (res) => {
-    if (!res.ok) throw new Error(`API error ${res.status}`);
-    return res.json() as Promise<FreelancePosition[]>;
-  });
+export type FreelanceApplyFormInput = {
+  title: string;
+  description: string;
+  skills: number[];
+  is_active: boolean;
+};
+
+export type FormApplicant = {
+  id: number;
+  full_name: string;
+  email: string;
+  phone: string;
+  skill_id: number;
+  skill_name: string;
+  submitted_at: string;
+  status: string;
+  cv_name: string | null;
+  cv_url: string | null;
+};
+
+function getCookie(name: string): string | null {
+  if (typeof document === 'undefined') return null;
+  const match = document.cookie.match(new RegExp(`(?:^|; )${name}=([^;]*)`));
+  return match ? decodeURIComponent(match[1]) : null;
 }
 
-export async function submitFreelanceApplication(form: {
-  full_name: string;
-  phone: string;
-  email: string;
-  domicile: string;
-  position_ids: number[];
-  portfolio_url: string;
-  expected_rate: string;
-  notes: string;
-  cv: File | null;
-}): Promise<void> {
-  const fd = new FormData();
-  fd.append('full_name', form.full_name);
-  fd.append('phone', form.phone);
-  fd.append('email', form.email);
-  fd.append('domicile', form.domicile);
-  fd.append('position_ids', form.position_ids.join(','));
-  fd.append('portfolio_url', form.portfolio_url);
-  fd.append('expected_rate', form.expected_rate);
-  fd.append('notes', form.notes);
-  if (form.cv) fd.append('cv', form.cv);
-  const res = await fetch(`${BASE}/apply/`, { method: 'POST', body: fd });
+function extractError(data: unknown): string | null {
+  if (!data || typeof data !== 'object') return null;
+  const d = data as Record<string, unknown>;
+  if (typeof d.detail === 'string') return d.detail;
+  for (const key of Object.keys(d)) {
+    const v = d[key];
+    if (typeof v === 'string') return v;
+    if (Array.isArray(v)) {
+      const first = v.find((x) => typeof x === 'string');
+      if (first) return first;
+    }
+  }
+  return null;
+}
+
+async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const headers = new Headers(init.headers);
+  if (init.body && !(init.body instanceof FormData)) headers.set('Content-Type', 'application/json');
+  const csrf = getCookie('csrftoken');
+  const method = (init.method ?? 'GET').toUpperCase();
+  if (csrf && ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) headers.set('X-CSRFToken', csrf);
+  const res = await fetch(`${BASE}${path}`, { ...init, headers, credentials: 'include' });
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
-    const d = data as Record<string, unknown>;
-    let msg = typeof d.detail === 'string' ? d.detail : `Gagal mengirim lamaran (${res.status}).`;
-    if (d.cv) msg = `CV: ${(d.cv as string[]).join(' ')}`;
-    else if (d.position_ids) msg = (d.position_ids as string[]).join(' ');
-    else if (d.phone) msg = String((d.phone as string[])[0] ?? d.phone);
-    throw new Error(msg);
+    throw new Error(extractError(data) || `API error ${res.status}`);
   }
+  if (res.status === 204) return undefined as T;
+  return res.json() as Promise<T>;
+}
+
+// ---- HR dashboard ----
+
+export function listApplyForms(): Promise<FreelanceApplyForm[]> {
+  return request<FreelanceApplyForm[]>('/freelance-apply-forms/');
+}
+
+export function createApplyForm(data: FreelanceApplyFormInput): Promise<FreelanceApplyForm> {
+  return request<FreelanceApplyForm>('/freelance-apply-forms/', { method: 'POST', body: JSON.stringify(data) });
+}
+
+export function updateApplyForm(id: number, data: Partial<FreelanceApplyFormInput>): Promise<FreelanceApplyForm> {
+  return request<FreelanceApplyForm>(`/freelance-apply-forms/${id}/`, { method: 'PATCH', body: JSON.stringify(data) });
+}
+
+export function deleteApplyForm(id: number): Promise<void> {
+  return request<void>(`/freelance-apply-forms/${id}/`, { method: 'DELETE' });
+}
+
+export function listFormApplicants(id: number, skillId?: number): Promise<FormApplicant[]> {
+  const q = skillId ? `?skill_id=${skillId}` : '';
+  return request<FormApplicant[]>(`/freelance-apply-forms/${id}/applicants/${q}`);
 }

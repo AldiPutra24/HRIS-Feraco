@@ -1,6 +1,7 @@
 from django.conf import settings
 from django.db import models
 from django.utils import timezone
+from django.utils.text import slugify
 
 
 class Job(models.Model):
@@ -141,26 +142,89 @@ class Candidate(models.Model):
         return f'{self.full_name} -> {self.job.title}'
 
 
-class CandidateJob(models.Model):
-    """Freelance public-portal applications: positions a candidate applied for.
+class FreelanceApplyForm(models.Model):
+    """HR-configured public application form for freelance recruitment.
 
-    Candidate.job stays the primary/first position (existing pipeline relies on
-    it). This through table stores ADDITIONAL positions selected in the
-    /apply/freelance multi-select so talent_pool can tag every skill.
+    One public link per form (slug). HR multi-selects which existing
+    freelance.Skill master data is open; candidates pick ONE of those skills
+    on the public page. Accepting the candidate maps their chosen Skill onto
+    the Freelancer in the Talent Pool (no duplicate Skill creation).
     """
 
-    candidate = models.ForeignKey(
-        Candidate, on_delete=models.CASCADE, related_name='job_links'
+    title = models.CharField(max_length=255)
+    slug = models.SlugField(max_length=280, unique=True, blank=True)
+    description = models.TextField(blank=True)
+    skills = models.ManyToManyField(
+        'freelance.Skill', related_name='apply_forms', blank=True
     )
-    job = models.ForeignKey(Job, on_delete=models.CASCADE, related_name='candidate_links')
-    is_primary = models.BooleanField(default=False)
+    is_active = models.BooleanField(default=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='freelance_apply_forms',
+    )
     created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        unique_together = ('candidate', 'job')
+        ordering = ['-created_at']
 
     def __str__(self):
-        return f'{self.candidate.full_name} -> {self.job.title}'
+        return self.title
+
+    def save(self, *args, **kwargs):
+        if not self.slug:
+            base = slugify(self.title) or 'form'
+            slug = base
+            i = 2
+            while FreelanceApplyForm.objects.filter(slug=slug).exclude(pk=self.pk).exists():
+                slug = f'{base}-{i}'
+                i += 1
+            self.slug = slug
+        super().save(*args, **kwargs)
+
+    def get_or_create_job(self):
+        """The internal Job row candidates are filed under (keeps the existing
+        Candidate pipeline + freelance/inhouse isolation working unchanged)."""
+        slug = f'portal-{self.slug}'
+        job, _ = Job.objects.get_or_create(
+            slug=slug,
+            defaults={
+                'title': self.title,
+                'position_text': self.title,
+                'employment_type': 'FREELANCE',
+                'recruitment_type': 'FREELANCE',
+                'open_date': timezone.localdate(),
+                'status': 'OPEN',
+                'description': self.description,
+            },
+        )
+        return job
+
+
+class CandidateSkill(models.Model):
+    """The ONE skill (position) a candidate chose on a public apply form.
+
+    Kept as its own through row so HR can browse applicants per skill and the
+    Talent Pool acceptance maps it onto FreelancerSkill.
+    """
+
+    candidate = models.OneToOneField(
+        Candidate, on_delete=models.CASCADE, related_name='applied_skill'
+    )
+    skill = models.ForeignKey(
+        'freelance.Skill', on_delete=models.PROTECT, related_name='candidates'
+    )
+    form = models.ForeignKey(
+        FreelanceApplyForm, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='candidate_skills',
+    )
+    submitted_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f'{self.candidate.full_name} -> {self.skill.name}'
 
 
 class CandidateNote(models.Model):

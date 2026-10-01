@@ -1,6 +1,8 @@
+from apps.freelance.models import Skill
+
 from rest_framework import serializers
 
-from .models import Candidate, CandidateStatusHistory, Job
+from .models import Candidate, CandidateSkill, CandidateStatusHistory, Job
 
 
 class FreelancePositionSerializer(serializers.ModelSerializer):
@@ -141,18 +143,58 @@ class CandidateSerializer(serializers.ModelSerializer):
         return value
 
 
+class FreelanceApplyFormSerializer(serializers.ModelSerializer):
+    """HR management serializer for public freelance apply forms."""
+
+    # FreelanceApplyForm is imported inside Meta to avoid circulars.
+
+    skills = serializers.PrimaryKeyRelatedField(many=True, queryset=Skill.objects.all(), required=True)
+    skill_details = serializers.SerializerMethodField()
+    applications_count = serializers.SerializerMethodField()
+    public_url = serializers.SerializerMethodField()
+
+    class Meta:
+        from .models import FreelanceApplyForm
+
+        model = FreelanceApplyForm
+        fields = (
+            'id', 'title', 'slug', 'description', 'skills', 'skill_details',
+            'is_active', 'applications_count', 'public_url',
+            'created_at', 'updated_at',
+        )
+        read_only_fields = ('id', 'slug', 'applications_count', 'public_url', 'created_at', 'updated_at')
+
+    def get_skill_details(self, obj):
+        return [{'id': s.id, 'name': s.name, 'category': s.category.name if s.category_id else None} for s in obj.skills.all()]
+
+    def get_applications_count(self, obj):
+        return CandidateSkill.objects.filter(form=obj).count()
+
+    def get_public_url(self, obj):
+        request = self.context.get('request')
+        path = f'/freelance/apply/{obj.slug}'
+        return request.build_absolute_uri(path) if request else path
+
+    def validate_skills(self, value):
+        if not value:
+            raise serializers.ValidationError('Pilih minimal satu skill/posisi.')
+        inactive = [s.name for s in value if not s.is_active]
+        if inactive:
+            raise serializers.ValidationError(f'Skill tidak aktif: {", ".join(inactive)}')
+        return value
+
+
 class PublicFreelanceApplySerializer(serializers.Serializer):
-    """Public /apply/freelance submission. Creates Candidate rows (one per
-    selected position, first is primary) — never Employee/User/Freelancer.
+    """Public /freelance/apply/<slug> submission. Creates exactly ONE Candidate
+    filed under the form's internal freelance Job, linked to the chosen Skill.
+    Never creates Employee/User/Freelancer.
     """
 
     full_name = serializers.CharField(max_length=255)
     phone = serializers.CharField(max_length=32)
     email = serializers.EmailField()
     domicile = serializers.CharField(max_length=255, required=False, allow_blank=True, default='')
-    position_ids = serializers.ListField(
-        child=serializers.IntegerField(), min_length=1, max_length=10
-    )
+    skill_id = serializers.IntegerField()
     portfolio_url = serializers.URLField(required=False, allow_blank=True, default='')
     expected_rate = serializers.CharField(max_length=128, required=False, allow_blank=True, default='')
     notes = serializers.CharField(max_length=2000, required=False, allow_blank=True, default='')
@@ -165,48 +207,34 @@ class PublicFreelanceApplySerializer(serializers.Serializer):
             raise serializers.ValidationError('Nomor WhatsApp/HP tidak valid.')
         return v
 
-    def validate_position_ids(self, value):
-        ids = list(dict.fromkeys(value))  # dedup, keep order
-        jobs = Job.objects.filter(
-            id__in=ids, recruitment_type='FREELANCE', status='OPEN'
-        )
-        found = {j.id for j in jobs if j.is_open()}
-        missing = [i for i in ids if i not in found]
-        if missing:
-            raise serializers.ValidationError('Ada posisi yang tidak tersedia atau sudah ditutup.')
-        return ids
-
     def create(self, validated):
-        from .models import CandidateJob
+        from .models import CandidateNote, CandidateSkill
 
-        request = self.context['request']
-        jobs = [Job.objects.get(pk=i) for i in validated['position_ids']]
-        made = []
-        for idx, job in enumerate(jobs):
-            cand = Candidate.objects.create(
-                job=job,
-                full_name=validated['full_name'].strip(),
-                email=validated['email'].strip().lower(),
-                phone=validated['phone'].strip(),
-                source='PORTAL',
+        form: FreelanceApplyForm = self.context['form']
+        skill = Skill.objects.filter(pk=validated['skill_id']).first()
+        if skill is None or not form.skills.filter(pk=skill.pk).exists():
+            raise serializers.ValidationError({'skill_id': 'Posisi tidak tersedia pada form ini.'})
+        cand = Candidate.objects.create(
+            job=form.get_or_create_job(),
+            full_name=validated['full_name'].strip(),
+            email=validated['email'].strip().lower(),
+            phone=validated['phone'].strip(),
+            source='PORTAL',
+        )
+        CandidateSkill.objects.create(candidate=cand, skill=skill, form=form)
+        extra = []
+        if validated.get('domicile'):
+            extra.append(f'Domisili: {validated["domicile"]}')
+        if validated.get('portfolio_url'):
+            extra.append(f'Portfolio: {validated["portfolio_url"]}')
+        if validated.get('expected_rate'):
+            extra.append(f'Rate diharapkan: {validated["expected_rate"]}')
+        if validated.get('notes'):
+            extra.append(f'Catatan: {validated["notes"]}')
+        if extra:
+            CandidateNote.objects.get_or_create(
+                candidate=cand,
+                note='\n'.join(extra),
+                defaults={'created_by': None},
             )
-            CandidateJob.objects.create(candidate=cand, job=job, is_primary=(idx == 0))
-            extra = []
-            if validated.get('domicile'):
-                extra.append(f'Domisili: {validated["domicile"]}')
-            if validated.get('portfolio_url'):
-                extra.append(f'Portfolio: {validated["portfolio_url"]}')
-            if validated.get('expected_rate'):
-                extra.append(f'Rate diharapkan: {validated["expected_rate"]}')
-            if validated.get('notes'):
-                extra.append(f'Catatan: {validated["notes"]}')
-            if extra:
-                from .models import CandidateNote
-
-                CandidateNote.objects.get_or_create(
-                    candidate=cand,
-                    note='\n'.join(extra),
-                    defaults={'created_by': None},
-                )
-            made.append(cand)
-        return made[0]
+        return cand

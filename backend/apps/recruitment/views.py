@@ -9,12 +9,19 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
 from apps.audit.services import log_event
+from apps.freelance.models import Skill, SkillCategory
 from apps.personnel.permissions import _role
 from apps.personnel.storage import is_configured, signed_url, upload_bytes
 
-from .models import Candidate, Job
+from .models import Candidate, CandidateSkill, FreelanceApplyForm, Job
 from .permissions import IsRecruitmentAdmin, RECRUITMENT_ADMIN_ROLES
-from .serializers import CandidateSerializer, FreelancePositionSerializer, JobPublicSerializer, JobSerializer, PublicFreelanceApplySerializer
+from .serializers import (
+    CandidateSerializer,
+    FreelanceApplyFormSerializer,
+    JobPublicSerializer,
+    JobSerializer,
+    PublicFreelanceApplySerializer,
+)
 from rest_framework.views import APIView
 from .services import _bucket, transition_candidate
 from .talent_pool import accept_candidate_to_talent_pool
@@ -313,12 +320,67 @@ class CandidateViewSet(viewsets.ModelViewSet):
     def hard_delete(self, request, pk=None):
         return self.destroy(request, pk=pk)
 
-class PublicFreelancePortalView(APIView):
-    """Public (no login) endpoints for the /apply/freelance job portal.
+class FreelanceApplyFormViewSet(viewsets.ModelViewSet):
+    """HR management of public freelance apply forms.
 
-    Only exposes OPEN freelance positions and accepts applications — never any
-    HR/internal data. CSRF is exempt because this is a public, session-less
-    form; spam is mitigated with a per-IP rate limit + duplicate guard.
+    CRUD + applicant browsing per form. Uses the freelance-management roles
+    (same as the /dashboard/freelance Skill/Kategori master).
+    """
+
+    from apps.freelance.permissions import IsFreelanceManager
+
+    queryset = FreelanceApplyForm.objects.prefetch_related('skills').all()
+    serializer_class = FreelanceApplyFormSerializer
+    permission_classes = [IsFreelanceManager]
+    filterset_fields = ['is_active']
+    search_fields = ['title']
+    pagination_class = None
+
+    def perform_create(self, serializer):
+        obj = serializer.save(created_by=self.request.user)
+        log_event(self.request, 'create', obj=obj, description=f'Freelance apply form "{obj.title}" created')
+
+    def perform_update(self, serializer):
+        obj = serializer.save()
+        log_event(self.request, 'update', obj=obj, description=f'Freelance apply form "{obj.title}" updated')
+
+    def perform_destroy(self, instance):
+        name = instance.title
+        instance.delete()
+        log_event(self.request, 'delete', obj=None, description=f'Freelance apply form "{name}" deleted')
+
+    @action(detail=True, methods=['get'])
+    def applicants(self, request, pk=None):
+        """Applicants of this form, optionally ?skill_id= filtered, with the
+        chosen skill per applicant."""
+        form = self.get_object()
+        qs = Candidate.objects.filter(applied_skill__form=form).select_related(
+            'job', 'applied_skill__skill'
+        ).order_by('-created_at')
+        skill_id = request.query_params.get('skill_id')
+        if skill_id and skill_id.isdigit():
+            qs = qs.filter(applied_skill__skill_id=int(skill_id))
+        page = self.paginate_queryset(qs)
+        data = []
+        cands = page if page is not None else qs
+        for c in cands:
+            item = CandidateSerializer(c, context={'request': request}).data
+            item['skill_name'] = c.applied_skill.skill.name
+            item['skill_id'] = c.applied_skill.skill_id
+            item['submitted_at'] = c.applied_skill.submitted_at
+            data.append(item)
+        if page is not None:
+            return self.get_paginated_response(data)
+        return Response(data)
+
+
+class PublicFreelancePortalView(APIView):
+    """Public (no login) endpoints for the /freelance/apply/<slug> portal.
+
+    GET: the form's open skills (only skills HR selected, form must be active).
+    POST: submit an application -> ONE Candidate linked to the chosen Skill.
+    CSRF-exempt (session-less public form); anti-spam via per-IP rate limit +
+    duplicate guard. Never exposes HR/internal endpoints or data.
     """
 
     from rest_framework.authentication import BaseAuthentication
@@ -352,26 +414,42 @@ class PublicFreelancePortalView(APIView):
         self._rate[ip] = hits
         return False
 
-    def _duplicate(self, data):
-        """Same email applied for the same position in the last 24h -> duplicate."""
+    def _duplicate(self, form, email, skill_id):
+        """Same email + same skill submitted in the last 24h -> duplicate."""
         from datetime import timedelta
 
         since = timezone.now() - timedelta(hours=24)
-        return Candidate.objects.filter(
-            email=(data.get('email') or '').strip().lower(),
-            job_id__in=data.get('position_ids') or [],
-            created_at__gte=since,
+        return CandidateSkill.objects.filter(
+            form=form,
+            skill_id=skill_id,
+            candidate__email=(email or '').strip().lower(),
+            submitted_at__gte=since,
         ).exists()
 
-    def get(self, request):
-        """List open FREELANCE positions for the picker."""
-        jobs = [
-            j for j in Job.objects.filter(recruitment_type='FREELANCE').order_by('title')
-            if j.is_open()
-        ]
-        return Response(FreelancePositionSerializer(jobs, many=True).data)
+    def _get_form(self, slug):
+        form = FreelanceApplyForm.objects.filter(slug=slug).first()
+        if form is None or not form.is_active:
+            return None
+        return form
 
-    def post(self, request):
+    def get(self, request, slug):
+        form = self._get_form(slug)
+        if form is None:
+            return Response({'detail': 'Form tidak ditemukan atau tidak aktif.'}, status=status.HTTP_404_NOT_FOUND)
+        skills = form.skills.filter(is_active=True).order_by('name')
+        return Response({
+            'title': form.title,
+            'description': form.description,
+            'skills': [
+                {'id': s.id, 'name': s.name, 'category': s.category.name if s.category_id else None}
+                for s in skills
+            ],
+        })
+
+    def post(self, request, slug):
+        form = self._get_form(slug)
+        if form is None:
+            return Response({'detail': 'Form tidak ditemukan atau tidak aktif.'}, status=status.HTTP_404_NOT_FOUND)
         if self._rate_limited(request):
             return Response(
                 {'detail': 'Terlalu banyak percobaan. Coba lagi nanti.'},
@@ -379,47 +457,39 @@ class PublicFreelancePortalView(APIView):
             )
         data = request.data.dict() if hasattr(request.data, 'dict') else dict(request.data)
         file = request.FILES.get('cv')
-        if file is None:
-            return Response({'cv': ['CV wajib diunggah.']}, status=status.HTTP_400_BAD_REQUEST)
-        err = _validate_cv(file)
-        if err:
-            return Response({'cv': [err]}, status=status.HTTP_400_BAD_REQUEST)
-        raw_ids = data.get('position_ids') or ''
-        if isinstance(raw_ids, str):
-            data['position_ids'] = [int(i) for i in raw_ids.split(',') if i.strip().isdigit()]
-        ser = PublicFreelanceApplySerializer(data=data, context={'request': request})
+        portfolio_url = (data.get('portfolio_url') or '').strip()
+        if file is None and not portfolio_url:
+            return Response({'cv': ['Upload CV atau isi URL portfolio.']}, status=status.HTTP_400_BAD_REQUEST)
+        if file is not None:
+            err = _validate_cv(file)
+            if err:
+                return Response({'cv': [err]}, status=status.HTTP_400_BAD_REQUEST)
+        ser = PublicFreelanceApplySerializer(data=data, context={'request': request, 'form': form})
         ser.is_valid(raise_exception=True)
-        if self._duplicate(ser.validated_data):
+        if self._duplicate(form, ser.validated_data.get('email'), ser.validated_data.get('skill_id')):
             return Response(
                 {'detail': 'Lamaran dengan email dan posisi yang sama sudah dikirim dalam 24 jam terakhir.'},
                 status=status.HTTP_409_CONFLICT,
             )
-        if not is_configured():
+        if file is not None and not is_configured():
             return Response({'detail': 'Storage not configured.'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
 
-        primary = ser.save()
-        # Attach the same CV file to every candidate row created (one per position).
-        from .models import Candidate
-
-        cands = Candidate.objects.filter(
-            models.Q(id=primary.id) |
-            models.Q(full_name=primary.full_name, email=primary.email, created_at=primary.created_at)
-        )
-        path = f'cvs/portal/{primary.id}/{file.name}'
-        try:
-            upload_bytes(_bucket(), path, file.read(), file.content_type or 'application/octet-stream')
-        except Exception as exc:
-            for c in cands:
-                c.delete()
-            return Response(
-                {'detail': f'Gagal mengunggah CV ke storage: {str(exc)[:150]}'},
-                status=status.HTTP_502_BAD_GATEWAY,
-            )
-        for c in cands:
-            c.cv_name = file.name
-            c.cv_path = path
-            c.cv_content_type = file.content_type or ''
-            c.save(update_fields=['cv_name', 'cv_path', 'cv_content_type', 'updated_at'])
+        cand = ser.save()
+        if file is not None:
+            path = f'cvs/portal/{cand.id}/{file.name}'
+            try:
+                upload_bytes(_bucket(), path, file.read(), file.content_type or 'application/octet-stream')
+            except Exception as exc:
+                cand.delete()
+                return Response(
+                    {'detail': f'Gagal mengunggah CV ke storage: {str(exc)[:150]}'},
+                    status=status.HTTP_502_BAD_GATEWAY,
+                )
+            cand.cv_name = file.name
+            cand.cv_path = path
+            cand.cv_content_type = file.content_type or ''
+            cand.save(update_fields=['cv_name', 'cv_path', 'cv_content_type', 'updated_at'])
+        log_event(request, 'create', obj=cand, description=f'Public freelance application "{cand.full_name}" via form "{form.title}"')
         return Response(
             {'detail': 'Lamaran berhasil dikirim. Terima kasih!'},
             status=status.HTTP_201_CREATED,
