@@ -16,6 +16,7 @@ import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Icons } from '@/components/icons';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { useAuth } from '@/lib/auth/auth-provider';
 import {
   deleteEmployee,
@@ -246,7 +247,21 @@ export function EmployeeList() {
               <TableBody>
                 {employees.map((e) => (
                   <TableRow key={e.id}>
-                    <TableCell className='font-medium'>{e.full_name}</TableCell>
+                    <TableCell className='font-medium'>
+                    <div className='flex items-center gap-2'>
+                      <Avatar className='h-8 w-8'>
+                        <AvatarImage src={e.photo_url || ''} alt={e.full_name} />
+                        <AvatarFallback className='text-xs'>
+                          {e.full_name
+                            .split(' ')
+                            .slice(0, 2)
+                            .map((w) => w[0]?.toUpperCase() ?? '')
+                            .join('')}
+                        </AvatarFallback>
+                      </Avatar>
+                      <span>{e.full_name}</span>
+                    </div>
+                  </TableCell>
                     <TableCell>{e.department_name || '-'}</TableCell>
                     <TableCell>{e.position_name || '-'}</TableCell>
                     <TableCell>

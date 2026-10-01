@@ -55,10 +55,18 @@ def delete_object(bucket, path):
     return res.status_code in (200, 204)
 
 
-def signed_url(bucket, path, expires_in=3600):
-    """Create a short-lived signed URL for private object access."""
+def signed_url(bucket, path, expires_in=3600, download=None):
+    """Create a short-lived signed URL for private object access.
+
+    `download` (optional filename) asks Supabase to send Content-Disposition
+    attachment so the browser downloads the ORIGINAL file under that name
+    instead of rendering it.
+    """
     url = f'{_storage_base()}/sign/{bucket}/{_quoted_path(path)}'
-    res = requests.post(url, headers=_headers(), json={'expiresIn': expires_in}, timeout=30)
+    payload = {'expiresIn': expires_in}
+    if download:
+        payload['download'] = download
+    res = requests.post(url, headers=_headers(), json=payload, timeout=30)
     if res.status_code != 200:
         raise RuntimeError(f'Signed URL failed ({res.status_code})')
     signed = res.json().get('signedURL') or res.json().get('signedUrl')

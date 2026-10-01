@@ -111,6 +111,21 @@ Catatan: filtering menu di frontend (`use-nav.ts`) hanya UI; otorisasi di backen
 
 ## Last Progress
 
+### Public Job Portal Freelance — /apply/freelance (2026-10-01)
+- Satu link publik `/apply/freelance` (tanpa login, mobile-first, branding FERACO) untuk lamaran freelance: pilih posisi multi-select (searchable), biodata, CV, portfolio/rate/catatan opsional, halaman sukses.
+- Endpoint publik khusus: `GET/POST /api/recruitment/public/freelance/positions|apply/` — hanya expose posisi freelance OPEN; endpoint HR/internal tidak terbuka.
+- Submit membuat row `Candidate` (source=PORTAL, status=APPLIED) per posisi terpilih — muncul di Recruitment Freelance existing; tidak membuat Employee/User/Freelancer.
+- Model baru: `CandidateJob` (through posisi multi-select) + `CandidateNote` (domisili/portfolio/rate/catatan). Migration 0007.
+- Anti-spam: rate limit per-IP 5 submit/10 menit + duplicate guard (email+posisi dalam 24 jam → 409). Validasi CV PDF/DOC/DOCX maks 10MB; upload ke bucket `recruitment-cvs` (dev: `recruitment-cvs-dev`) via path `cvs/portal/`.
+- Test: `PublicFreelancePortalTests` 7 OK (positions list, submit→candidate, validasi CV, tolak posisi closed/inhouse, duplicate, rate limit, muncul di list FREELANCE & tidak di INHOUSE). apps.recruitment 63 OK +1 skip. Frontend typecheck + build OK.
+
+### Foto Profil Karyawan di Dashboard HR (2026-10-01)
+- Endpoint unduh foto: `GET /api/employees/{id}/photo/download/` — hanya ADMIN/HR_STAFF/HR_LEAD (MANAGEMENT/GM/EMPLOYEE → 403). Mengembalikan signed URL Supabase bucket `employee-photos` (private, expired 10 menit) + `download` filename rapi `foto-nama-karyawan.ext`, sehingga browser menyimpan FILE ASLI (bukan screenshot/thumbnail).
+- `signed_url()` di `apps/personnel/storage.py` kini mendukung parameter `download` (Content-Disposition attachment).
+- Frontend: avatar foto di list Karyawan (fallback inisial), foto + tombol "Lihat Foto" (preview besar, klik luar untuk tutup) dan "Unduh Foto" di header detail Karyawan. Placeholder inisial bila belum ada foto.
+- Upload foto self-service yang sudah berjalan tidak diubah.
+- Test: `EmployeePhotoDownloadTests` (permission HR-only, signed URL + filename, 404 tanpa foto, photo_url serializer) — 4 OK. apps.personnel 119/120 OK (test_import_xlsx gagal pre-existing). Frontend typecheck + build OK.
+
 **Kebijakan Kuota Cuti Tahunan 2026 (`apps.leaves`)** — last updated 2026-09-25
 
 - `compute_annual_quota(employee, year)` di `apps/leaves/services.py` — kebijakan centralized: eligible day-precision (join + 3 bulan, clamp akhir bulan; join 15 Des → eligible 15 Mar), first quota = bulan eligible..Desember (atau bulan kontrak berakhir) × 1 hari, tahun berikutnya = durasi kontrak tahun itu × 1 hari, akumulasi masa kerja lintas PKWT ≥ 12 bulan → kuota dasar 12 hari. `get_balance()` ANNUAL memakai fungsi ini; non-ANNUAL tetap `default_quota`; balance lama tidak pernah ditimpa. Carry-forward maks 3 hari, deduction idempotency, restore quota, medical deduction — tidak berubah. Serializer Cuti Tahunan kini day-precision (join 15 Des 2025: ajukan 5 Mar 2026 ditolak, 15 Mar boleh). Kasus Nana tervalidasi test: PKWT1 Aug–Des 2025 = 2 hari; PKWT2 Jan–Jun 2026 = 6+2 carry = 8; PKWT2 Jan–Aug 2026 = 12+2 = 14. Hire Okt/Nov/Des 2025 → first quota 12/11/10. **56 tests OK**, check OK, makemigrations --check OK.

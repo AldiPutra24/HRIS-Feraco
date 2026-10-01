@@ -1,5 +1,5 @@
 from django.conf import settings
-from django.db import transaction
+from django.db import models, transaction
 from django.utils import timezone
 from django.utils.text import slugify
 from rest_framework import status, viewsets
@@ -14,7 +14,8 @@ from apps.personnel.storage import is_configured, signed_url, upload_bytes
 
 from .models import Candidate, Job
 from .permissions import IsRecruitmentAdmin, RECRUITMENT_ADMIN_ROLES
-from .serializers import CandidateSerializer, JobPublicSerializer, JobSerializer
+from .serializers import CandidateSerializer, FreelancePositionSerializer, JobPublicSerializer, JobSerializer, PublicFreelanceApplySerializer
+from rest_framework.views import APIView
 from .services import _bucket, transition_candidate
 from .talent_pool import accept_candidate_to_talent_pool
 
@@ -311,3 +312,115 @@ class CandidateViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['delete'], url_path='hard-delete')
     def hard_delete(self, request, pk=None):
         return self.destroy(request, pk=pk)
+
+class PublicFreelancePortalView(APIView):
+    """Public (no login) endpoints for the /apply/freelance job portal.
+
+    Only exposes OPEN freelance positions and accepts applications — never any
+    HR/internal data. CSRF is exempt because this is a public, session-less
+    form; spam is mitigated with a per-IP rate limit + duplicate guard.
+    """
+
+    from rest_framework.authentication import BaseAuthentication
+
+    class _NoAuth(BaseAuthentication):
+        def authenticate(self, request):
+            return None  # request.user = AnonymousUser, no session needed
+
+    authentication_classes = [_NoAuth]
+    permission_classes = [AllowAny]
+    parser_classes = [MultiPartParser, FormParser]
+
+    # Simple in-memory per-IP rate limit: max 5 submissions / 10 minutes.
+    RATE_LIMIT = 5
+    RATE_WINDOW_SECONDS = 600
+    _rate: dict = {}
+
+    def _client_ip(self, request):
+        fwd = request.META.get('HTTP_X_FORWARDED_FOR', '')
+        return (fwd.split(',')[0].strip() if fwd else request.META.get('REMOTE_ADDR', '')) or 'unknown'
+
+    def _rate_limited(self, request):
+        import time
+
+        now = time.monotonic()
+        ip = self._client_ip(request)
+        hits = [t for t in self._rate.get(ip, []) if now - t < self.RATE_WINDOW_SECONDS]
+        if len(hits) >= self.RATE_LIMIT:
+            return True
+        hits.append(now)
+        self._rate[ip] = hits
+        return False
+
+    def _duplicate(self, data):
+        """Same email applied for the same position in the last 24h -> duplicate."""
+        from datetime import timedelta
+
+        since = timezone.now() - timedelta(hours=24)
+        return Candidate.objects.filter(
+            email=(data.get('email') or '').strip().lower(),
+            job_id__in=data.get('position_ids') or [],
+            created_at__gte=since,
+        ).exists()
+
+    def get(self, request):
+        """List open FREELANCE positions for the picker."""
+        jobs = [
+            j for j in Job.objects.filter(recruitment_type='FREELANCE').order_by('title')
+            if j.is_open()
+        ]
+        return Response(FreelancePositionSerializer(jobs, many=True).data)
+
+    def post(self, request):
+        if self._rate_limited(request):
+            return Response(
+                {'detail': 'Terlalu banyak percobaan. Coba lagi nanti.'},
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
+        data = request.data.dict() if hasattr(request.data, 'dict') else dict(request.data)
+        file = request.FILES.get('cv')
+        if file is None:
+            return Response({'cv': ['CV wajib diunggah.']}, status=status.HTTP_400_BAD_REQUEST)
+        err = _validate_cv(file)
+        if err:
+            return Response({'cv': [err]}, status=status.HTTP_400_BAD_REQUEST)
+        raw_ids = data.get('position_ids') or ''
+        if isinstance(raw_ids, str):
+            data['position_ids'] = [int(i) for i in raw_ids.split(',') if i.strip().isdigit()]
+        ser = PublicFreelanceApplySerializer(data=data, context={'request': request})
+        ser.is_valid(raise_exception=True)
+        if self._duplicate(ser.validated_data):
+            return Response(
+                {'detail': 'Lamaran dengan email dan posisi yang sama sudah dikirim dalam 24 jam terakhir.'},
+                status=status.HTTP_409_CONFLICT,
+            )
+        if not is_configured():
+            return Response({'detail': 'Storage not configured.'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+
+        primary = ser.save()
+        # Attach the same CV file to every candidate row created (one per position).
+        from .models import Candidate
+
+        cands = Candidate.objects.filter(
+            models.Q(id=primary.id) |
+            models.Q(full_name=primary.full_name, email=primary.email, created_at=primary.created_at)
+        )
+        path = f'cvs/portal/{primary.id}/{file.name}'
+        try:
+            upload_bytes(_bucket(), path, file.read(), file.content_type or 'application/octet-stream')
+        except Exception as exc:
+            for c in cands:
+                c.delete()
+            return Response(
+                {'detail': f'Gagal mengunggah CV ke storage: {str(exc)[:150]}'},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+        for c in cands:
+            c.cv_name = file.name
+            c.cv_path = path
+            c.cv_content_type = file.content_type or ''
+            c.save(update_fields=['cv_name', 'cv_path', 'cv_content_type', 'updated_at'])
+        return Response(
+            {'detail': 'Lamaran berhasil dikirim. Terima kasih!'},
+            status=status.HTTP_201_CREATED,
+        )

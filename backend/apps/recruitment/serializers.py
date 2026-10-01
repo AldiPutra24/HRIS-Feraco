@@ -3,6 +3,14 @@ from rest_framework import serializers
 from .models import Candidate, CandidateStatusHistory, Job
 
 
+class FreelancePositionSerializer(serializers.ModelSerializer):
+    """Public payload for the /apply/freelance position picker."""
+
+    class Meta:
+        model = Job
+        fields = ('id', 'title', 'position_text', 'location')
+
+
 class JobSerializer(serializers.ModelSerializer):
     department_name = serializers.CharField(source='department.name', read_only=True)
     position_name = serializers.CharField(source='position.name', read_only=True)
@@ -91,13 +99,14 @@ class CandidateSerializer(serializers.ModelSerializer):
     next_statuses = serializers.SerializerMethodField()
     status_history = CandidateStatusHistorySerializer(many=True, read_only=True)
     talent_pool_freelancer_id = serializers.SerializerMethodField()
+    notes = serializers.SerializerMethodField()
 
     class Meta:
         model = Candidate
         fields = (
             'id', 'job', 'job_title', 'recruitment_type', 'full_name', 'email', 'phone',
             'cv_name', 'cv_url', 'source', 'status',
-            'next_statuses', 'status_history', 'talent_pool_freelancer_id',
+            'next_statuses', 'status_history', 'talent_pool_freelancer_id', 'notes',
             'applied_at', 'created_at', 'updated_at',
         )
         read_only_fields = ('id', 'job_title', 'cv_name', 'cv_url', 'source', 'status', 'next_statuses', 'status_history', 'applied_at', 'created_at', 'updated_at')
@@ -115,6 +124,9 @@ class CandidateSerializer(serializers.ModelSerializer):
     def get_next_statuses(self, obj):
         return sorted(Candidate.TRANSITIONS.get(obj.status, set()))
 
+    def get_notes(self, obj):
+        return [n.note for n in obj.notes.all()]
+
     def get_cv_url(self, obj):
         if not obj.cv_path:
             return None
@@ -127,3 +139,74 @@ class CandidateSerializer(serializers.ModelSerializer):
         if not value.is_open():
             raise serializers.ValidationError('Lowongan ini sudah tidak menerima lamaran.')
         return value
+
+
+class PublicFreelanceApplySerializer(serializers.Serializer):
+    """Public /apply/freelance submission. Creates Candidate rows (one per
+    selected position, first is primary) — never Employee/User/Freelancer.
+    """
+
+    full_name = serializers.CharField(max_length=255)
+    phone = serializers.CharField(max_length=32)
+    email = serializers.EmailField()
+    domicile = serializers.CharField(max_length=255, required=False, allow_blank=True, default='')
+    position_ids = serializers.ListField(
+        child=serializers.IntegerField(), min_length=1, max_length=10
+    )
+    portfolio_url = serializers.URLField(required=False, allow_blank=True, default='')
+    expected_rate = serializers.CharField(max_length=128, required=False, allow_blank=True, default='')
+    notes = serializers.CharField(max_length=2000, required=False, allow_blank=True, default='')
+
+    def validate_phone(self, value):
+        import re
+
+        v = (value or '').strip()
+        if not re.fullmatch(r'[0-9+\-()\s]{8,32}', v):
+            raise serializers.ValidationError('Nomor WhatsApp/HP tidak valid.')
+        return v
+
+    def validate_position_ids(self, value):
+        ids = list(dict.fromkeys(value))  # dedup, keep order
+        jobs = Job.objects.filter(
+            id__in=ids, recruitment_type='FREELANCE', status='OPEN'
+        )
+        found = {j.id for j in jobs if j.is_open()}
+        missing = [i for i in ids if i not in found]
+        if missing:
+            raise serializers.ValidationError('Ada posisi yang tidak tersedia atau sudah ditutup.')
+        return ids
+
+    def create(self, validated):
+        from .models import CandidateJob
+
+        request = self.context['request']
+        jobs = [Job.objects.get(pk=i) for i in validated['position_ids']]
+        made = []
+        for idx, job in enumerate(jobs):
+            cand = Candidate.objects.create(
+                job=job,
+                full_name=validated['full_name'].strip(),
+                email=validated['email'].strip().lower(),
+                phone=validated['phone'].strip(),
+                source='PORTAL',
+            )
+            CandidateJob.objects.create(candidate=cand, job=job, is_primary=(idx == 0))
+            extra = []
+            if validated.get('domicile'):
+                extra.append(f'Domisili: {validated["domicile"]}')
+            if validated.get('portfolio_url'):
+                extra.append(f'Portfolio: {validated["portfolio_url"]}')
+            if validated.get('expected_rate'):
+                extra.append(f'Rate diharapkan: {validated["expected_rate"]}')
+            if validated.get('notes'):
+                extra.append(f'Catatan: {validated["notes"]}')
+            if extra:
+                from .models import CandidateNote
+
+                CandidateNote.objects.get_or_create(
+                    candidate=cand,
+                    note='\n'.join(extra),
+                    defaults={'created_by': None},
+                )
+            made.append(cand)
+        return made[0]

@@ -114,6 +114,32 @@ class EmployeeViewSet(SoftHardDeleteMixin, viewsets.ModelViewSet):
             qs = qs.filter(position__isnull=False, position__role=position_role)
         return qs
 
+    @action(detail=True, methods=['get'], url_path='photo/download')
+    def photo_download(self, request, pk=None):
+        """Signed URL to download the employee's ORIGINAL profile photo file.
+
+        HR-only (Admin / HR Lead / HR Staff). Signed URL carries a
+        Content-Disposition download filename like 'foto-nama-karyawan.jpg' so
+        the browser saves the original file, not a render/screenshot.
+        """
+        if _role(request.user) not in {'ADMIN', 'HR_STAFF', 'HR_LEAD'}:
+            return Response({'detail': 'Not allowed.'}, status=status.HTTP_403_FORBIDDEN)
+        emp = self.get_object()
+        if not emp.photo:
+            return Response({'detail': 'Karyawan belum memiliki foto profil.'}, status=status.HTTP_404_NOT_FOUND)
+        if not is_configured():
+            return Response({'detail': 'Storage not configured.'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        ext = emp.photo.rsplit('.', 1)[-1].lower() if '.' in emp.photo else 'jpg'
+        slug = ''.join(c.lower() if c.isalnum() else '-' for c in emp.full_name).strip('-')
+        slug = '-'.join(s for s in slug.split('-') if s) or 'karyawan'
+        filename = f'foto-{slug}.{ext}'
+        try:
+            url = signed_url('employee-photos', emp.photo, expires_in=600, download=filename)
+        except Exception:
+            return Response({'detail': 'Gagal membuat URL unduhan.'}, status=status.HTTP_502_BAD_GATEWAY)
+        log_event(request, 'download', obj=emp, description=f'Profile photo {emp.employee_id} downloaded')
+        return Response({'url': url, 'filename': filename})
+
     def _block_management_write(self):
         """Management Karyawan access is view-only for every write action."""
         if self._is_management():

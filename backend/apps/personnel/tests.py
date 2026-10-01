@@ -885,6 +885,66 @@ class EmployeePhotoApiTests(TestCase):
         self.assertEqual(self.emp.photo, '')
 
 
+class EmployeePhotoDownloadTests(TestCase):
+    """HR-only signed-URL download of the ORIGINAL profile photo."""
+
+    def setUp(self):
+        self.emp = Employee.objects.create(
+            employee_id='E001', full_name='Budi Santoso', nik='1234567890',
+            photo='photos/emp_1.jpg',
+        )
+
+    def _url(self, pk=None):
+        return reverse('employee-photo-download', args=[pk if pk is not None else self.emp.pk])
+
+    def test_hr_roles_get_signed_url_with_tidy_filename(self):
+        from django.test import override_settings
+        from unittest import mock
+
+        for role in ('ADMIN', 'HR_STAFF', 'HR_LEAD'):
+            user = make_user(role)
+            self.client.force_login(user)
+            with mock.patch('apps.personnel.views.is_configured', return_value=True), \
+                 mock.patch('apps.personnel.views.signed_url', return_value='https://supabase/signed?token=x') as m:
+                res = self.client.get(self._url())
+            self.assertEqual(res.status_code, 200, res.content)
+            self.assertEqual(res.json()['url'], 'https://supabase/signed?token=x')
+            self.assertEqual(res.json()['filename'], 'foto-budi-santoso.jpg')
+            m.assert_called_once()
+            args, kwargs = m.call_args
+            self.assertEqual(args[0], 'employee-photos')
+            self.assertEqual(args[1], 'photos/emp_1.jpg')
+            self.assertEqual(kwargs.get('download'), 'foto-budi-santoso.jpg')
+
+    def test_management_and_employee_forbidden(self):
+        from unittest import mock
+
+        for role in ('MANAGEMENT', 'GENERAL_MANAGER', 'EMPLOYEE'):
+            user = make_user(role)
+            self.client.force_login(user)
+            res = self.client.get(self._url())
+            self.assertEqual(res.status_code, 403, res.content)
+
+    def test_404_when_no_photo(self):
+        self.emp.photo = ''
+        self.emp.save()
+        user = make_user('HR_STAFF')
+        self.client.force_login(user)
+        res = self.client.get(self._url())
+        self.assertEqual(res.status_code, 404, res.content)
+
+    def test_photo_url_in_read_serializer_for_hr(self):
+        from unittest import mock
+
+        user = make_user('HR_STAFF')
+        self.client.force_login(user)
+        with mock.patch('apps.personnel.storage.is_configured', return_value=True), \
+             mock.patch('apps.personnel.storage.signed_url', return_value='https://supabase/signed'):
+            res = self.client.get(reverse('employee-detail', args=[self.emp.pk]))
+        self.assertEqual(res.status_code, 200, res.content)
+        self.assertEqual(res.json()['photo_url'], 'https://supabase/signed')
+
+
 class DashboardManagementTests(TestCase):
     def setUp(self):
         from apps.accounts.models import Role
