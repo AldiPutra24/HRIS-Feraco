@@ -111,6 +111,15 @@ Catatan: filtering menu di frontend (`use-nav.ts`) hanya UI; otorisasi di backen
 
 ## Last Progress
 
+### Refactor: Public Job Portal Freelance berbasis Skill master + Form (2026-10-02)
+- Flow baru: HR membuat "Form Job Portal Freelance" (multi-select Skill/Kategori dari master `/dashboard/freelance`, aktif/nonaktif, copy public link) -> candidate buka `/freelance/apply/<slug>` TANPA login -> pilih SATU posisi/skill dari pilihan HR -> isi biodata + CV/portfolio -> submit -> masuk Recruitment Freelance.
+- Model: `FreelanceApplyForm` (title, slug, description, M2M `freelance.Skill`, is_active, created_by, created_at) + `CandidateSkill` (OneToOne Candidate -> existing Skill, form, submitted_at). CandidateJob lama dihapus (migration 0008).
+- Endpoint publik (no login, no session): `GET/POST /api/recruitment/public/freelance/apply/<slug>/` — hanya expose skill yang HR pilih & aktif; validasi skill harus terdaftar di form; rate limit per-IP 5/10min; duplicate email+skill 24h -> 409; CV PDF/DOC/DOCX maks 10MB atau portfolio URL -> bucket `recruitment-cvs`.
+- Endpoint HR (role freelance manager): CRUD `freelance-apply-forms` + action `applicants` (filter per skill, submitted_at, jumlah applicant). Form memakai internal Job FREELANCE (`portal-<slug>`) agar pipeline Candidate & filter Recruitment Freelance existing tetap jalan.
+- Talent Pool: accept-freelance memakai CandidateSkill skill EXISTING (tidak pernah buat skill duplikat); fallback ke job position text untuk kandidat lama.
+- Frontend: halaman publik `frontend/src/app/freelance/apply/[slug]` (mobile-first, FERACO, single-select posisi, success state) + dashboard `/dashboard/recruitment/apply-forms` (daftar form, buat/edit multi-select skill, aktif/nonaktif, copy link, applicants + filter per posisi). Nav Recruitment -> Inhouse/Freelance/Form Job Portal.
+- Test: PublicFreelancePortalTests (9) + FreelanceApplyFormHRTests (4) — tanpa login, skill hanya dari pilihan HR, candidate masuk Recruitment Freelance, mapping Talent Pool tanpa duplikasi skill, duplicate & rate limit. apps.recruitment+apps.freelance 128 OK (1 skip). typecheck + build OK.
+
 ### Public Job Portal Freelance — /apply/freelance (2026-10-01)
 - Satu link publik `/apply/freelance` (tanpa login, mobile-first, branding FERACO) untuk lamaran freelance: pilih posisi multi-select (searchable), biodata, CV, portfolio/rate/catatan opsional, halaman sukses.
 - Endpoint publik khusus: `GET/POST /api/recruitment/public/freelance/positions|apply/` — hanya expose posisi freelance OPEN; endpoint HR/internal tidak terbuka.

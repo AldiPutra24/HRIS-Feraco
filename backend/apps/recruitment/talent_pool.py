@@ -62,11 +62,16 @@ def accept_candidate_to_talent_pool(candidate: Candidate, request):
         freelancer = Freelancer.objects.create(**defaults)
         created = True
 
-    # Map the job's position (free-text or FK name, e.g. 'MC') to a Skill tag so
-    # the freelancer is searchable by role in the Talent Pool.
-    if position_name:
-        from apps.freelance.models import FreelancerSkill, Skill
+    # Map the candidate's chosen position to a Skill tag so the freelancer is
+    # searchable by role in the Talent Pool. Public-portal candidates carry an
+    # explicit CandidateSkill -> use that (NEVER create duplicate skills);
+    # legacy/job-based candidates fall back to the job's position text.
+    from apps.freelance.models import FreelancerSkill, Skill
 
+    applied = getattr(candidate, 'applied_skill', None)
+    if applied is not None:
+        FreelancerSkill.objects.get_or_create(freelancer=freelancer, skill=applied.skill)
+    elif position_name:
         skill = Skill.objects.filter(name__iexact=position_name).first()
         if skill is None:
             skill = Skill.objects.create(name=position_name)

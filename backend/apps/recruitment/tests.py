@@ -1,4 +1,5 @@
 from datetime import date, timedelta
+import json
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
@@ -9,7 +10,7 @@ from apps.accounts.models import Role
 from apps.audit.models import AuditLog
 from apps.personnel.models import Department, Position
 
-from .models import Candidate, Job
+from .models import Candidate, FreelanceApplyForm, Job
 
 User = get_user_model()
 
@@ -751,33 +752,22 @@ class CvUploadValidationTests(TestCase):
 
 
 class PublicFreelancePortalTests(TestCase):
-    """Public /apply/freelance portal: positions list + application submit."""
+    """Public /freelance/apply/<slug> portal: HR-configured form + Skill master."""
 
     def setUp(self):
+        from apps.freelance.models import Skill, SkillCategory
+
         from .views import PublicFreelancePortalView
 
         PublicFreelancePortalView._rate.clear()
-        self.positions_url = '/api/recruitment/public/freelance/positions/'
-        self.apply_url = '/api/recruitment/public/freelance/apply/'
-        self.j1 = Job.objects.create(
-            title='MC', position_text='MC', slug='mc', employment_type='FREELANCE',
-            recruitment_type='FREELANCE', location='Jakarta',
-            open_date=date.today(), status='OPEN',
-        )
-        self.j2 = Job.objects.create(
-            title='Photographer', position_text='Photographer', slug='photographer',
-            employment_type='FREELANCE', recruitment_type='FREELANCE',
-            open_date=date.today(), status='OPEN',
-        )
-        self.j_closed = Job.objects.create(
-            title='Usher', position_text='Usher', slug='usher',
-            employment_type='FREELANCE', recruitment_type='FREELANCE',
-            open_date=date.today(), status='CLOSED',
-        )
-        self.j_inhouse = Job.objects.create(
-            title='Staff HR', slug='staff-hr', department_id=None,
-            recruitment_type='INHOUSE', open_date=date.today(), status='OPEN',
-        )
+        self.cat = SkillCategory.objects.create(name='Crew')
+        self.s_mc = Skill.objects.create(name='MC', category=self.cat)
+        self.s_photo = Skill.objects.create(name='Photographer', category=self.cat)
+        self.s_usher = Skill.objects.create(name='Usher', category=self.cat)
+        self.form = FreelanceApplyForm.objects.create(title='Open Recruitment Freelance')
+        self.form.skills.set([self.s_mc, self.s_photo])
+        self.detail_url = f'/api/recruitment/public/freelance/apply/{self.form.slug}/'
+        self.apply_url = self.detail_url
 
     def _payload(self, **over):
         data = {
@@ -785,7 +775,7 @@ class PublicFreelancePortalTests(TestCase):
             'phone': '081234567890',
             'email': 'rina@example.com',
             'domicile': 'Depok',
-            'position_ids': f'{self.j1.id},{self.j2.id}',
+            'skill_id': str(self.s_mc.id),
             'portfolio_url': 'https://portfolio.rina.id',
             'expected_rate': 'Rp 1.500.000/event',
             'notes': '5 tahun pengalaman MC.',
@@ -802,35 +792,41 @@ class PublicFreelancePortalTests(TestCase):
             res = self.client.post(self.apply_url, {**data, 'cv': SimpleUploadedFile('cv.pdf', b'data', content_type='application/pdf')}, format='multipart')
         return res, up
 
-    def test_positions_lists_only_open_freelance(self):
-        res = self.client.get(self.positions_url)
-        self.assertEqual(res.status_code, 200)
-        titles = [j['title'] for j in res.json()]
-        self.assertIn('MC', titles)
-        self.assertIn('Photographer', titles)
-        self.assertNotIn('Usher', titles)
-        self.assertNotIn('Staff HR', titles)
+    def test_public_form_detail_without_login(self):
+        res = self.client.get(self.detail_url)
+        self.assertEqual(res.status_code, 200, res.content)
+        body = res.json()
+        self.assertEqual(body['title'], 'Open Recruitment Freelance')
+        names = [s['name'] for s in body['skills']]
+        # Only skills HR selected — Usher not on the form.
+        self.assertEqual(sorted(names), ['MC', 'Photographer'])
 
-    def test_apply_creates_freelance_candidates(self):
+    def test_inactive_form_hidden(self):
+        self.form.is_active = False
+        self.form.save()
+        res = self.client.get(self.detail_url)
+        self.assertEqual(res.status_code, 404)
+
+    def test_apply_creates_one_candidate_in_freelance_recruitment(self):
         res, up = self._post_apply(self._payload())
         self.assertEqual(res.status_code, 201, res.content)
-        cands = Candidate.objects.filter(email='rina@example.com').order_by('id')
-        self.assertEqual(cands.count(), 2)
-        self.assertEqual(cands[0].job_id, self.j1.id)
-        self.assertEqual(cands[0].source, 'PORTAL')
-        self.assertEqual(cands[0].status, 'APPLIED')
-        # CV attached to all rows, uploaded once to recruitment bucket.
-        for c in cands:
-            c.refresh_from_db()
-        self.assertTrue(all(c.cv_path for c in cands))
+        cands = Candidate.objects.filter(email='rina@example.com')
+        self.assertEqual(cands.count(), 1)
+        cand = cands.get()
+        self.assertEqual(cand.source, 'PORTAL')
+        self.assertEqual(cand.status, 'APPLIED')
+        self.assertEqual(cand.applied_skill.skill_id, self.s_mc.id)
+        self.assertEqual(cand.applied_skill.form_id, self.form.id)
+        self.assertIsNotNone(cand.applied_skill.submitted_at)
+        # Filed under an internal FREELANCE job -> shows up in Recruitment Freelance.
+        self.assertEqual(cand.job.recruitment_type, 'FREELANCE')
+        # CV uploaded once to the recruitment bucket.
+        self.assertTrue(cand.cv_path)
         up.assert_called_once()
         self.assertTrue(str(up.call_args[0][0]).startswith('recruitment-cvs'))
-        # Multi-select links recorded (first position is primary).
-        self.assertTrue(cands[0].job_links.filter(is_primary=True).exists())
-        self.assertTrue(cands[1].job_links.filter(is_primary=False).exists())
         # Extra details stored as note.
-        self.assertTrue(any('Domisili: Depok' in n.note for n in cands[0].notes.all()))
-        # No Employee/User/Freelancer created.
+        self.assertTrue(any('Domisili: Depok' in n.note for n in cand.notes.all()))
+        # No Employee/User/Freelancer created on submit.
         from apps.freelance.models import Freelancer
         from apps.personnel.models import Employee
 
@@ -838,30 +834,37 @@ class PublicFreelancePortalTests(TestCase):
         self.assertFalse(User.objects.filter(email='rina@example.com').exists())
         self.assertEqual(Employee.objects.filter(company_email='rina@example.com').count(), 0)
 
-    def test_apply_requires_cv_and_validates_type(self):
-        from django.core.files.uploadedfile import SimpleUploadedFile
+    def test_skill_must_be_selected_by_hr_on_the_form(self):
+        res, _ = self._post_apply(self._payload(skill_id=str(self.s_usher.id)))
+        self.assertEqual(res.status_code, 400, res.content)
+        self.assertFalse(Candidate.objects.filter(email='rina@example.com').exists())
+        # Nonexistent skill id.
+        res, _ = self._post_apply(self._payload(skill_id='99999'))
+        self.assertEqual(res.status_code, 400)
 
-        res, _ = self._post_apply(self._payload())
-        # with CV ok (above). Now without CV:
+    def test_cv_or_portfolio_url_required(self):
         payload = {k: v for k, v in self._payload().items() if v is not None}
+        payload['portfolio_url'] = ''
         res = self.client.post(self.apply_url, payload, format='multipart')
         self.assertEqual(res.status_code, 400)
-        # Bad extension:
+        # Portfolio URL without CV is accepted.
+        payload['portfolio_url'] = 'https://rina.id'
+        with __import__('unittest').mock.patch('apps.recruitment.views.is_configured', return_value=True):
+            res = self.client.post(self.apply_url, payload, format='multipart')
+        self.assertEqual(res.status_code, 201, res.content)
+
+    def test_cv_type_and_size_validated(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
         res, _ = self._post_apply(self._payload())
         with __import__('unittest').mock.patch('apps.recruitment.views.is_configured', return_value=True):
             res = self.client.post(
                 self.apply_url,
-                {**self._payload(), 'cv': SimpleUploadedFile('cv.exe', b'data', content_type='application/octet-stream')},
+                {**self._payload(email='x@example.com'), 'cv': SimpleUploadedFile('cv.exe', b'data', content_type='application/octet-stream')},
                 format='multipart',
             )
         self.assertEqual(res.status_code, 400)
         self.assertIn('CV', res.json()['cv'][0])
-
-    def test_apply_rejects_closed_or_inhouse_positions(self):
-        res, _ = self._post_apply(self._payload(position_ids=str(self.j_closed.id)))
-        self.assertEqual(res.status_code, 400)
-        res, _ = self._post_apply(self._payload(position_ids=str(self.j_inhouse.id)))
-        self.assertEqual(res.status_code, 400)
 
     def test_duplicate_rejected_within_24h(self):
         from .views import PublicFreelancePortalView
@@ -871,18 +874,19 @@ class PublicFreelancePortalTests(TestCase):
         PublicFreelancePortalView._rate.clear()
         res, _ = self._post_apply(self._payload())
         self.assertEqual(res.status_code, 409)
+        # Same email but different skill is allowed.
+        PublicFreelancePortalView._rate.clear()
+        res, _ = self._post_apply(self._payload(skill_id=str(self.s_photo.id)))
+        self.assertEqual(res.status_code, 201)
 
     def test_rate_limit(self):
-        from .views import PublicFreelancePortalView
-
-        for _ in range(5):
-            res, _ = self._post_apply(self._payload(email=f'u{_}@example.com'))
+        for i in range(5):
+            res, _ = self._post_apply(self._payload(email=f'u{i}@example.com'))
             self.assertEqual(res.status_code, 201)
         res, _ = self._post_apply(self._payload(email='extra@example.com'))
         self.assertEqual(res.status_code, 429)
 
-    def test_candidates_appear_in_freelance_recruitment(self):
-        """The end-to-end requirement: public submit -> visible in Recruitment Freelance list."""
+    def test_candidates_visible_in_freelance_recruitment_list(self):
         self._post_apply(self._payload())
         admin = make_user('ADMIN', 'hradmin@test.com')
         self.client.force_login(admin)
@@ -890,7 +894,116 @@ class PublicFreelancePortalTests(TestCase):
         self.assertEqual(res.status_code, 200)
         names = [c['full_name'] for c in res.json()['results']]
         self.assertIn('Rina Kurnia', names)
-        # And not in INHOUSE list.
         res = self.client.get('/api/recruitment/candidates/?recruitment_type=INHOUSE')
         names = [c['full_name'] for c in res.json()['results']]
         self.assertNotIn('Rina Kurnia', names)
+
+
+class FreelanceApplyFormHRTests(TestCase):
+    """HR dashboard management of apply forms + acceptance -> Talent Pool mapping."""
+
+    def setUp(self):
+        from apps.freelance.models import Skill, SkillCategory
+
+        self.cat = SkillCategory.objects.create(name='Talent')
+        self.s_mc = Skill.objects.create(name='MC', category=self.cat)
+        self.s_talent = Skill.objects.create(name='Talent', category=self.cat)
+        self.form = FreelanceApplyForm.objects.create(title='Open Recruitment Freelance')
+        self.form.skills.set([self.s_mc, self.s_talent])
+        self.list_url = '/api/recruitment/freelance-apply-forms/'
+
+    def _apply_public(self, email='rina@example.com', skill=None):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from .views import PublicFreelancePortalView
+
+        PublicFreelancePortalView._rate.clear()
+        with __import__('unittest').mock.patch('apps.recruitment.views.is_configured', return_value=True), \
+             __import__('unittest').mock.patch('apps.recruitment.views.upload_bytes'):
+            self.client.post(
+                f'/api/recruitment/public/freelance/apply/{self.form.slug}/',
+                {
+                    'full_name': 'Rina Kurnia', 'phone': '081234567890', 'email': email,
+                    'skill_id': str((skill or self.s_mc).id),
+                    'cv': SimpleUploadedFile('cv.pdf', b'data', content_type='application/pdf'),
+                },
+                format='multipart',
+            )
+        return Candidate.objects.get(email=email)
+
+    def _hr_client(self, role='ADMIN'):
+        user = make_user(role, f'{role.lower()}@test.com')
+        self.client.force_login(user)
+        return user
+
+    def test_hr_crud_form(self):
+        self._hr_client()
+        res = self.client.post(
+            self.list_url,
+                json.dumps({'title': 'Form Crew', 'skills': [self.s_mc.id, self.s_talent.id], 'is_active': True}),
+            content_type='application/json',
+        )
+        self.assertEqual(res.status_code, 201, res.content)
+        form_id = res.json()['id']
+        self.assertTrue(res.json()['slug'])
+        self.assertTrue(res.json()['public_url'].endswith(f"/freelance/apply/{res.json()['slug']}"))
+        # No duplicate skills created in the master.
+        from apps.freelance.models import Skill
+
+        self.assertEqual(Skill.objects.count(), 2)
+        # Update: deactivate + change skills.
+        res = self.client.patch(
+            f'{self.list_url}{form_id}/',
+                json.dumps({'is_active': False, 'skills': [self.s_mc.id]}),
+            content_type='application/json',
+        )
+        self.assertEqual(res.status_code, 200, res.content)
+        self.assertFalse(res.json()['is_active'])
+        self.assertEqual([s['name'] for s in res.json()['skill_details']], ['MC'])
+        # Applicants count.
+        res = self.client.get(f'{self.list_url}{form_id}/')
+        self.assertEqual(res.json()['applications_count'], 0)
+
+    def test_hr_permission(self):
+        # MANAGEMENT is not in FREELANCE_ROLES -> denied.
+        user = make_user('MANAGEMENT', 'mgmt@test.com')
+        self.client.force_login(user)
+        res = self.client.get(self.list_url)
+        self.assertEqual(res.status_code, 403)
+        # Anonymous denied too.
+        self.client.logout()
+        res = self.client.get(self.list_url)
+        self.assertEqual(res.status_code, 403)
+
+    def test_applicants_endpoint_and_filter_by_skill(self):
+        self._hr_client()
+        self._apply_public('a@example.com', skill=self.s_mc)
+        self._apply_public('b@example.com', skill=self.s_talent)
+        res = self.client.get(f'{self.list_url}{self.form.id}/applicants/')
+        self.assertEqual(res.status_code, 200, res.content)
+        body = res.json()
+        data = body['results'] if isinstance(body, dict) and 'results' in body else body
+        self.assertEqual(len(data), 2)
+        skills = {d['skill_name'] for d in data}
+        self.assertEqual(skills, {'MC', 'Talent'})
+        # Filter by skill.
+        res = self.client.get(f'{self.list_url}{self.form.id}/applicants/?skill_id={self.s_mc.id}')
+        body = res.json()
+        data = body['results'] if isinstance(body, dict) and 'results' in body else body
+        self.assertEqual(len(data), 1)
+        self.assertEqual(data[0]['skill_name'], 'MC')
+        self.assertIsNotNone(data[0]['submitted_at'])
+
+    def test_accept_maps_candidate_skill_to_freelancer_without_duplicate_skill(self):
+        from apps.freelance.models import Freelancer, Skill
+
+        cand = self._apply_public()
+        admin = self._hr_client('ADMIN')
+        res = self.client.post(f'/api/recruitment/candidates/{cand.id}/accept-freelance/')
+        self.assertEqual(res.status_code, 200, res.content)
+        freelancer = Freelancer.objects.get(personal_email='rina@example.com')
+        fl_skills = {fs.skill.name for fs in freelancer.freelancer_skills.all()}
+        # Mapped using the EXISTING skill — no duplicate created.
+        self.assertEqual(fl_skills, {'MC'})
+        self.assertEqual(Skill.objects.filter(name='MC').count(), 1)
+        cand.refresh_from_db()
+        self.assertEqual(cand.status, 'OFFER_ACCEPTED')
