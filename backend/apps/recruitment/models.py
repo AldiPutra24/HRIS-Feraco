@@ -46,6 +46,9 @@ class Job(models.Model):
     # Free-text position for FREELANCE jobs (no department/position master data
     # needed, e.g. 'MC', 'Photographer'). INHOUSE jobs use the FKs above.
     position_text = models.CharField(max_length=255, blank=True)
+    # FREELANCE jobs: positions picked from the existing freelance Skill master
+    # (category via Skill.category). INHOUSE jobs never use this.
+    skills = models.ManyToManyField('freelance.Skill', related_name='jobs', blank=True)
     description = models.TextField(blank=True)
     requirements = models.TextField(blank=True)
     employment_type = models.CharField(max_length=16, choices=EMPLOYMENT_TYPES, default='FULL_TIME')
@@ -83,8 +86,17 @@ class Job(models.Model):
         'requirements', 'employment_type', 'location', 'open_date',
     ]
 
+    # FREELANCE skips department/position FK/employment_type; the position is
+    # the Skill selection (or legacy free-text position_text).
+    FREELANCE_REQUIRED_FIELDS = [
+        'title', 'description', 'requirements', 'location', 'open_date',
+    ]
+
     def is_complete(self):
         """True when all fields required to publish are filled."""
+        if self.recruitment_type == 'FREELANCE':
+            has_position = bool(self.position_text) or (self.pk and self.skills.exists())
+            return bool(has_position) and all(getattr(self, f) for f in self.FREELANCE_REQUIRED_FIELDS)
         return all(getattr(self, f) for f in self.REQUIRED_FIELDS)
 
 

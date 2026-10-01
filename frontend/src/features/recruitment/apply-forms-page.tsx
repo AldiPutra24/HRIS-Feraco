@@ -21,6 +21,7 @@ import {
   type FreelanceApplyForm,
   type FormApplicant
 } from '@/lib/freelance-apply';
+import { SkillMultiSelect } from './skill-multi-select';
 
 export function ApplyFormsPage() {
   const [forms, setForms] = useState<FreelanceApplyForm[]>([]);
@@ -69,13 +70,6 @@ export function ApplyFormsPage() {
     setEditing(f);
     setFormState({ title: f.title, description: f.description, is_active: f.is_active, skills: f.skills });
     setShowForm(true);
-  }
-
-  function toggleSkill(id: number) {
-    setFormState((f) => ({
-      ...f,
-      skills: f.skills.includes(id) ? f.skills.filter((x) => x !== id) : [...f.skills, id]
-    }));
   }
 
   async function save(e: React.FormEvent) {
@@ -191,29 +185,13 @@ export function ApplyFormsPage() {
                 </div>
               </div>
               <div>
-                <Label className='text-xs'>Posisi/Skill yang Dibuka * (multi-select, dari master Freelance)</Label>
-                <div className='mt-1 flex flex-wrap gap-2'>
-                  {skills.map((s) => (
-                    <button
-                      key={s.id}
-                      type='button'
-                      onClick={() => toggleSkill(s.id)}
-                      className={`flex items-center gap-1 rounded-full border px-3 py-1 text-sm transition ${
-                        formState.skills.includes(s.id)
-                          ? 'border-primary bg-primary/10 text-primary font-medium'
-                          : 'border-input hover:bg-muted'
-                      }`}
-                    >
-                      {formState.skills.includes(s.id) && <Icons.check className='h-3.5 w-3.5' />}
-                      {s.name}
-                      {s.category_name && <span className='text-muted-foreground text-xs'>· {s.category_name}</span>}
-                    </button>
-                  ))}
-                  {skills.length === 0 && (
-                    <p className='text-muted-foreground text-sm'>
-                      Belum ada skill. Tambahkan di menu Freelance terlebih dahulu.
-                    </p>
-                  )}
+                <Label className='text-xs'>Skill & Kategori yang Dibuka * (multi-select, dari master Freelance)</Label>
+                <div className='mt-1'>
+                  <SkillMultiSelect
+                    skills={skills}
+                    value={formState.skills}
+                    onChange={(next) => setFormState((f) => ({ ...f, skills: next }))}
+                  />
                 </div>
               </div>
               <div className='flex items-center gap-2'>

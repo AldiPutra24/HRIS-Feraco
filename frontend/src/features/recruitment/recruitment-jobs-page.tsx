@@ -12,6 +12,7 @@ import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import { TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { listDepartments, listPositions, type Department, type Position } from '@/lib/employees';
+import { listSkills, type Skill } from '@/lib/freelance';
 import {
   closeJob,
   createJob,
@@ -25,6 +26,7 @@ import {
   type JobInput,
   type RecruitmentType
 } from '@/lib/recruitment';
+import { SkillMultiSelect } from './skill-multi-select';
 
 const STATUS_VARIANT: Record<string, 'default' | 'secondary' | 'destructive' | 'outline'> = {
   DRAFT: 'outline',
@@ -60,6 +62,7 @@ const emptyForm: JobInput = {
   department: null,
   position: null,
   position_text: '',
+  skills: [],
   description: '',
   requirements: '',
   employment_type: 'FULL_TIME',
@@ -88,6 +91,7 @@ export function RecruitmentJobsPage() {
   const [items, setItems] = useState<Job[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [positions, setPositions] = useState<Position[]>([]);
+  const [skills, setSkills] = useState<Skill[]>([]);
   const [loading, setLoading] = useState(true);
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<Job | null>(null);
@@ -116,6 +120,7 @@ export function RecruitmentJobsPage() {
   useEffect(() => {
     listDepartments().then(setDepartments).catch(() => {});
     listPositions().then(setPositions).catch(() => {});
+    listSkills().then(setSkills).catch(() => {});
   }, []);
 
   function openCreate() {
@@ -131,6 +136,7 @@ export function RecruitmentJobsPage() {
       department: job.recruitment_type === 'FREELANCE' ? null : job.department,
       position: job.recruitment_type === 'FREELANCE' ? null : job.position,
       position_text: job.position_text ?? '',
+      skills: job.recruitment_type === 'FREELANCE' ? job.skills ?? [] : [],
       description: job.description,
       requirements: job.requirements,
       employment_type: job.employment_type,
@@ -151,10 +157,10 @@ export function RecruitmentJobsPage() {
       toast.error('Open date wajib diisi.');
       return;
     }
-    // Freelance: skip hidden master-data fields; Inhouse: skip free-text position.
+    // Freelance: skip hidden master-data fields; Inhouse: skip freelance skills.
     const isFreelance = form.recruitment_type === 'FREELANCE';
-    if (isFreelance && !form.position_text?.trim()) {
-      toast.error('Position wajib diisi.');
+    if (isFreelance && !form.skills?.length) {
+      toast.error('Pilih minimal satu Skill & Kategori.');
       return;
     }
     const payload: JobInput = isFreelance
@@ -165,7 +171,7 @@ export function RecruitmentJobsPage() {
           employment_type: 'FREELANCE',
           close_date: form.close_date || null
         }
-      : { ...form, position_text: '', close_date: form.close_date || null };
+      : { ...form, position_text: '', skills: [], close_date: form.close_date || null };
     try {
       const saved = editing ? await updateJob(editing.id, payload) : await createJob(payload);
       toast.success(editing ? 'Job diperbarui.' : 'Job dibuat.');
@@ -313,7 +319,11 @@ export function RecruitmentJobsPage() {
                     <TableRow key={j.id}>
                       <TableCell className='font-medium'>{j.title}</TableCell>
                       <TableCell>{j.department_name || '-'}</TableCell>
-                      <TableCell>{j.position_name || '-'}</TableCell>
+                      <TableCell>
+                        {j.recruitment_type === 'FREELANCE'
+                          ? j.skill_details?.map((s) => s.name).join(', ') || j.position_text || '-'
+                          : j.position_name || '-'}
+                      </TableCell>
                       <TableCell>{employmentLabel(j.employment_type)}</TableCell>
                       <TableCell>
                         <Badge variant={j.recruitment_type === 'FREELANCE' ? 'secondary' : 'outline'}>
@@ -424,15 +434,18 @@ export function RecruitmentJobsPage() {
                   </select>
                 </div>
                 )}
-                <div>
-                  <Label className='text-xs'>Position</Label>
-                  {form.recruitment_type === 'FREELANCE' ? (
-                    <Input
-                      placeholder='Contoh: MC, Photographer, Event Crew'
-                      value={form.position_text ?? ''}
-                      onChange={(e) => setForm({ ...form, position_text: e.target.value })}
+                {form.recruitment_type === 'FREELANCE' ? (
+                  <div className='md:col-span-2'>
+                    <Label className='text-xs'>Skill & Kategori *</Label>
+                    <SkillMultiSelect
+                      skills={skills}
+                      value={form.skills ?? []}
+                      onChange={(next) => setForm({ ...form, skills: next })}
                     />
-                  ) : (
+                  </div>
+                ) : (
+                  <div>
+                    <Label className='text-xs'>Position</Label>
                     <select
                       className='border-input h-9 w-full rounded-lg border bg-transparent px-2.5 text-sm'
                       value={form.position ?? ''}
@@ -445,8 +458,8 @@ export function RecruitmentJobsPage() {
                         </option>
                       ))}
                     </select>
-                  )}
-                </div>
+                  </div>
+                )}
                 <div>
                   <Label className='text-xs'>Recruitment Type</Label>
                   <select
