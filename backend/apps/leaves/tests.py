@@ -912,14 +912,18 @@ class LeaveRevisionTests(TestCase):
         self.api.force_authenticate(self.hr)
         self.assertEqual(self.api.post(f'/api/leaves/requests/{lr.id}/approve/').status_code, 403)
 
-    def test_submit_notifies_manager_hr_staff_and_hr_lead(self):
+    def test_submit_notifies_manager_hr_staff_hr_lead_and_admin(self):
         from apps.notifications.models import Notification
 
         res = self._submit(dates=['2026-09-01'])
         recipients = set(Notification.objects.filter(
             kind='LEAVE_SUBMITTED', object_id=str(res.data['id']),
         ).values_list('recipient_id', flat=True))
-        self.assertEqual(recipients, {self.manager.id, self.hr.id, self.lead.id})
+        self.assertEqual(recipients, {self.manager.id, self.hr.id, self.lead.id, self.admin.id})
+        self.assertNotIn(self.emp_user.id, recipients)  # requester never notified
+        # Admin is informed only: approval rights unchanged.
+        self.api.force_authenticate(self.admin)
+        self.assertEqual(self.api.post(f'/api/leaves/requests/{res.data["id"]}/approve/').status_code, 403)
 
     def test_employee_notified_after_hr_decision(self):
         from apps.notifications.models import Notification

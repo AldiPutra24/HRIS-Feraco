@@ -54,6 +54,10 @@ REIMBURSEMENT_LINK = '/dashboard/reimbursements'
 HR_NOTIFY_ROLES = ('HR_STAFF', 'HR_LEAD')
 
 
+# New leave/izin: HR + Admin are informed (bell) next to the Reporting To.
+# Approval rights are unchanged (Admin informed only, cannot approve leave).
+LEAVE_NOTIFY_ROLES = ('ADMIN', 'HR_STAFF', 'HR_LEAD')
+
 # Reimbursement approvers (REIMBURSEMENT_ADMIN_ROLES) also get the bell:
 # ADMIN can approve reimbursements, so it must see new submissions too.
 REIMBURSEMENT_NOTIFY_ROLES = ('ADMIN', 'HR_STAFF', 'HR_LEAD')
@@ -249,8 +253,8 @@ def _leave_context(leave) -> dict:
 
 
 def notify_leave_submitted(leave) -> dict:
-    """Pengajuan baru -> Reporting To (primary approver) + HR Staff/HR Lead
-    (informed + fallback approvers): in-app + email.
+    """Pengajuan baru -> Reporting To (primary approver) + Admin/HR Staff/HR Lead
+    (informed; HR Staff/HR Lead are also fallback approvers): in-app + email.
 
     Idempotent per recipient via delivery-log keys; a user who is both the
     manager and HR gets exactly one in-app notification.
@@ -272,9 +276,9 @@ def notify_leave_submitted(leave) -> dict:
         outcome = _send_email(key, 'LEAVE_SUBMITTED', _employee_email(_manager_employee(leave.employee)),
                               subject, text_body, html_body)
         result[outcome] = result.get(outcome, 0) + 1
-        # HR Staff / HR Lead: bell notification + HR email list (Settings).
+        # Admin / HR Staff / HR Lead: bell notification + HR email list (Settings).
         own_user_id = getattr(getattr(leave.employee, 'user', None), 'pk', None)
-        for hr_user in hr_notify_users():
+        for hr_user in hr_notify_users(LEAVE_NOTIFY_ROLES, include_superusers=True):
             if hr_user.pk == own_user_id:
                 continue  # never notify someone about their own request
             if _deliver_inapp(
