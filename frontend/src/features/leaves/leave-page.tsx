@@ -57,7 +57,10 @@ export function LeavePage() {
   const { user } = useAuth();
   const role = user?.role;
   const isApprover = role === 'admin' || role === 'hr_staff' || role === 'hr_lead' || role === 'management' || role === 'general_manager';
-  const canApproveReject = role === 'management' || role === 'general_manager';
+  // Reporting To is the primary approver; HR Staff/HR Lead may act as fallback
+  // (authorization enforced by the backend).
+  const canApproveReject =
+    role === 'management' || role === 'general_manager' || role === 'hr_staff' || role === 'hr_lead';
   const isAdmin = role === 'admin' || role === 'hr_staff' || role === 'hr_lead';
   const canHardDelete = role === 'admin'; // backend: ADMIN/superadmin only
 
@@ -411,7 +414,7 @@ export function LeavePage() {
                     )}
                   </TableCell>
                   <TableCell>
-                    {r.start_date} — {r.end_date}
+                    {r.leave_dates_display || `${r.start_date} — ${r.end_date}`}
                   </TableCell>
                   <TableCell>{r.total_days}</TableCell>
                   <TableCell>
@@ -494,7 +497,7 @@ export function LeavePage() {
           </CardHeader>
           <CardContent className='space-y-3'>
             <p className='text-muted-foreground text-sm'>
-              Yakin hapus permanen pengajuan {deleting.leave_type_name} ({deleting.start_date} — {deleting.end_date})? Tindakan ini tidak dapat dibatalkan.
+              Yakin hapus permanen pengajuan {deleting.leave_type_name} ({deleting.leave_dates_display || `${deleting.start_date} — ${deleting.end_date}`})? Tindakan ini tidak dapat dibatalkan.
             </p>
             <div className='flex gap-2'>
               <Button variant='destructive' disabled={deletingSubmit} onClick={confirmHardDelete}>

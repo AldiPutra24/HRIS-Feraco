@@ -13,6 +13,7 @@ class Notification(models.Model):
         ('LEAVE_SUBMITTED', 'Izin/Cuti - Pengajuan Baru'),
         ('LEAVE_APPROVED', 'Izin/Cuti - Disetujui'),
         ('LEAVE_REJECTED', 'Izin/Cuti - Ditolak'),
+        ('REIMBURSEMENT_SUBMITTED', 'Reimbursement - Pengajuan Baru'),
         ('CONTRACT', 'End of Contract'),
         ('BIRTHDAY', 'Birthday'),
     ]

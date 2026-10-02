@@ -82,7 +82,7 @@ export const KMS_VISIBILITY_LABELS: Record<KmsVisibility, string> = {
   ALL: 'Semua Karyawan',
   ROLE: 'Role Tertentu',
   DEPARTMENT: 'Departemen Tertentu',
-  USER: 'User Tertentu',
+  USER: 'Karyawan Tertentu',
   PRIVATE: 'Private',
 };
 
@@ -110,7 +110,23 @@ export type KmsArticle = {
   role_targets: string[];
   department_targets: number[];
   user_targets: number[];
+  /** Selected USER targets as "Nama Karyawan - Posisi" (KMS managers only). */
+  user_target_details?: KmsUserTargetOption[];
 };
+
+/** USER visibility option; `id` is the User ID that is stored. */
+export type KmsUserTargetOption = {
+  id: number;
+  employee_id: number | null;
+  name: string;
+  position: string;
+  label: string;
+};
+
+export function searchKmsUserTargets(search: string): Promise<KmsUserTargetOption[]> {
+  const qs = search ? `?search=${encodeURIComponent(search)}` : '';
+  return request<KmsUserTargetOption[]>(`/articles/user-target-options/${qs}`);
+}
 
 export type KmsArticleInput = {
   title: string;

@@ -4,9 +4,9 @@ from rest_framework import serializers
 
 from apps.personnel.models import Employee
 
-from .models import LeaveBalance, LeaveRequest, LeaveType
+from .models import LeaveBalance, LeaveRequest, LeaveRequestDate, LeaveType
 from .permissions import _employee_for
-from .services import compute_total_days, get_balance
+from .services import compute_total_days, format_leave_dates, get_balance, is_discontinued_leave_type
 
 STATUS_CHOICES = set(dict(LeaveRequest.STATUS_CHOICES).keys())
 
@@ -50,6 +50,11 @@ class LeaveRequestSerializer(serializers.ModelSerializer):
     leave_type_kind = serializers.CharField(source='leave_type.kind', read_only=True)
     approver_name = serializers.CharField(source='approver.username', read_only=True)
     attachment_url = serializers.SerializerMethodField()
+    # Individually picked days (e.g. 01, 02, 05 Sep). Optional: legacy clients
+    # may still send start_date/end_date (inclusive range).
+    dates = serializers.ListField(child=serializers.DateField(), write_only=True, required=False, allow_empty=False)
+    leave_dates = serializers.SerializerMethodField()
+    leave_dates_display = serializers.SerializerMethodField()
     # Model allows blank; enforce required at API level (no migration needed).
     reason = serializers.CharField(
         required=True,
@@ -64,7 +69,8 @@ class LeaveRequestSerializer(serializers.ModelSerializer):
         model = LeaveRequest
         fields = (
             'id', 'employee', 'employee_name', 'employee_manager_name', 'leave_type', 'leave_type_name', 'leave_type_kind',
-            'start_date', 'end_date', 'total_days', 'reason', 'attachment_name',
+            'start_date', 'end_date', 'dates', 'leave_dates', 'leave_dates_display',
+            'total_days', 'reason', 'attachment_name',
             'attachment_url', 'status', 'submitted_at', 'approved_at', 'rejected_at',
             'approver', 'approver_name', 'rejection_reason', 'created_at', 'updated_at',
         )
@@ -72,7 +78,19 @@ class LeaveRequestSerializer(serializers.ModelSerializer):
             'id', 'employee', 'total_days', 'status', 'submitted_at', 'approved_at',
             'rejected_at', 'approver', 'created_at', 'updated_at', 'employee_name',
             'leave_type_name', 'leave_type_kind', 'approver_name', 'attachment_url',
+            'leave_dates', 'leave_dates_display',
         )
+        extra_kwargs = {
+            # Derived from `dates` when individual days are picked.
+            'start_date': {'required': False},
+            'end_date': {'required': False},
+        }
+
+    def get_leave_dates(self, obj):
+        return [d.isoformat() for d in obj.selected_dates()]
+
+    def get_leave_dates_display(self, obj):
+        return format_leave_dates(obj.selected_dates())
 
     def get_employee_manager_name(self, obj):
         mgr = getattr(obj.employee, 'manager', None)
@@ -92,10 +110,39 @@ class LeaveRequestSerializer(serializers.ModelSerializer):
 
     def validate(self, attrs):
         request = self.context.get('request')
+        picked = attrs.pop('dates', None)
+        if self.instance is not None:
+            picked = None  # dates are fixed once submitted
+        if picked is not None:
+            dupes = sorted({d for d in picked if picked.count(d) > 1})
+            if dupes:
+                raise serializers.ValidationError(
+                    {'dates': f'Tanggal duplikat: {", ".join(d.isoformat() for d in dupes)}.'}
+                )
+            picked = sorted(picked)
+            if len({d.year for d in picked}) > 1:
+                raise serializers.ValidationError(
+                    {'dates': 'Tanggal cuti dalam satu pengajuan harus berada di tahun yang sama.'}
+                )
+            attrs['start_date'] = picked[0]
+            attrs['end_date'] = picked[-1]
+            attrs['_dates'] = picked
+        elif self.instance is None and not attrs.get('start_date'):
+            raise serializers.ValidationError({'dates': 'Pilih minimal satu tanggal cuti.'})
+        elif self.instance is None and not attrs.get('end_date'):
+            attrs['end_date'] = attrs['start_date']
         start = attrs.get('start_date')
         end = attrs.get('end_date')
         leave_type = attrs.get('leave_type')
         kind = self.initial_data.get('kind')
+
+        # Inactive/discontinued types (e.g. Cuti Tanpa Gaji) never accept new requests.
+        if self.instance is None and leave_type is not None and (
+            not leave_type.is_active or is_discontinued_leave_type(leave_type)
+        ):
+            raise serializers.ValidationError(
+                {'leave_type': f'Kategori "{leave_type.name}" tidak tersedia untuk pengajuan baru.'}
+            )
 
         # Category kind must match the request's kind (only on create).
         if self.instance is None and kind and leave_type:
@@ -121,7 +168,8 @@ class LeaveRequestSerializer(serializers.ModelSerializer):
             if start and end and end < start:
                 raise serializers.ValidationError({'end_date': 'Tanggal selesai tidak boleh sebelum tanggal mulai.'})
             if start and leave_type:
-                total = compute_total_days(start, end or start)
+                # Total = number of picked days (not the start..end span).
+                total = len(picked) if picked is not None else compute_total_days(start, end or start)
                 attrs['total_days'] = total
 
                 # Tenure eligibility for Cuti Tahunan: day-precision, eligible
@@ -153,7 +201,7 @@ class LeaveRequestSerializer(serializers.ModelSerializer):
                     raise serializers.ValidationError(
                         {'end_date': (
                             f'{leave_type.name} maksimal {leave_type.max_days_per_request} hari '
-                            f'berturut-turut per permohonan.'
+                            f'per permohonan.'
                         )}
                     )
 
@@ -179,6 +227,10 @@ class LeaveRequestSerializer(serializers.ModelSerializer):
         return attrs
 
     def create(self, validated_data):
+        picked = validated_data.pop('_dates', None)
         validated_data.setdefault('status', 'PENDING')
         validated_data.setdefault('total_days', compute_total_days(validated_data['start_date'], validated_data['end_date']))
-        return super().create(validated_data)
+        obj = super().create(validated_data)
+        if picked:
+            LeaveRequestDate.objects.bulk_create([LeaveRequestDate(leave_request=obj, date=d) for d in picked])
+        return obj

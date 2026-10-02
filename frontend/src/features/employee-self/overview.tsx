@@ -8,6 +8,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '
 import { Icons } from '@/components/icons';
 import { listAnnouncements, type Announcement } from '@/lib/announcements';
 import { listBalances, listLeaveRequests, type LeaveBalance, type LeaveRequest } from '@/lib/leaves';
+import { getReimbursementSummary, type ReimbursementSummary } from '@/lib/reimbursements';
 import { useMyEmployee } from './use-my-employee';
 
 function fmtDate(iso: string): string {
@@ -38,22 +39,39 @@ export function EmployeeOverview() {
   const [balances, setBalances] = useState<LeaveBalance[]>([]);
   const [requests, setRequests] = useState<LeaveRequest[]>([]);
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
+  const [reimbursement, setReimbursement] = useState<ReimbursementSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [detail, setDetail] = useState<Announcement | null>(null);
 
   const load = useCallback(async () => {
-    setLoading(true);
-    const [b, r, a] = await Promise.all([listBalances(), listLeaveRequests(), listAnnouncements()]);
+    const [b, r, a, rs] = await Promise.all([
+      listBalances(),
+      listLeaveRequests(),
+      listAnnouncements(),
+      getReimbursementSummary(true).catch(() => null)
+    ]);
     // HR staff sees all data server-side; scope to own employee when linked.
     const myId = employee?.id ?? null;
     setBalances(myId ? b.filter((x) => x.employee === myId) : b);
     setRequests(myId ? r.filter((x) => x.employee === myId) : r);
     setAnnouncements(a.slice(0, 3));
+    setReimbursement(rs);
     setLoading(false);
   }, [employee?.id]);
 
   useEffect(() => {
     load();
+    // Refetch when the tab regains focus so a reimbursement submitted or
+    // approved/rejected elsewhere shows up without logout/login.
+    const onFocus = () => {
+      if (document.visibilityState === 'visible') load();
+    };
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onFocus);
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onFocus);
+    };
   }, [load]);
 
   if (profileLoading || loading || !employee) {
@@ -106,10 +124,18 @@ export function EmployeeOverview() {
         </Card>
         <Card>
           <CardHeader>
-            <CardTitle className='text-sm'>Pending</CardTitle>
+            <CardTitle className='text-sm'>Cuti/Izin Pending</CardTitle>
           </CardHeader>
           <CardContent>
             <p className='text-3xl font-semibold'>{pending}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle className='text-sm'>Reimbursement Pending</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className='text-3xl font-semibold'>{reimbursement?.counts.PENDING ?? '-'}</p>
           </CardContent>
         </Card>
         <Card>
@@ -199,7 +225,7 @@ export function EmployeeOverview() {
                   <div>
                     <p className='text-sm font-medium'>{r.leave_type_name}</p>
                     <p className='text-muted-foreground text-xs'>
-                      {r.start_date} — {r.end_date}
+                      {r.leave_dates_display || `${r.start_date} — ${r.end_date}`}
                     </p>
                   </div>
                   <Badge variant={STATUS_VARIANT[r.status] ?? 'secondary'}>{r.status}</Badge>

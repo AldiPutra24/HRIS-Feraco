@@ -466,3 +466,81 @@ class KmsVisibilityTests(BaseKmsTests):
     def test_existing_articles_default_all(self):
         art = self._publish()
         self.assertEqual(art['visibility'], 'ALL')
+
+
+class KmsUserTargetPickerTests(BaseKmsTests):
+    """USER visibility picker: 'Nama Karyawan - Posisi', stored by User ID."""
+
+    def setUp(self):
+        super().setUp()
+        from apps.personnel.models import Department, Employee, Position
+
+        dept = Department.objects.create(name='IT')
+        self.pos = Position.objects.create(name='Software Engineer', department=dept)
+        self.andi_user = make_user('andi@t', 'EMPLOYEE')
+        self.andi = Employee.objects.create(
+            employee_id='E-1', full_name='Andi Pratama', employment_status='ACTIVE',
+            department=dept, position=self.pos, user=self.andi_user,
+        )
+        self.budi_user = make_user('budi@t', 'EMPLOYEE')
+        Employee.objects.create(
+            employee_id='E-2', full_name='Budi Santoso', employment_status='ACTIVE',
+            department=dept, user=self.budi_user,
+        )
+        # Inactive employee never offered.
+        gone = make_user('gone@t', 'EMPLOYEE')
+        Employee.objects.create(
+            employee_id='E-3', full_name='Citra Gone', employment_status='INACTIVE', user=gone,
+        )
+        self.url = f'{ARTICLES_URL}user-target-options/'
+
+    def test_options_labelled_name_position_for_managers(self):
+        self.client.force_login(self.hr)
+        res = self.client.get(self.url)
+        self.assertEqual(res.status_code, 200)
+        labels = {o['label'] for o in res.data}
+        self.assertIn('Andi Pratama - Software Engineer', labels)
+        self.assertIn('Budi Santoso', labels)  # no position -> name only
+        self.assertNotIn('Citra Gone', labels)
+        andi = next(o for o in res.data if o['name'] == 'Andi Pratama')
+        self.assertEqual(andi['id'], self.andi_user.id)  # User ID is the reference
+
+    def test_options_searchable(self):
+        self.client.force_login(self.lead)
+        res = self.client.get(self.url, {'search': 'software'})
+        self.assertEqual([o['name'] for o in res.data], ['Andi Pratama'])
+        res = self.client.get(self.url, {'search': 'budi'})
+        self.assertEqual([o['name'] for o in res.data], ['Budi Santoso'])
+
+    def test_options_forbidden_for_read_only_roles(self):
+        for u in (self.emp, self.mgmt):
+            self.client.force_login(u)
+            self.assertEqual(self.client.get(self.url).status_code, 403)
+
+    def test_selected_targets_survive_rename_and_restrict_access(self):
+        self.client.force_login(self.hr)
+        res = self.client.post(ARTICLES_URL, *body({
+            'title': 'Khusus Andi', 'summary': 's', 'content': '<p>x</p>',
+            'category': self.cat.id, 'status': 'PUBLISHED',
+            'visibility': 'USER', 'user_targets': [self.andi_user.id],
+        }))
+        self.assertEqual(res.status_code, 201, res.data)
+        art_id = res.data['id']
+        self.assertEqual(
+            [d['label'] for d in res.data['user_target_details']], ['Andi Pratama - Software Engineer']
+        )
+        # Rename + position change: target still resolves by ID.
+        self.andi.full_name = 'Andi P. Wijaya'
+        self.andi.position = None
+        self.andi.save()
+        detail = self.client.get(f'{ARTICLES_URL}{art_id}/').data
+        self.assertEqual(detail['user_targets'], [self.andi_user.id])
+        self.assertEqual(detail['user_target_details'][0]['label'], 'Andi P. Wijaya')
+        # Only the selected employee may read (list/search/detail).
+        self.client.force_login(self.andi_user)
+        self.assertEqual(self.client.get(f'{ARTICLES_URL}{art_id}/').status_code, 200)
+        self.assertEqual(self.client.get(f'{ARTICLES_URL}{art_id}/').data['user_target_details'], [])
+        self.client.force_login(self.budi_user)
+        self.assertEqual(self.client.get(f'{ARTICLES_URL}{art_id}/').status_code, 404)
+        ids = [a['id'] for a in self.client.get(ARTICLES_URL, {'search': 'Khusus'}).data['results']]
+        self.assertNotIn(art_id, ids)

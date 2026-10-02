@@ -274,6 +274,7 @@ export function NotificationSettings() {
 
   const leaveEvents = configs.filter((c) => c.event.startsWith('LEAVE'));
   const contractEvents = configs.filter((c) => c.event === 'CONTRACT');
+  const reimbursementEvents = configs.filter((c) => c.event.startsWith('REIMBURSEMENT'));
   const birthdayEvents = configs.filter((c) => c.event.startsWith('BIRTHDAY'));
 
   return (
@@ -409,6 +410,19 @@ export function NotificationSettings() {
           ))}
         </CardContent>
       </Card>
+
+      {reimbursementEvents.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className='text-base'>Reimbursement</CardTitle>
+          </CardHeader>
+          <CardContent className='space-y-4'>
+            {reimbursementEvents.map((c) => (
+              <EventCard key={c.id} config={c} onSaved={load} showEnabled />
+            ))}
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

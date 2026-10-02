@@ -47,6 +47,8 @@ class ReimbursementWorkflowTests(TestCase):
             amount=amount,
             description='Test',
             status='DRAFT',
+            attachment_name='nota.pdf',
+            attachment_path='reimbursements/test/attachments/nota.pdf',
         )
 
     def _login(self, user):
@@ -239,6 +241,7 @@ class ReimbursementWorkflowTests(TestCase):
         }, content_type='application/json')
         self.assertEqual(resp.status_code, 201)
         rid = resp.json()['id']
+        _attach(rid)
         self.client.post(f'/api/reimbursements/{rid}/submit/')
         self.client.logout()
         self._login(self.hr)
@@ -590,6 +593,7 @@ class ManagementScopeTests(TestCase):
         resp = self.client.patch(f'/api/reimbursements/{rid}/',
                                  {'amount': 15000}, content_type='application/json')
         self.assertEqual(resp.status_code, 200)
+        _attach(rid)
         resp = self.client.post(f'/api/reimbursements/{rid}/submit/')
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.json()['status'], 'PENDING')
@@ -632,3 +636,101 @@ class ManagementScopeTests(TestCase):
         self.assertEqual(resp.status_code, 200)
         r.refresh_from_db()
         self.assertEqual(r.status, 'APPROVED')
+
+
+def _attach(reimbursement_or_id):
+    """Mark a draft as having an uploaded attachment (storage is mocked out)."""
+    rid = getattr(reimbursement_or_id, 'pk', reimbursement_or_id)
+    Reimbursement.objects.filter(pk=rid).update(
+        attachment_name='nota.pdf', attachment_path=f'reimbursements/{rid}/attachments/nota.pdf',
+    )
+
+
+from django.test import override_settings  # noqa: E402
+
+
+@override_settings(EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend')
+class ReimbursementRevisionTests(TestCase):
+    """Mandatory attachment, HR notification via the centralized engine,
+    and live status summary for the Employee Overview."""
+
+    def setUp(self):
+        self.hr = make_user('HR_STAFF', 'hr@test.com')
+        self.lead = make_user('HR_LEAD', 'lead@test.com')
+        self.admin = make_user('ADMIN', 'admin@test.com')
+        self.emp_user = make_user('EMPLOYEE', 'emp@test.com')
+        self.emp = Employee.objects.create(employee_id='E001', full_name='John', employment_status='ACTIVE')
+        self.emp.user = self.emp_user
+        self.emp.save()
+        self.cat = ReimbursementCategory.objects.create(name='Meal', code='MEAL', requires_attachment=False)
+
+    def _draft(self):
+        self.client.force_login(self.emp_user)
+        resp = self.client.post('/api/reimbursements/', {
+            'category': self.cat.id, 'transaction_date': '2026-09-01', 'amount': 75000,
+            'description': 'Makan klien',
+        }, content_type='application/json')
+        self.assertEqual(resp.status_code, 201)
+        return resp.json()['id']
+
+    def test_submit_without_attachment_rejected_for_any_category(self):
+        rid = self._draft()
+        resp = self.client.post(f'/api/reimbursements/{rid}/submit/')
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn('Lampiran wajib', resp.json()['attachment'])
+        self.assertEqual(Reimbursement.objects.get(pk=rid).status, 'DRAFT')
+
+    def test_submit_with_attachment_notifies_hr_staff_and_lead(self):
+        from django.core import mail
+
+        from apps.notifications.models import Notification
+
+        rid = self._draft()
+        _attach(rid)
+        resp = self.client.post(f'/api/reimbursements/{rid}/submit/')
+        self.assertEqual(resp.status_code, 200, resp.content)
+        notifs = Notification.objects.filter(kind='REIMBURSEMENT_SUBMITTED')
+        self.assertEqual({n.recipient_id for n in notifs}, {self.hr.id, self.lead.id})
+        self.assertTrue(all(n.link == f'/dashboard/reimbursements?id={rid}' for n in notifs))
+        self.assertTrue(all(not n.is_read for n in notifs))
+        self.assertEqual(len(mail.outbox), 1)  # default HR email from settings
+        self.assertIn('John', mail.outbox[0].body)
+        # Bell unread count for HR increments.
+        self.client.force_login(self.hr)
+        self.assertEqual(self.client.get('/api/notifications/notifications/unread_count/').json()['unread'], 1)
+
+    def test_notification_idempotent(self):
+        from django.core import mail
+
+        from apps.notifications.models import Notification
+        from apps.notifications.services import notify_reimbursement_submitted
+
+        rid = self._draft()
+        _attach(rid)
+        self.client.post(f'/api/reimbursements/{rid}/submit/')
+        notify_reimbursement_submitted(Reimbursement.objects.get(pk=rid))  # re-fired hook
+        self.assertEqual(Notification.objects.filter(kind='REIMBURSEMENT_SUBMITTED').count(), 2)
+        self.assertEqual(len(mail.outbox), 1)
+
+    def test_summary_tracks_pending_through_approval(self):
+        url = '/api/reimbursements/summary/?mine=1'
+        rid = self._draft()
+        self.assertEqual(self.client.get(url).json()['counts']['PENDING'], 0)
+        _attach(rid)
+        self.client.post(f'/api/reimbursements/{rid}/submit/')
+        self.assertEqual(self.client.get(url).json()['counts']['PENDING'], 1)
+        self.client.force_login(self.hr)
+        self.client.post(f'/api/reimbursements/{rid}/approve/', {'approved_amount': 50000},
+                         content_type='application/json')
+        self.client.force_login(self.emp_user)
+        counts = self.client.get(url).json()['counts']
+        self.assertEqual(counts['PENDING'], 0)
+        self.assertEqual(counts['APPROVED'], 1)
+
+    def test_summary_mine_scopes_to_own_records_for_hr(self):
+        other = Employee.objects.create(employee_id='E002', full_name='Jane', employment_status='ACTIVE')
+        Reimbursement.objects.create(employee=other, category=self.cat, transaction_date=date.today(),
+                                     amount=1000, status='PENDING')
+        self.client.force_login(self.hr)  # HR without employee record
+        self.assertEqual(self.client.get('/api/reimbursements/summary/?mine=1').json()['total'], 0)
+        self.assertEqual(self.client.get('/api/reimbursements/summary/').json()['counts']['PENDING'], 1)

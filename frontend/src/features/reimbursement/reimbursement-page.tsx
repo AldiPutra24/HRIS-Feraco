@@ -13,6 +13,7 @@ import { TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/compon
 import {
   approveReimbursement,
   deleteReimbursement,
+  getReimbursement,
   listReimbursementCategories,
   listReimbursements,
   markReimbursementPaid,
@@ -56,6 +57,8 @@ export function ReimbursementPage() {
   const fStatus = searchParams.get('status') ?? '';
   const fCategory = searchParams.get('category') ?? '';
   const fEmployee = searchParams.get('employee') ?? '';
+  // Deep link from the notification bell: /dashboard/reimbursements?id=<id>
+  const focusId = Number(searchParams.get('id')) || null;
 
   function setFilter(key: string, value: string) {
     const params = new URLSearchParams(searchParams);
@@ -75,6 +78,7 @@ export function ReimbursementPage() {
   const [paying, setPaying] = useState<Reimbursement | null>(null);
   const [paymentRef, setPaymentRef] = useState('');
   const [paymentFile, setPaymentFile] = useState<File | null>(null);
+  const [focused, setFocused] = useState<Reimbursement | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -85,8 +89,9 @@ export function ReimbursementPage() {
     const [r, c] = await Promise.all([listReimbursements(params), listReimbursementCategories()]);
     setItems(r);
     setCategories(c);
+    setFocused(focusId ? await getReimbursement(focusId).catch(() => null) : null);
     setLoading(false);
-  }, [fStatus, fCategory, fEmployee]);
+  }, [fStatus, fCategory, fEmployee, focusId]);
 
   useEffect(() => {
     load();
@@ -247,6 +252,59 @@ export function ReimbursementPage() {
         </CardContent>
       </Card>
 
+      {focused && (
+        <Card className='border-primary'>
+          <CardHeader>
+            <div className='flex items-center justify-between gap-2'>
+              <CardTitle>Detail Pengajuan #{focused.id}</CardTitle>
+              <Button variant='ghost' size='sm' onClick={() => setFilter('id', '')}>
+                Tutup
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent className='space-y-3 text-sm'>
+            <div className='grid grid-cols-1 gap-2 md:grid-cols-3'>
+              <p>
+                <span className='text-muted-foreground'>Karyawan:</span> {focused.employee_name}
+              </p>
+              <p>
+                <span className='text-muted-foreground'>Kategori:</span> {focused.category_name}
+              </p>
+              <p>
+                <span className='text-muted-foreground'>Tanggal:</span> {focused.transaction_date}
+              </p>
+              <p>
+                <span className='text-muted-foreground'>Nominal:</span> {formatAmount(focused.amount)}
+              </p>
+              <p>
+                <span className='text-muted-foreground'>Status:</span> <StatusBadge status={focused.status} />
+              </p>
+              <p>
+                <span className='text-muted-foreground'>Lampiran:</span>{' '}
+                {focused.attachment_url ? (
+                  <a href={focused.attachment_url} target='_blank' rel='noreferrer' className='text-primary underline'>
+                    {focused.attachment_name}
+                  </a>
+                ) : (
+                  '-'
+                )}
+              </p>
+            </div>
+            {focused.description && <p className='text-muted-foreground'>{focused.description}</p>}
+            {canAct && focused.status === 'PENDING' && (
+              <div className='flex gap-2'>
+                <Button variant='success' size='sm' onClick={() => approve(focused)}>
+                  Setujui
+                </Button>
+                <Button variant='destructive' size='sm' onClick={() => setRejecting(focused)}>
+                  Tolak
+                </Button>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
       <Card>
         <CardHeader>
           <CardTitle>Daftar Pengajuan</CardTitle>
@@ -275,7 +333,7 @@ export function ReimbursementPage() {
                 </TableHeader>
                 <TableBody>
                   {items.map((r) => (
-                    <TableRow key={r.id}>
+                    <TableRow key={r.id} className={r.id === focusId ? 'bg-primary/5' : undefined}>
                       <TableCell>{r.employee_name}</TableCell>
                       <TableCell>{r.category_name}</TableCell>
                       <TableCell>{r.project_category === 'OTHER' ? r.project_category_other : r.project_category.replace(/_/g, ' ')}</TableCell>

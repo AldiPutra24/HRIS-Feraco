@@ -8,6 +8,59 @@ from .models import LeaveBalance, LeaveNotification, LeaveType
 
 
 ANNUAL_CODE = 'ANNUAL'
+
+# "Cuti Tanpa Gaji" is discontinued: never offered nor accepted for NEW
+# requests. Rows are deactivated (migration 0006 + seed), not deleted, so
+# historical requests, balances, payroll unpaid-leave and reports stay intact.
+DISCONTINUED_LEAVE_CODES = {'UNPAID'}
+DISCONTINUED_LEAVE_NAMES = {'cuti tanpa gaji', 'cuti tidak berbayar'}
+
+MONTHS_ID = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des']
+
+
+def is_discontinued_leave_type(leave_type):
+    return (
+        (leave_type.code or '').upper() in DISCONTINUED_LEAVE_CODES
+        or (leave_type.name or '').strip().lower() in DISCONTINUED_LEAVE_NAMES
+    )
+
+
+def format_leave_dates(dates):
+    """Human label for actual leave dates, e.g. '01 Sep, 02 Sep, 05 Sep 2026'.
+
+    Runs of 3+ consecutive days are compressed ('01-05 Sep') so long legacy
+    ranges (maternity) stay readable; the year is printed once per year group.
+    """
+    from datetime import timedelta
+
+    dates = sorted(set(dates))
+    if not dates:
+        return '-'
+    runs = []
+    for d in dates:
+        if runs and d - runs[-1][-1] == timedelta(days=1):
+            runs[-1].append(d)
+        else:
+            runs.append([d])
+
+    def day(d):
+        return f'{d.day:02d} {MONTHS_ID[d.month - 1]}'
+
+    parts = []
+    for run in runs:
+        if len(run) >= 3:
+            first, last = run[0], run[-1]
+            if first.month == last.month and first.year == last.year:
+                parts.append((last.year, f'{first.day:02d}-{day(last)}'))
+            else:
+                parts.append((last.year, f'{day(first)}-{day(last)}'))
+        else:
+            parts.extend((d.year, day(d)) for d in run)
+    out = []
+    for i, (year, label) in enumerate(parts):
+        last_of_year = i == len(parts) - 1 or parts[i + 1][0] != year
+        out.append(f'{label} {year}' if last_of_year else label)
+    return ', '.join(out)
 CARRY_FORWARD_MAX = 3
 BASIC_QUOTA = 12
 

@@ -61,6 +61,21 @@ class KnowledgeCategorySerializer(serializers.ModelSerializer):
         return attrs
 
 
+def user_target_option(user):
+    """Dropdown option for a USER visibility target: 'Nama Karyawan - Posisi'."""
+    personnel = getattr(user, 'personnel', None)
+    employee = getattr(personnel, 'employee', None) if personnel else None
+    name = (employee.full_name if employee else '') or user.get_full_name() or user.get_username()
+    position = employee.position.name if employee and employee.position_id else ''
+    return {
+        'id': user.id,
+        'employee_id': employee.id if employee else None,
+        'name': name,
+        'position': position,
+        'label': f'{name} - {position}' if position else name,
+    }
+
+
 class KnowledgeArticleSerializer(serializers.ModelSerializer):
     category_name = serializers.CharField(source='category.name', read_only=True)
     subcategory_name = serializers.CharField(source='subcategory.name', read_only=True, default=None)
@@ -79,6 +94,10 @@ class KnowledgeArticleSerializer(serializers.ModelSerializer):
     user_targets = serializers.PrimaryKeyRelatedField(
         queryset=User.objects.all(), many=True, required=False,
     )
+    # "Nama Karyawan - Posisi" labels for the selected USER targets, resolved
+    # live from the User -> Employee link (IDs are the stored reference, so
+    # renames/position changes never break targeting).
+    user_target_details = serializers.SerializerMethodField()
 
     class Meta:
         model = KnowledgeArticle
@@ -90,8 +109,10 @@ class KnowledgeArticleSerializer(serializers.ModelSerializer):
             'view_count', 'created_by_name', 'updated_by_name',
             'created_at', 'updated_at', 'published_at',
             'visibility', 'role_targets', 'department_targets', 'user_targets',
+            'user_target_details',
         )
         read_only_fields = (
+            'user_target_details',
             'id', 'category_name', 'subcategory_name', 'has_attachment',
             'attachment_name', 'attachment_content_type', 'attachment_size',
             'view_count', 'created_by_name', 'updated_by_name',
@@ -100,6 +121,18 @@ class KnowledgeArticleSerializer(serializers.ModelSerializer):
 
     def get_has_attachment(self, obj):
         return bool(obj.attachment_path)
+
+    def get_user_target_details(self, obj):
+        from apps.personnel.permissions import WRITE_ROLES, _role
+
+        request = self.context.get('request')
+        # Only KMS managers (who edit targeting) see who else is targeted.
+        if request is None or _role(request.user) not in WRITE_ROLES:
+            return []
+        links = obj.user_links.select_related(
+            'user__personnel__employee__position',
+        )
+        return [user_target_option(link.user) for link in links]
 
     def validate_content(self, value):
         # XSS: the same whitelist sanitizer used for email templates. The

@@ -180,6 +180,37 @@ class KnowledgeArticleViewSet(viewsets.ModelViewSet):
             delete_attachment(instance.attachment_path)
         instance.delete()
 
+    @action(detail=False, methods=['get'], url_path='user-target-options')
+    def user_target_options(self, request):
+        """Searchable employee picker for USER visibility (KMS managers only).
+
+        Returns active User accounts linked to an ACTIVE employee as
+        'Nama Karyawan - Posisi'. ?search= filters by name/position/employee
+        ID (max 50 rows); ?ids=1,2 resolves specific user IDs.
+        """
+        from rest_framework.exceptions import PermissionDenied
+
+        from apps.personnel.models import Employee
+
+        from .serializers import user_target_option
+
+        if _role(request.user) not in WRITE_ROLES:
+            raise PermissionDenied('Hanya pengelola KMS yang dapat memilih target user.')
+        qs = Employee.objects.filter(
+            user__isnull=False, user__is_active=True, employment_status='ACTIVE',
+        ).select_related('user', 'position').order_by('full_name')
+        ids = [i for i in (request.query_params.get('ids') or '').split(',') if i.strip().isdigit()]
+        if ids:
+            qs = qs.filter(user_id__in=ids)
+        search = (request.query_params.get('search') or '').strip()
+        if search:
+            qs = qs.filter(
+                Q(full_name__icontains=search)
+                | Q(position__name__icontains=search)
+                | Q(employee_id__icontains=search)
+            )
+        return Response([user_target_option(e.user) for e in qs[:50]])
+
     @action(detail=True, methods=['post'], url_path='archive')
     def archive(self, request, pk=None):
         """Soft-state alternative to DELETE: ARCHIVED hides from listings but

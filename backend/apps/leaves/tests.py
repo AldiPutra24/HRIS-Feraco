@@ -1,3 +1,4 @@
+import os
 from datetime import date
 
 from django.contrib.auth import get_user_model
@@ -234,8 +235,8 @@ class LeaveWorkflowTests(TestCase):
         self.assertIn(report_lr.id, ids)
         self.assertNotIn(other_lr.id, ids)
 
-    def test_hr_cannot_approve(self):
-        """HR_STAFF must be view-only — approve blocked at API level (403)."""
+    def test_hr_can_approve_as_fallback(self):
+        """HR_STAFF may approve as fallback when the Reporting To has not acted."""
         self.manager_emp.user = self.manager
         self.manager_emp.save()
         lr = LeaveRequest.objects.create(
@@ -245,12 +246,12 @@ class LeaveWorkflowTests(TestCase):
         self.client.force_login(self.hr)
         url = reverse('leave-request-approve', args=[lr.id])
         res = self.client.post(url)
-        self.assertEqual(res.status_code, 403)
+        self.assertEqual(res.status_code, 200)
         lr.refresh_from_db()
-        self.assertEqual(lr.status, 'PENDING')
+        self.assertEqual(lr.status, 'APPROVED')
 
-    def test_hr_cannot_reject(self):
-        """HR_STAFF must be view-only — reject blocked at API level (403)."""
+    def test_hr_can_reject_as_fallback(self):
+        """HR_STAFF may reject as fallback when the Reporting To has not acted."""
         self.manager_emp.user = self.manager
         self.manager_emp.save()
         lr = LeaveRequest.objects.create(
@@ -259,10 +260,10 @@ class LeaveWorkflowTests(TestCase):
         )
         self.client.force_login(self.hr)
         url = reverse('leave-request-reject', args=[lr.id])
-        res = self.client.post(url, {'rejection_reason': 'x'}, format='json')
-        self.assertEqual(res.status_code, 403)
+        res = self.client.post(url, {'rejection_reason': 'x'}, content_type='application/json')
+        self.assertEqual(res.status_code, 200)
         lr.refresh_from_db()
-        self.assertEqual(lr.status, 'PENDING')
+        self.assertEqual(lr.status, 'REJECTED')
 
     def test_employee_cannot_approve_any(self):
         """EMPLOYEE (non-manager) cannot approve any request (403)."""
@@ -771,3 +772,193 @@ class AnnualQuotaPolicyTests(TestCase):
         data['end_date'] = '2026-03-16'
         s2 = LeaveRequestSerializer(data=data, context={'request': req})
         self.assertTrue(s2.is_valid(), s2.errors)
+
+
+class LeaveRevisionTests(TestCase):
+    """Non-consecutive leave dates, manager-or-HR approval, discontinued type."""
+
+    def setUp(self):
+        from rest_framework.test import APIClient
+
+        self.api = APIClient()
+        self.manager = make_user('MANAGEMENT', 'manager@test.com')
+        self.hr = make_user('HR_STAFF', 'hr@test.com')
+        self.lead = make_user('HR_LEAD', 'lead@test.com')
+        self.admin = make_user('ADMIN', 'admin@test.com')
+        self.emp_user = make_user('EMPLOYEE', 'emp@test.com')
+        self.manager_emp = Employee.objects.create(
+            employee_id='M001', full_name='Manager', employment_status='ACTIVE', user=self.manager,
+        )
+        self.emp = Employee.objects.create(
+            employee_id='E001', full_name='John', employment_status='ACTIVE',
+            manager=self.manager_emp, user=self.emp_user,
+        )
+        self.annual = LeaveType.objects.create(name='Annual Leave', code='ANNUAL', default_quota=12)
+        self.special = LeaveType.objects.create(name='Special', code='SPECIAL', default_quota=0)
+
+    def _submit(self, **payload):
+        self.api.force_authenticate(self.emp_user)
+        data = {'leave_type': self.special.id, 'kind': 'LEAVE', 'reason': 'Keperluan'}
+        data.update(payload)
+        return self.api.post('/api/leaves/requests/', data, format='json')
+
+    # --- non-consecutive dates ---
+    def test_individual_dates_saved_and_counted(self):
+        res = self._submit(dates=['2026-09-05', '2026-09-01', '2026-09-02'])
+        self.assertEqual(res.status_code, 201, res.data)
+        self.assertEqual(res.data['total_days'], 3)
+        self.assertEqual(res.data['start_date'], '2026-09-01')
+        self.assertEqual(res.data['end_date'], '2026-09-05')
+        self.assertEqual(res.data['leave_dates'], ['2026-09-01', '2026-09-02', '2026-09-05'])
+        self.assertEqual(res.data['leave_dates_display'], '01 Sep, 02 Sep, 05 Sep 2026')
+        lr = LeaveRequest.objects.get(pk=res.data['id'])
+        self.assertEqual([d.date.isoformat() for d in lr.dates.all()], res.data['leave_dates'])
+
+    def test_duplicate_date_rejected(self):
+        res = self._submit(dates=['2026-09-01', '2026-09-01'])
+        self.assertEqual(res.status_code, 400)
+        self.assertIn('duplikat', str(res.data['dates']))
+
+    def test_dates_across_years_rejected(self):
+        res = self._submit(dates=['2026-12-31', '2027-01-02'])
+        self.assertEqual(res.status_code, 400)
+
+    def test_empty_selection_rejected(self):
+        self.assertEqual(self._submit(dates=[]).status_code, 400)
+        self.assertEqual(self._submit().status_code, 400)
+
+    def test_date_already_in_active_request_rejected(self):
+        self.assertEqual(self._submit(dates=['2026-09-01', '2026-09-03']).status_code, 201)
+        res = self._submit(dates=['2026-09-03', '2026-09-08'])
+        self.assertEqual(res.status_code, 400)
+        self.assertIn('2026-09-03', str(res.data['dates']))
+        # Gap day is free.
+        self.assertEqual(self._submit(dates=['2026-09-02']).status_code, 201)
+
+    def test_legacy_start_end_still_supported(self):
+        res = self._submit(start_date='2026-10-05', end_date='2026-10-07')
+        self.assertEqual(res.status_code, 201, res.data)
+        self.assertEqual(res.data['total_days'], 3)
+        self.assertEqual(res.data['leave_dates'], ['2026-10-05', '2026-10-06', '2026-10-07'])
+        self.assertEqual(res.data['leave_dates_display'], '05-07 Okt 2026')
+        self.assertFalse(LeaveRequest.objects.get(pk=res.data['id']).dates.exists())
+
+    def test_quota_and_cap_use_picked_day_count(self):
+        self.annual.max_days_per_request = 3
+        self.annual.save()
+        # 2 days spanning 4 weeks: old start..end would be 29 days.
+        res = self._submit(leave_type=self.annual.id, dates=['2026-09-01', '2026-09-29'])
+        self.assertEqual(res.status_code, 201, res.data)
+        self.assertEqual(res.data['total_days'], 2)
+        res = self._submit(leave_type=self.annual.id, dates=['2026-10-01', '2026-10-02', '2026-10-05', '2026-10-06'])
+        self.assertEqual(res.status_code, 400)  # 4 picked days > cap 3
+
+    def test_approval_deducts_picked_days(self):
+        res = self._submit(leave_type=self.annual.id, dates=['2026-09-01', '2026-09-02', '2026-09-05'])
+        self.api.force_authenticate(self.manager)
+        self.assertEqual(self.api.post(f'/api/leaves/requests/{res.data["id"]}/approve/').status_code, 200)
+        bal = get_balance(self.emp, self.annual, 2026)
+        self.assertEqual(bal.used_days, 3)
+
+    # --- approval flow ---
+    def _pending(self):
+        return LeaveRequest.objects.create(
+            employee=self.emp, leave_type=self.annual,
+            start_date=date(2026, 9, 1), end_date=date(2026, 9, 2), total_days=2,
+        )
+
+    def test_manager_still_primary_approver(self):
+        lr = self._pending()
+        self.api.force_authenticate(self.manager)
+        self.assertEqual(self.api.post(f'/api/leaves/requests/{lr.id}/approve/').status_code, 200)
+
+    def test_hr_staff_and_lead_can_decide_as_fallback(self):
+        lr = self._pending()
+        self.api.force_authenticate(self.hr)
+        res = self.api.post(f'/api/leaves/requests/{lr.id}/approve/')
+        self.assertEqual(res.status_code, 200, res.data)
+        lr2 = LeaveRequest.objects.create(
+            employee=self.emp, leave_type=self.annual,
+            start_date=date(2026, 10, 1), end_date=date(2026, 10, 1), total_days=1,
+        )
+        self.api.force_authenticate(self.lead)
+        res = self.api.post(f'/api/leaves/requests/{lr2.id}/reject/', {'rejection_reason': 'Bentrok'}, format='json')
+        self.assertEqual(res.status_code, 200, res.data)
+
+    def test_second_decision_is_blocked_and_deducts_once(self):
+        lr = self._pending()
+        self.api.force_authenticate(self.hr)
+        self.assertEqual(self.api.post(f'/api/leaves/requests/{lr.id}/approve/').status_code, 200)
+        self.api.force_authenticate(self.manager)
+        self.assertEqual(self.api.post(f'/api/leaves/requests/{lr.id}/approve/').status_code, 400)
+        res = self.api.post(f'/api/leaves/requests/{lr.id}/reject/', {'rejection_reason': 'x'}, format='json')
+        self.assertEqual(res.status_code, 400)
+        self.assertEqual(get_balance(self.emp, self.annual, 2026).used_days, 2)
+
+    def test_non_approvers_forbidden(self):
+        lr = self._pending()
+        for user in (self.admin, self.emp_user):
+            self.api.force_authenticate(user)
+            self.assertEqual(self.api.post(f'/api/leaves/requests/{lr.id}/approve/').status_code, 403)
+
+    def test_hr_cannot_decide_own_request(self):
+        hr_emp = Employee.objects.create(
+            employee_id='H001', full_name='HR Person', employment_status='ACTIVE', user=self.hr,
+        )
+        lr = LeaveRequest.objects.create(
+            employee=hr_emp, leave_type=self.annual,
+            start_date=date(2026, 9, 1), end_date=date(2026, 9, 1), total_days=1,
+        )
+        self.api.force_authenticate(self.hr)
+        self.assertEqual(self.api.post(f'/api/leaves/requests/{lr.id}/approve/').status_code, 403)
+
+    def test_submit_notifies_manager_hr_staff_and_hr_lead(self):
+        from apps.notifications.models import Notification
+
+        res = self._submit(dates=['2026-09-01'])
+        recipients = set(Notification.objects.filter(
+            kind='LEAVE_SUBMITTED', object_id=str(res.data['id']),
+        ).values_list('recipient_id', flat=True))
+        self.assertEqual(recipients, {self.manager.id, self.hr.id, self.lead.id})
+
+    def test_employee_notified_after_hr_decision(self):
+        from apps.notifications.models import Notification
+
+        lr = self._pending()
+        self.api.force_authenticate(self.hr)
+        self.api.post(f'/api/leaves/requests/{lr.id}/approve/')
+        n = Notification.objects.get(recipient=self.emp_user, kind='LEAVE_APPROVED')
+        self.assertEqual(n.link, '/dashboard/employee/leave')
+
+    # --- Cuti Tanpa Gaji discontinued ---
+    def test_discontinued_unpaid_type_rejected_even_if_active(self):
+        unpaid = LeaveType.objects.create(name='Cuti Tanpa Gaji', code='UNPAID', is_paid=False)
+        res = self._submit(leave_type=unpaid.id, dates=['2026-09-01'])
+        self.assertEqual(res.status_code, 400)
+        self.assertIn('tidak tersedia', str(res.data['leave_type']))
+
+    def test_inactive_type_rejected_and_hidden_from_employee(self):
+        self.special.is_active = False
+        self.special.save()
+        self.assertEqual(self._submit(dates=['2026-09-01']).status_code, 400)
+        self.api.force_authenticate(self.emp_user)
+        res = self.api.get('/api/leaves/types/')
+        self.assertNotIn(self.special.id, [t['id'] for t in res.data])
+
+    def test_seed_deactivates_unpaid_but_keeps_history(self):
+        from django.core.management import call_command
+
+        unpaid = LeaveType.objects.create(name='Cuti Tanpa Gaji', code='UNPAID', is_paid=False)
+        old = LeaveRequest.objects.create(
+            employee=self.emp, leave_type=unpaid, status='PENDING',
+            start_date=date(2026, 8, 3), end_date=date(2026, 8, 4), total_days=2,
+        )
+        call_command('seed_leave_types', stdout=open(os.devnull, 'w'))
+        unpaid.refresh_from_db()
+        self.assertFalse(unpaid.is_active)
+        self.assertTrue(LeaveRequest.objects.filter(pk=old.pk).exists())
+        # Historical request still listable and decidable.
+        self.api.force_authenticate(self.manager)
+        res = self.api.get(f'/api/leaves/requests/{old.id}/')
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(self.api.post(f'/api/leaves/requests/{old.id}/approve/').status_code, 200)

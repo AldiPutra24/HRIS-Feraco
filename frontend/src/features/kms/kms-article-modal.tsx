@@ -23,9 +23,9 @@ import {
   type KmsVisibility,
 } from '@/lib/kms';
 import { listDepartments, type Department } from '@/lib/employees';
-import { listUsers, type AdminUser } from '@/lib/users';
 import { EmailBodyEditor } from '@/features/settings/email-body-editor';
 import { cn } from '@/lib/utils';
+import { KmsUserTargetPicker } from './kms-user-target-picker';
 
 type Props = {
   article: KmsArticle | null;
@@ -48,7 +48,6 @@ export function ArticleFormModal({ article, tree, onClose, onSaved }: Props) {
   const [deptTargets, setDeptTargets] = useState<number[]>(article?.department_targets ?? []);
   const [userTargets, setUserTargets] = useState<number[]>(article?.user_targets ?? []);
   const [departments, setDepartments] = useState<Department[]>([]);
-  const [users, setUsers] = useState<AdminUser[]>([]);
   const [saving, setSaving] = useState(false);
 
   const selectedRoot = tree.find((n) => n.id === Number(categoryId));
@@ -56,10 +55,9 @@ export function ArticleFormModal({ article, tree, onClose, onSaved }: Props) {
 
   useEffect(() => {
     // eslint-disable-next-line react/set-state-in-effect -- initial data fetch (konvensi repo)
-    Promise.all([listDepartments(), listUsers()])
-      .then(([d, u]) => {
+    listDepartments()
+      .then((d) => {
         setDepartments(d);
-        setUsers(u);
       })
       .catch(() => {
         /* target pickers degrade gracefully if these fail */
@@ -81,9 +79,6 @@ export function ArticleFormModal({ article, tree, onClose, onSaved }: Props) {
   function toggleDept(id: number) {
     setDeptTargets((prev) => (prev.includes(id) ? prev.filter((d) => d !== id) : [...prev, id]));
   }
-  function toggleUser(id: number) {
-    setUserTargets((prev) => (prev.includes(id) ? prev.filter((u) => u !== id) : [...prev, id]));
-  }
 
   async function save() {
     if (!title.trim() || !content.trim() || categoryId === '') {
@@ -99,7 +94,7 @@ export function ArticleFormModal({ article, tree, onClose, onSaved }: Props) {
       return;
     }
     if (visibility === 'USER' && userTargets.length === 0) {
-      toast.error('Pilih minimal satu user.');
+      toast.error('Pilih minimal satu karyawan.');
       return;
     }
     setSaving(true);
@@ -261,21 +256,11 @@ export function ArticleFormModal({ article, tree, onClose, onSaved }: Props) {
               </div>
             )}
             {visibility === 'USER' && (
-              <select
-                multiple
-                value={userTargets.map(String)}
-                onChange={(e) =>
-                  setUserTargets(Array.from(e.target.selectedOptions, (o) => Number(o.value)))
-                }
-                className='bg-background h-32 w-full rounded-xl border px-2 text-sm'
-                aria-label='Pilih user'
-              >
-                {users.map((u) => (
-                  <option key={u.id} value={u.id}>
-                    {u.username} ({u.email})
-                  </option>
-                ))}
-              </select>
+              <KmsUserTargetPicker
+                value={userTargets}
+                initialOptions={article?.user_target_details ?? []}
+                onChange={setUserTargets}
+              />
             )}
             {visibility === 'PRIVATE' && (
               <p className='text-muted-foreground text-xs'>

@@ -7,7 +7,13 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { cancelReimbursement, listReimbursements, type Reimbursement } from '@/lib/reimbursements';
+import {
+  cancelReimbursement,
+  getReimbursementSummary,
+  listReimbursements,
+  type Reimbursement,
+  type ReimbursementSummary
+} from '@/lib/reimbursements';
 import { getMyEmployee } from '@/lib/employee-self';
 import { toast } from 'react-toastify';
 
@@ -31,13 +37,19 @@ function formatAmount(n: number): string {
 export function EmployeeReimbursement() {
   const router = useRouter();
   const [items, setItems] = useState<Reimbursement[]>([]);
+  const [summary, setSummary] = useState<ReimbursementSummary | null>(null);
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
     setLoading(true);
-    const [r, me] = await Promise.all([listReimbursements(), getMyEmployee().catch(() => null)]);
+    const [r, me, s] = await Promise.all([
+      listReimbursements(),
+      getMyEmployee().catch(() => null),
+      getReimbursementSummary(true).catch(() => null)
+    ]);
     // HR staff sees all data server-side; scope to own employee when linked.
     setItems(me ? r.filter((x) => x.employee === me.id) : r);
+    setSummary(s);
     setLoading(false);
   }, []);
 
@@ -65,8 +77,11 @@ export function EmployeeReimbursement() {
     );
   }
 
-  const pending = items.filter((r) => r.status === 'PENDING').length;
-  const total = items.reduce((sum, r) => sum + (r.status === 'PAID' ? r.amount : 0), 0);
+  // KPI from the backend summary (not the first paginated page of the list).
+  const pending = summary?.counts.PENDING ?? items.filter((r) => r.status === 'PENDING').length;
+  const total = summary
+    ? Number(summary.paid_amount)
+    : items.reduce((sum, r) => sum + (r.status === 'PAID' ? r.amount : 0), 0);
 
   return (
     <div className='flex flex-1 flex-col gap-4 p-4 md:p-6'>

@@ -4,6 +4,8 @@ from apps.personnel.permissions import _role
 
 # HR/admin can read everything and manage leave types + balances.
 LEAVE_ADMIN_ROLES = {'ADMIN', 'HR_STAFF', 'HR_LEAD'}
+# Fallback approvers when the Reporting To has not acted yet.
+HR_APPROVER_ROLES = {'HR_STAFF', 'HR_LEAD'}
 
 
 def _employee_for(user):

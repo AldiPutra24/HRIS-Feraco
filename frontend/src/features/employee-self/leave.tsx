@@ -124,7 +124,7 @@ export function EmployeeLeave() {
                         )}
                       </td>
                       <td className='px-4 py-2'>
-                        {r.start_date} — {r.end_date}
+                        {r.leave_dates_display || `${r.start_date} — ${r.end_date}`}
                       </td>
                       <td className='px-4 py-2'>{r.total_days}</td>
                       <td className='px-4 py-2'>

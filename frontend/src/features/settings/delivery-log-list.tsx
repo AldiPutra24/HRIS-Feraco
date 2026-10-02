@@ -23,7 +23,7 @@ import {
 
 const HR_ROLES = ['admin', 'hr_staff', 'hr_lead'];
 const PAGE_SIZE = 20;
-const EVENT_OPTIONS = ['LEAVE_SUBMITTED', 'LEAVE_APPROVED', 'LEAVE_REJECTED', 'CONTRACT', 'BIRTHDAY'];
+const EVENT_OPTIONS = ['LEAVE_SUBMITTED', 'LEAVE_APPROVED', 'LEAVE_REJECTED', 'REIMBURSEMENT_SUBMITTED', 'CONTRACT', 'BIRTHDAY'];
 
 const SELECT_CLASS = 'border-input h-8 rounded-lg border bg-transparent px-2.5 text-sm';
 

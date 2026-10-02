@@ -114,6 +114,37 @@ class LeaveRequest(models.Model):
     def __str__(self):
         return f'{self.employee} - {self.leave_type} ({self.start_date}..{self.end_date})'
 
+    def selected_dates(self):
+        """Actual leave dates: explicit picks (non-consecutive support) or,
+        for legacy requests without rows, the inclusive start..end range."""
+        from datetime import timedelta
+
+        rows = [d.date for d in self.dates.all()]
+        if rows:
+            return sorted(rows)
+        if not self.start_date or not self.end_date or self.end_date < self.start_date:
+            return []
+        span = (self.end_date - self.start_date).days
+        return [self.start_date + timedelta(days=i) for i in range(span + 1)]
+
+
+class LeaveRequestDate(models.Model):
+    """One explicitly selected leave day (e.g. 01, 02, 05 Sep).
+
+    start_date/end_date on LeaveRequest stay filled with min/max for
+    backward compatibility (reports, payroll overlap, legacy UI).
+    """
+
+    leave_request = models.ForeignKey(LeaveRequest, on_delete=models.CASCADE, related_name='dates')
+    date = models.DateField()
+
+    class Meta:
+        ordering = ['date']
+        unique_together = ('leave_request', 'date')
+
+    def __str__(self):
+        return f'{self.leave_request_id}: {self.date}'
+
 
 class LeaveNotification(models.Model):
     """In-app notification (no external integration yet)."""

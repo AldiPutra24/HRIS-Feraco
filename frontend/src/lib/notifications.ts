@@ -42,6 +42,7 @@ export type NotificationKind =
   | 'LEAVE_SUBMITTED'
   | 'LEAVE_APPROVED'
   | 'LEAVE_REJECTED'
+  | 'REIMBURSEMENT_SUBMITTED'
   | 'CONTRACT'
   | 'BIRTHDAY';
 
@@ -49,6 +50,7 @@ export const NOTIFICATION_KIND_LABELS: Record<NotificationKind, string> = {
   LEAVE_SUBMITTED: 'Izin/Cuti',
   LEAVE_APPROVED: 'Izin/Cuti',
   LEAVE_REJECTED: 'Izin/Cuti',
+  REIMBURSEMENT_SUBMITTED: 'Reimbursement',
   CONTRACT: 'Kontrak',
   BIRTHDAY: 'Birthday',
 };
@@ -126,6 +128,7 @@ export const EVENT_CONFIG_LABELS: Record<string, string> = {
   LEAVE_SUBMITTED: 'Izin/Cuti — Pengajuan Baru',
   LEAVE_APPROVED: 'Izin/Cuti — Disetujui',
   LEAVE_REJECTED: 'Izin/Cuti — Ditolak',
+  REIMBURSEMENT_SUBMITTED: 'Reimbursement — Pengajuan Baru',
   CONTRACT: 'End of Contract',
   BIRTHDAY_HR: 'Birthday — Email ke HR',
   BIRTHDAY_EMPLOYEE: 'Birthday — Email Ucapan ke Employee',
@@ -168,6 +171,7 @@ export type DeliveryEvent =
   | 'LEAVE_SUBMITTED'
   | 'LEAVE_APPROVED'
   | 'LEAVE_REJECTED'
+  | 'REIMBURSEMENT_SUBMITTED'
   | 'CONTRACT'
   | 'BIRTHDAY';
 
@@ -218,6 +222,7 @@ export const DELIVERY_EVENT_LABELS: Record<string, string> = {
   LEAVE_SUBMITTED: 'Izin/Cuti — Pengajuan Baru',
   LEAVE_APPROVED: 'Izin/Cuti — Disetujui',
   LEAVE_REJECTED: 'Izin/Cuti — Ditolak',
+  REIMBURSEMENT_SUBMITTED: 'Reimbursement — Pengajuan Baru',
   CONTRACT: 'End of Contract',
   BIRTHDAY: 'Birthday',
 };
