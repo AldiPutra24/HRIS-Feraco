@@ -54,11 +54,21 @@ REIMBURSEMENT_LINK = '/dashboard/reimbursements'
 HR_NOTIFY_ROLES = ('HR_STAFF', 'HR_LEAD')
 
 
-def hr_notify_users():
-    """Active HR Staff / HR Lead user accounts (in-app bell recipients)."""
+# Reimbursement approvers (REIMBURSEMENT_ADMIN_ROLES) also get the bell:
+# ADMIN can approve reimbursements, so it must see new submissions too.
+REIMBURSEMENT_NOTIFY_ROLES = ('ADMIN', 'HR_STAFF', 'HR_LEAD')
+
+
+def hr_notify_users(roles=HR_NOTIFY_ROLES, include_superusers=False):
+    """Active user accounts with one of `roles` (in-app bell recipients)."""
+    from django.db.models import Q
+
     from apps.accounts.models import User
 
-    return list(User.objects.filter(is_active=True, role__key__in=HR_NOTIFY_ROLES))
+    q = Q(role__key__in=roles)
+    if include_superusers:
+        q |= Q(is_superuser=True)
+    return list(User.objects.filter(q, is_active=True).distinct())
 
 
 def _own_leave_link_for(user):
@@ -336,7 +346,7 @@ def _reimbursement_context(reimbursement) -> dict:
 
 
 def notify_reimbursement_submitted(reimbursement) -> dict:
-    """Pengajuan reimbursement baru -> HR Staff / HR Lead (bell) + HR email list.
+    """Pengajuan reimbursement baru -> Admin / HR Staff / HR Lead (bell) + HR email list.
 
     Idempotent via delivery-log keys `reimbursement-submitted:{id}` — a
     re-fired hook never duplicates the bell item or the email.
@@ -351,7 +361,7 @@ def notify_reimbursement_submitted(reimbursement) -> dict:
         key = f'reimbursement-submitted:{reimbursement.pk}'
         link = f'{REIMBURSEMENT_LINK}?id={reimbursement.pk}'
         own_user_id = getattr(getattr(reimbursement.employee, 'user', None), 'pk', None)
-        for hr_user in hr_notify_users():
+        for hr_user in hr_notify_users(REIMBURSEMENT_NOTIFY_ROLES, include_superusers=True):
             if hr_user.pk == own_user_id:
                 continue
             if _deliver_inapp(
