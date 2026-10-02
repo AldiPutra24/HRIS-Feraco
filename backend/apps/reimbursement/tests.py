@@ -680,7 +680,7 @@ class ReimbursementRevisionTests(TestCase):
         self.assertIn('Lampiran wajib', resp.json()['attachment'])
         self.assertEqual(Reimbursement.objects.get(pk=rid).status, 'DRAFT')
 
-    def test_submit_with_attachment_notifies_hr_staff_and_lead(self):
+    def test_submit_with_attachment_notifies_admin_hr_staff_and_lead(self):
         from django.core import mail
 
         from apps.notifications.models import Notification
@@ -690,14 +690,16 @@ class ReimbursementRevisionTests(TestCase):
         resp = self.client.post(f'/api/reimbursements/{rid}/submit/')
         self.assertEqual(resp.status_code, 200, resp.content)
         notifs = Notification.objects.filter(kind='REIMBURSEMENT_SUBMITTED')
-        self.assertEqual({n.recipient_id for n in notifs}, {self.hr.id, self.lead.id})
+        # Every reimbursement approver role gets the bell; the employee does not.
+        self.assertEqual({n.recipient_id for n in notifs}, {self.admin.id, self.hr.id, self.lead.id})
         self.assertTrue(all(n.link == f'/dashboard/reimbursements?id={rid}' for n in notifs))
         self.assertTrue(all(not n.is_read for n in notifs))
         self.assertEqual(len(mail.outbox), 1)  # default HR email from settings
         self.assertIn('John', mail.outbox[0].body)
-        # Bell unread count for HR increments.
-        self.client.force_login(self.hr)
-        self.assertEqual(self.client.get('/api/notifications/notifications/unread_count/').json()['unread'], 1)
+        # Bell unread count increments for HR and Admin.
+        for user in (self.hr, self.admin):
+            self.client.force_login(user)
+            self.assertEqual(self.client.get('/api/notifications/notifications/unread_count/').json()['unread'], 1)
 
     def test_notification_idempotent(self):
         from django.core import mail
@@ -709,7 +711,7 @@ class ReimbursementRevisionTests(TestCase):
         _attach(rid)
         self.client.post(f'/api/reimbursements/{rid}/submit/')
         notify_reimbursement_submitted(Reimbursement.objects.get(pk=rid))  # re-fired hook
-        self.assertEqual(Notification.objects.filter(kind='REIMBURSEMENT_SUBMITTED').count(), 2)
+        self.assertEqual(Notification.objects.filter(kind='REIMBURSEMENT_SUBMITTED').count(), 3)
         self.assertEqual(len(mail.outbox), 1)
 
     def test_summary_tracks_pending_through_approval(self):
