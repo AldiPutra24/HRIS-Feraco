@@ -336,12 +336,6 @@ export const navGroups: NavGroup[] = [
             url: '/dashboard/recruitment/jobs?type=FREELANCE',
             isActive: false,
             items: []
-          },
-          {
-            title: 'Form Job Portal',
-            url: '/dashboard/recruitment/apply-forms',
-            isActive: false,
-            items: []
           }
         ]
       },

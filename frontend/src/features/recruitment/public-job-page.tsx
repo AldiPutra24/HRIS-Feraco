@@ -19,7 +19,15 @@ export function PublicJobPage({ slug }: { slug: string }) {
   const [loading, setLoading] = useState(true);
   const [applying, setApplying] = useState(false);
   const [done, setDone] = useState(false);
-  const [form, setForm] = useState({ full_name: '', email: '', phone: '' });
+  const [form, setForm] = useState({
+    full_name: '',
+    email: '',
+    phone: '',
+    domicile: '',
+    portfolio_url: '',
+    expected_rate: '',
+    applicant_notes: ''
+  });
   const [cv, setCv] = useState<File | null>(null);
   const [skillId, setSkillId] = useState('');
 
@@ -32,8 +40,9 @@ export function PublicJobPage({ slug }: { slug: string }) {
 
   if (notFoundState) notFound();
 
+  const isFreelance = job?.recruitment_type === 'FREELANCE';
   // FREELANCE job: applicant picks ONE position from the job's Skill & Kategori.
-  const skillOptions = job?.recruitment_type === 'FREELANCE' ? (job.skill_details ?? []) : [];
+  const skillOptions = isFreelance ? (job?.skill_details ?? []) : [];
   const skillGroups = skillOptions.reduce<Record<string, typeof skillOptions>>((acc, s) => {
     const category = s.category || 'Lainnya';
     (acc[category] ??= []).push(s);
@@ -51,6 +60,10 @@ export function PublicJobPage({ slug }: { slug: string }) {
       toast.error('Pilih posisi yang sesuai.');
       return;
     }
+    if (isFreelance && !cv && !form.portfolio_url.trim()) {
+      toast.error('Upload CV atau isi URL portfolio.');
+      return;
+    }
     setApplying(true);
     try {
       await applyJob({
@@ -60,6 +73,14 @@ export function PublicJobPage({ slug }: { slug: string }) {
         phone: form.phone.trim(),
         source: 'PORTAL',
         skill_id: skillOptions.length > 0 ? Number(skillId) : null,
+        ...(isFreelance
+          ? {
+              domicile: form.domicile.trim(),
+              portfolio_url: form.portfolio_url.trim(),
+              expected_rate: form.expected_rate.trim(),
+              applicant_notes: form.applicant_notes.trim()
+            }
+          : {}),
         cv
       });
       setDone(true);
@@ -179,8 +200,47 @@ export function PublicJobPage({ slug }: { slug: string }) {
                       placeholder='08xx'
                     />
                   </div>
+                  {isFreelance && (
+                    <>
+                      <div>
+                        <Label className='text-xs'>Domisili</Label>
+                        <Input
+                          value={form.domicile}
+                          onChange={(e) => setForm({ ...form, domicile: e.target.value })}
+                          placeholder='Kota domisili'
+                        />
+                      </div>
+                      <div>
+                        <Label className='text-xs'>URL Portfolio</Label>
+                        <Input
+                          type='url'
+                          value={form.portfolio_url}
+                          onChange={(e) => setForm({ ...form, portfolio_url: e.target.value })}
+                          placeholder='https://...'
+                        />
+                      </div>
+                      <div>
+                        <Label className='text-xs'>Rate yang Diharapkan</Label>
+                        <Input
+                          value={form.expected_rate}
+                          onChange={(e) => setForm({ ...form, expected_rate: e.target.value })}
+                          placeholder='mis. Rp 1.500.000/event'
+                        />
+                      </div>
+                      <div>
+                        <Label className='text-xs'>Catatan</Label>
+                        <Input
+                          value={form.applicant_notes}
+                          onChange={(e) => setForm({ ...form, applicant_notes: e.target.value })}
+                          placeholder='Pengalaman singkat, ketersediaan, dll.'
+                        />
+                      </div>
+                    </>
+                  )}
                   <div>
-                    <Label className='text-xs'>CV (PDF/DOC)</Label>
+                    <Label className='text-xs'>
+                      CV (PDF/DOC){isFreelance ? ' — wajib jika tidak mengisi URL portfolio' : ''}
+                    </Label>
                     <Input
                       type='file'
                       accept='.pdf,.doc,.docx'

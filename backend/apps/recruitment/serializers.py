@@ -2,7 +2,7 @@ from apps.freelance.models import Skill
 
 from rest_framework import serializers
 
-from .models import Candidate, CandidateSkill, CandidateStatusHistory, Job
+from .models import Candidate, CandidateNote, CandidateSkill, CandidateStatusHistory, Job
 
 
 class FreelancePositionSerializer(serializers.ModelSerializer):
@@ -157,6 +157,11 @@ class CandidateSerializer(serializers.ModelSerializer):
     # FREELANCE apply: the ONE position (job Skill) chosen by the applicant.
     skill_id = serializers.IntegerField(write_only=True, required=False, allow_null=True)
     applied_skill = serializers.SerializerMethodField()
+    # FREELANCE apply extras (stored as a CandidateNote; ignored for INHOUSE).
+    domicile = serializers.CharField(max_length=255, write_only=True, required=False, allow_blank=True)
+    portfolio_url = serializers.URLField(write_only=True, required=False, allow_blank=True)
+    expected_rate = serializers.CharField(max_length=128, write_only=True, required=False, allow_blank=True)
+    applicant_notes = serializers.CharField(max_length=2000, write_only=True, required=False, allow_blank=True)
 
     class Meta:
         model = Candidate
@@ -165,6 +170,7 @@ class CandidateSerializer(serializers.ModelSerializer):
             'cv_name', 'cv_url', 'source', 'status',
             'next_statuses', 'status_history', 'talent_pool_freelancer_id', 'notes',
             'skill_id', 'applied_skill',
+            'domicile', 'portfolio_url', 'expected_rate', 'applicant_notes',
             'applied_at', 'created_at', 'updated_at',
         )
         read_only_fields = ('id', 'job_title', 'cv_name', 'cv_url', 'source', 'status', 'next_statuses', 'status_history', 'applied_at', 'created_at', 'updated_at')
@@ -205,9 +211,19 @@ class CandidateSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError('Lowongan ini sudah tidak menerima lamaran.')
         return value
 
+    EXTRA_LABELS = (
+        ('domicile', 'Domisili'),
+        ('portfolio_url', 'Portfolio'),
+        ('expected_rate', 'Rate diharapkan'),
+        ('applicant_notes', 'Catatan'),
+    )
+
     def validate(self, attrs):
         skill_id = attrs.pop('skill_id', None)
+        extras = [(label, (attrs.pop(key, '') or '').strip()) for key, label in self.EXTRA_LABELS]
         job = attrs.get('job')
+        if self.instance is None and job is not None and job.recruitment_type == 'FREELANCE':
+            attrs['_note'] = '\n'.join(f'{label}: {value}' for label, value in extras if value)
         # Position choice applies only when applying to a FREELANCE job that
         # has Skill positions; ignored for INHOUSE/legacy (hidden field).
         if self.instance is None and job is not None and job.recruitment_type == 'FREELANCE':
@@ -221,9 +237,12 @@ class CandidateSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         skill = validated_data.pop('_skill', None)
+        note = validated_data.pop('_note', '')
         candidate = super().create(validated_data)
         if skill is not None:
             CandidateSkill.objects.create(candidate=candidate, skill=skill)
+        if note:
+            CandidateNote.objects.create(candidate=candidate, note=note)
         return candidate
 
 
@@ -266,59 +285,3 @@ class FreelanceApplyFormSerializer(serializers.ModelSerializer):
         if inactive:
             raise serializers.ValidationError(f'Skill tidak aktif: {", ".join(inactive)}')
         return value
-
-
-class PublicFreelanceApplySerializer(serializers.Serializer):
-    """Public /freelance/apply/<slug> submission. Creates exactly ONE Candidate
-    filed under the form's internal freelance Job, linked to the chosen Skill.
-    Never creates Employee/User/Freelancer.
-    """
-
-    full_name = serializers.CharField(max_length=255)
-    phone = serializers.CharField(max_length=32)
-    email = serializers.EmailField()
-    domicile = serializers.CharField(max_length=255, required=False, allow_blank=True, default='')
-    skill_id = serializers.IntegerField()
-    portfolio_url = serializers.URLField(required=False, allow_blank=True, default='')
-    expected_rate = serializers.CharField(max_length=128, required=False, allow_blank=True, default='')
-    notes = serializers.CharField(max_length=2000, required=False, allow_blank=True, default='')
-
-    def validate_phone(self, value):
-        import re
-
-        v = (value or '').strip()
-        if not re.fullmatch(r'[0-9+\-()\s]{8,32}', v):
-            raise serializers.ValidationError('Nomor WhatsApp/HP tidak valid.')
-        return v
-
-    def create(self, validated):
-        from .models import CandidateNote, CandidateSkill
-
-        form: FreelanceApplyForm = self.context['form']
-        skill = Skill.objects.filter(pk=validated['skill_id']).first()
-        if skill is None or not form.skills.filter(pk=skill.pk).exists():
-            raise serializers.ValidationError({'skill_id': 'Posisi tidak tersedia pada form ini.'})
-        cand = Candidate.objects.create(
-            job=form.get_or_create_job(),
-            full_name=validated['full_name'].strip(),
-            email=validated['email'].strip().lower(),
-            phone=validated['phone'].strip(),
-            source='PORTAL',
-        )
-        CandidateSkill.objects.create(candidate=cand, skill=skill, form=form)
-        extra = []
-        if validated.get('domicile'):
-            extra.append(f'Domisili: {validated["domicile"]}')
-        if validated.get('portfolio_url'):
-            extra.append(f'Portfolio: {validated["portfolio_url"]}')
-        if validated.get('expected_rate'):
-            extra.append(f'Rate diharapkan: {validated["expected_rate"]}')
-        if validated.get('notes'):
-            extra.append(f'Catatan: {validated["notes"]}')
-        if extra:
-            CandidateNote.objects.get_or_create(
-                candidate=cand,
-                note='\n'.join(extra),
-                defaults={'created_by': None},
-            )
-        return cand

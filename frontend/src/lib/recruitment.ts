@@ -189,6 +189,11 @@ export type ApplyInput = {
   phone: string;
   source?: string;
   skill_id?: number | null;
+  // Freelance-only extras (stored as a candidate note by the backend).
+  domicile?: string;
+  portfolio_url?: string;
+  expected_rate?: string;
+  applicant_notes?: string;
   cv?: File | null;
 };
 
@@ -203,6 +208,9 @@ export function applyJob(input: ApplyInput): Promise<Candidate> {
           fd.append('phone', input.phone ?? '');
           if (input.source) fd.append('source', input.source);
           if (input.skill_id) fd.append('skill_id', String(input.skill_id));
+          for (const key of ['domicile', 'portfolio_url', 'expected_rate', 'applicant_notes'] as const) {
+            if (input[key]) fd.append(key, input[key] as string);
+          }
           fd.append('cv', input.cv);
           return fd;
         })()

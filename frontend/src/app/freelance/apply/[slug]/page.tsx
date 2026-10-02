@@ -1,13 +1,7 @@
-import type { Metadata } from 'next';
+import { redirect } from 'next/navigation';
 
-import { FreelanceApplyPage } from '@/features/recruitment/freelance-apply-page';
-
-export const metadata: Metadata = {
-  title: 'Lamar Freelance — FERACO',
-  description: 'Formulir pendaftaran freelance FERACO. Pilih posisi, isi biodata, unggah CV.',
-};
-
+// Retired public form: each form became Job Freelance `portal-<slug>`.
 export default async function Page({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
-  return <FreelanceApplyPage slug={slug} />;
+  redirect(`/jobs/portal-${slug}`);
 }
