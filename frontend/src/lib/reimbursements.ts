@@ -93,6 +93,21 @@ export function listReimbursementCategories(): Promise<ReimbursementCategory[]> 
   return request<ReimbursementCategory[]>('/categories/').then(unwrapList);
 }
 
+export type ReimbursementSummary = {
+  counts: Record<string, number>;
+  total: number;
+  paid_amount: number | string;
+};
+
+/** Live status counts from the backend (`mine` = caller's own records only). */
+export function getReimbursementSummary(mine = true): Promise<ReimbursementSummary> {
+  return request<ReimbursementSummary>(`/summary/${mine ? '?mine=1' : ''}`, { cache: 'no-store' });
+}
+
+export function getReimbursement(id: number): Promise<Reimbursement> {
+  return request<Reimbursement>(`/${id}/`, { cache: 'no-store' });
+}
+
 export function listReimbursements(params?: Record<string, string>): Promise<Reimbursement[]> {
   const qs = params ? `?${new URLSearchParams(params)}` : '';
   return request<Reimbursement[]>(`/${qs}`).then(unwrapList);

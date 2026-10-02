@@ -16,6 +16,8 @@ import {
 } from '@/lib/leaves';
 import { getMyEmployee } from '@/lib/employee-self';
 import type { Employee } from '@/lib/employees';
+import { Icons } from '@/components/icons';
+import { MultiDateCalendar, formatIsoShort } from './multi-date-calendar';
 
 export function LeaveForm({ redirectTo = '/dashboard/leave' }: { redirectTo?: string }) {
   const router = useRouter();
@@ -24,10 +26,10 @@ export function LeaveForm({ redirectTo = '/dashboard/leave' }: { redirectTo?: st
   const [kind, setKind] = useState<'LEAVE' | 'PERMISSION'>('LEAVE');
   const [form, setForm] = useState({
     leave_type: '',
-    start_date: '',
-    end_date: '',
     reason: ''
   });
+  // Individually picked leave days (non-consecutive allowed); total = count.
+  const [dates, setDates] = useState<string[]>([]);
   const [file, setFile] = useState<File | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [me, setMe] = useState<Employee | null>(null);
@@ -47,8 +49,8 @@ export function LeaveForm({ redirectTo = '/dashboard/leave' }: { redirectTo?: st
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (submitting) return; // prevent double-click/spam
-    if (!form.leave_type || !form.start_date || !form.end_date || !form.reason.trim()) {
-      toast.error('Lengkapi jenis cuti, tanggal mulai, tanggal selesai, dan alasan pengajuan.');
+    if (!form.leave_type || dates.length === 0 || !form.reason.trim()) {
+      toast.error('Lengkapi kategori, tanggal (minimal 1 hari), dan alasan pengajuan.');
       return;
     }
     setSubmitting(true);
@@ -56,8 +58,7 @@ export function LeaveForm({ redirectTo = '/dashboard/leave' }: { redirectTo?: st
       const created = await createLeaveRequest({
         leave_type: Number(form.leave_type),
         kind,
-        start_date: form.start_date,
-        end_date: form.end_date,
+        dates,
         reason: form.reason
       });
       if (file) await uploadLeaveAttachment(created.id, file);
@@ -132,21 +133,41 @@ export function LeaveForm({ redirectTo = '/dashboard/leave' }: { redirectTo?: st
                   ))}
               </select>
             </div>
-            <div>
-              <Label className='text-xs'>Tanggal Mulai</Label>
-              <Input
-                type='date'
-                value={form.start_date}
-                onChange={(e) => setForm((f) => ({ ...f, start_date: e.target.value }))}
-              />
-            </div>
-            <div>
-              <Label className='text-xs'>Tanggal Selesai</Label>
-              <Input
-                type='date'
-                value={form.end_date}
-                onChange={(e) => setForm((f) => ({ ...f, end_date: e.target.value }))}
-              />
+            <div className='md:col-span-4'>
+              <Label className='text-xs'>
+                Tanggal Izin/Cuti <span className='text-destructive'>*</span>{' '}
+                <span className='text-muted-foreground'>(klik tanggal untuk memilih; boleh tidak berurutan)</span>
+              </Label>
+              <div className='mt-1 flex flex-col gap-3 md:flex-row'>
+                <MultiDateCalendar value={dates} onChange={setDates} />
+                <div className='flex-1 space-y-2'>
+                  <p className='text-sm'>
+                    Total: <span className='font-semibold'>{dates.length} hari</span>
+                  </p>
+                  {dates.length === 0 ? (
+                    <p className='text-muted-foreground text-sm'>Belum ada tanggal dipilih.</p>
+                  ) : (
+                    <div className='flex flex-wrap gap-1.5'>
+                      {dates.map((d) => (
+                        <span
+                          key={d}
+                          className='bg-muted flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium'
+                        >
+                          {formatIsoShort(d)}
+                          <button
+                            type='button'
+                            aria-label={`Hapus ${d}`}
+                            onClick={() => setDates((prev) => prev.filter((x) => x !== d))}
+                            className='text-muted-foreground hover:text-foreground'
+                          >
+                            <Icons.close className='size-3' />
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
             <div className='md:col-span-4'>
               <Label className='text-xs'>

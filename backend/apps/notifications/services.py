@@ -40,12 +40,41 @@ CONFIG_KIND = {
     'LEAVE_SUBMITTED': 'LEAVE_SUBMITTED',
     'LEAVE_APPROVED': 'LEAVE_APPROVED',
     'LEAVE_REJECTED': 'LEAVE_REJECTED',
+    'REIMBURSEMENT_SUBMITTED': 'REIMBURSEMENT_SUBMITTED',
     'CONTRACT': 'CONTRACT',
     'BIRTHDAY_HR': 'BIRTHDAY',
     'BIRTHDAY_EMPLOYEE': 'BIRTHDAY',
 }
 
 LEAVE_LINK = '/dashboard/leave'
+MANAGEMENT_LEAVE_LINK = '/dashboard/management/leave'
+REIMBURSEMENT_LINK = '/dashboard/reimbursements'
+
+# HR roles that receive dashboard (bell) notifications for new submissions.
+HR_NOTIFY_ROLES = ('HR_STAFF', 'HR_LEAD')
+
+
+def hr_notify_users():
+    """Active HR Staff / HR Lead user accounts (in-app bell recipients)."""
+    from apps.accounts.models import User
+
+    return list(User.objects.filter(is_active=True, role__key__in=HR_NOTIFY_ROLES))
+
+
+def _own_leave_link_for(user):
+    """Requester's own leave history page (employees live under /dashboard/employee)."""
+    role = getattr(getattr(user, 'role', None), 'key', None)
+    if role == 'EMPLOYEE':
+        return '/dashboard/employee/leave'
+    return _leave_link_for(user)
+
+
+def _leave_link_for(user):
+    """Approval page per recipient role (management has its own page)."""
+    role = getattr(getattr(user, 'role', None), 'key', None)
+    if role in ('MANAGEMENT', 'GENERAL_MANAGER'):
+        return MANAGEMENT_LEAVE_LINK
+    return LEAVE_LINK
 
 
 def _employee_email(employee: Employee):
@@ -178,9 +207,21 @@ def _send_email(event_key: str, event: str, email: str, subject: str, body: str,
 # Leave workflow (called from leaves views; never raises into the request)
 # ---------------------------------------------------------------------------
 
+def _approver_name(leave) -> str:
+    user = getattr(leave, 'approver', None)
+    if user is None:
+        return '-'
+    personnel = getattr(user, 'personnel', None)
+    name = getattr(personnel, 'full_name', '') if personnel else ''
+    return name or user.get_full_name() or user.get_username()
+
+
 def _leave_context(leave) -> dict:
+    from apps.leaves.services import format_leave_dates
+
     employee = leave.employee
     manager = _manager_employee(employee)
+    dates = leave.selected_dates() if hasattr(leave, 'selected_dates') else []
     return {
         'employee_name': employee.full_name,
         'employee_email': _employee_email(employee),
@@ -189,13 +230,21 @@ def _leave_context(leave) -> dict:
         'leave_type': leave.leave_type.name,
         'leave_start': fmt_date(leave.start_date),
         'leave_end': fmt_date(leave.end_date),
+        'leave_dates': format_leave_dates(dates) if dates else fmt_date(leave.start_date),
+        'leave_days': str(leave.total_days or len(dates)),
         'leave_status': leave.get_status_display(),
+        'approver_name': _approver_name(leave),
         'rejection_reason': getattr(leave, 'rejection_reason', '') or '-',
     }
 
 
 def notify_leave_submitted(leave) -> dict:
-    """Pengajuan baru -> Reporting To (manager user): in-app + email."""
+    """Pengajuan baru -> Reporting To (primary approver) + HR Staff/HR Lead
+    (informed + fallback approvers): in-app + email.
+
+    Idempotent per recipient via delivery-log keys; a user who is both the
+    manager and HR gets exactly one in-app notification.
+    """
     result = {'inapp': 0, 'sent': 0, 'skipped': 0, 'failed': 0}
     try:
         cfg, subject_tpl, body_tpl = _template('LEAVE_SUBMITTED')
@@ -207,12 +256,25 @@ def notify_leave_submitted(leave) -> dict:
         manager_user = _manager_user(leave.employee)
         if _deliver_inapp(
             key, 'LEAVE_SUBMITTED', manager_user,
-            'Pengajuan Izin/Cuti Baru', text_body, link=LEAVE_LINK, object_id=leave.pk,
+            'Pengajuan Izin/Cuti Baru', text_body, link=_leave_link_for(manager_user), object_id=leave.pk,
         ):
             result['inapp'] += 1
         outcome = _send_email(key, 'LEAVE_SUBMITTED', _employee_email(_manager_employee(leave.employee)),
                               subject, text_body, html_body)
         result[outcome] = result.get(outcome, 0) + 1
+        # HR Staff / HR Lead: bell notification + HR email list (Settings).
+        own_user_id = getattr(getattr(leave.employee, 'user', None), 'pk', None)
+        for hr_user in hr_notify_users():
+            if hr_user.pk == own_user_id:
+                continue  # never notify someone about their own request
+            if _deliver_inapp(
+                key, 'LEAVE_SUBMITTED', hr_user,
+                'Pengajuan Izin/Cuti Baru', text_body, link=LEAVE_LINK, object_id=leave.pk,
+            ):
+                result['inapp'] += 1
+        for email in hr_recipients():
+            outcome = _send_email(f'{key}:hr', 'LEAVE_SUBMITTED', email, subject, text_body, html_body)
+            result[outcome] = result.get(outcome, 0) + 1
     except Exception as exc:
         log_event(None, 'update', obj=None,
                   description=f'notify_leave_submitted error leave={leave.pk}: {exc}')
@@ -236,7 +298,7 @@ def notify_leave_status(leave, new_status: str) -> dict:
         if _deliver_inapp(
             key, event, user,
             'Pengajuan Disetujui' if event == 'LEAVE_APPROVED' else 'Pengajuan Ditolak',
-            text_body, link=LEAVE_LINK, object_id=leave.pk,
+            text_body, link=_own_leave_link_for(user), object_id=leave.pk,
         ):
             result['inapp'] += 1
         outcome = _send_email(key, event, _employee_email(leave.employee), subject, text_body, html_body)
@@ -244,6 +306,65 @@ def notify_leave_status(leave, new_status: str) -> dict:
     except Exception as exc:
         log_event(None, 'update', obj=None,
                   description=f'notify_leave_status error leave={leave.pk}: {exc}')
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Reimbursement workflow (called from reimbursement submit; never raises)
+# ---------------------------------------------------------------------------
+
+def _rupiah(value) -> str:
+    try:
+        return 'Rp ' + f'{int(round(float(value))):,}'.replace(',', '.')
+    except (TypeError, ValueError):
+        return str(value or '-')
+
+
+def _reimbursement_context(reimbursement) -> dict:
+    employee = reimbursement.employee
+    manager = _manager_employee(employee)
+    return {
+        'employee_name': employee.full_name,
+        'employee_email': _employee_email(employee),
+        'manager_name': getattr(manager, 'full_name', '') or '-',
+        'manager_email': _employee_email(manager) if manager else '',
+        'reimbursement_category': reimbursement.category.name,
+        'reimbursement_amount': _rupiah(reimbursement.amount),
+        'reimbursement_date': fmt_date(reimbursement.transaction_date),
+        'reimbursement_description': reimbursement.description or '-',
+    }
+
+
+def notify_reimbursement_submitted(reimbursement) -> dict:
+    """Pengajuan reimbursement baru -> HR Staff / HR Lead (bell) + HR email list.
+
+    Idempotent via delivery-log keys `reimbursement-submitted:{id}` — a
+    re-fired hook never duplicates the bell item or the email.
+    """
+    result = {'inapp': 0, 'sent': 0, 'skipped': 0, 'failed': 0}
+    try:
+        cfg, subject_tpl, body_tpl = _template('REIMBURSEMENT_SUBMITTED')
+        if not cfg.enabled:
+            return result
+        ctx = _reimbursement_context(reimbursement)
+        subject, text_body, html_body, _ = render_email_parts(subject_tpl, body_tpl, ctx)
+        key = f'reimbursement-submitted:{reimbursement.pk}'
+        link = f'{REIMBURSEMENT_LINK}?id={reimbursement.pk}'
+        own_user_id = getattr(getattr(reimbursement.employee, 'user', None), 'pk', None)
+        for hr_user in hr_notify_users():
+            if hr_user.pk == own_user_id:
+                continue
+            if _deliver_inapp(
+                key, 'REIMBURSEMENT_SUBMITTED', hr_user,
+                'Pengajuan Reimbursement Baru', text_body, link=link, object_id=reimbursement.pk,
+            ):
+                result['inapp'] += 1
+        for email in hr_recipients():
+            outcome = _send_email(key, 'REIMBURSEMENT_SUBMITTED', email, subject, text_body, html_body)
+            result[outcome] = result.get(outcome, 0) + 1
+    except Exception as exc:
+        log_event(None, 'update', obj=None,
+                  description=f'notify_reimbursement_submitted error id={reimbursement.pk}: {exc}')
     return result
 
 

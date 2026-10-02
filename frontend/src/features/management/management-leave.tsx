@@ -143,7 +143,7 @@ export function ManagementLeave() {
                         )}
                       </TableCell>
                       <TableCell>
-                        {r.start_date} — {r.end_date}
+                        {r.leave_dates_display || `${r.start_date} — ${r.end_date}`}
                       </TableCell>
                       <TableCell>{r.total_days}</TableCell>
                       <TableCell>

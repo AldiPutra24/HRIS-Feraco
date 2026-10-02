@@ -42,8 +42,6 @@ export function ReimbursementForm({ redirectTo = '/dashboard/employee/reimbursem
     load();
   }, [load]);
 
-  const selected = categories.find((c) => c.id === Number(form.category));
-
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (!form.category || !form.transaction_date) {
@@ -63,8 +61,8 @@ export function ReimbursementForm({ redirectTo = '/dashboard/employee/reimbursem
       toast.error('Jumlah harus lebih dari 0.');
       return;
     }
-    if (selected?.requires_attachment && !file) {
-      toast.error('Lampiran wajib untuk kategori ini.');
+    if (!file) {
+      toast.error('Lampiran wajib diunggah.');
       return;
     }
     setSaving(true);
@@ -77,7 +75,7 @@ export function ReimbursementForm({ redirectTo = '/dashboard/employee/reimbursem
         amount,
         description: form.description
       });
-      if (file) await uploadReimbursementAttachment(created.id, file);
+      await uploadReimbursementAttachment(created.id, file);
       await submitReimbursement(created.id);
       toast.success('Pengajuan terkirim.');
       router.push(redirectTo);
@@ -174,9 +172,12 @@ export function ReimbursementForm({ redirectTo = '/dashboard/employee/reimbursem
               />
             </div>
             <div>
-              <Label className='text-xs'>Lampiran {selected?.requires_attachment ? '(wajib)' : '(opsional)'}</Label>
+              <Label className='text-xs'>
+                Lampiran <span className='text-destructive'>*</span>
+              </Label>
               <input
                 type='file'
+                required
                 className='mt-1 block w-full text-sm text-muted-foreground file:mr-3 file:rounded-md file:border-0 file:bg-primary file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-primary-foreground hover:file:bg-primary/80'
                 onChange={(e) => setFile(e.target.files?.[0] || null)}
               />

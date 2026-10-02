@@ -1,6 +1,9 @@
 from django.core.management.base import BaseCommand
 
+from django.db.models import Q
+
 from apps.leaves.models import LeaveType
+from apps.leaves.services import DISCONTINUED_LEAVE_CODES, DISCONTINUED_LEAVE_NAMES
 
 # (code, name, kind, default_quota, max_days_per_request, min_tenure_months,
 #  max_days_without_attachment, carry_forward_max, deducts_from_code, is_paid,
@@ -81,6 +84,13 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         for row in LEAVE_TYPES + PERMISSION_TYPES:
             self._upsert(*row)
+        # Cuti Tanpa Gaji is discontinued: keep rows (history) but never active.
+        q = Q(code__in=DISCONTINUED_LEAVE_CODES)
+        for name in DISCONTINUED_LEAVE_NAMES:
+            q |= Q(name__iexact=name)
+        deactivated = LeaveType.objects.filter(q, is_active=True).update(is_active=False)
+        if deactivated:
+            self.stdout.write(f'deactivated discontinued types: {deactivated}')
         self.stdout.write('NOTE: ' + UNPAID_NOTE)
 
     def _upsert(self, code, name, kind, quota, max_days, min_tenure,

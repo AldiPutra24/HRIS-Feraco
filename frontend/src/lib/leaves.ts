@@ -77,6 +77,10 @@ export type LeaveRequest = {
   leave_type_kind: string;
   start_date: string;
   end_date: string;
+  /** Actual leave days (explicit picks, or expanded start..end for legacy rows). */
+  leave_dates: string[];
+  /** e.g. "01 Sep, 02 Sep, 05 Sep 2026". */
+  leave_dates_display: string;
   total_days: number;
   reason: string;
   attachment_name: string;

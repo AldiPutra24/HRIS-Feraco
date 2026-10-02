@@ -68,10 +68,11 @@ class LeaveNotificationTests(TestCase):
 
     def test_submitted_notifies_manager_inapp_and_email(self):
         result = notify_leave_submitted(self.leave)
-        self.assertEqual(result['inapp'], 1)
-        self.assertEqual(result['sent'], 1)
-        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(result['inapp'], 1)  # no HR accounts in this fixture
+        self.assertEqual(result['sent'], 2)  # manager + default HR email
+        self.assertEqual(len(mail.outbox), 2)
         self.assertEqual(mail.outbox[0].to, ['manager@feraco.co.id'])
+        self.assertEqual(mail.outbox[1].to, ['hrgaferaco@gmail.com'])
         self.assertIn('John', mail.outbox[0].body)
         self.assertTrue(
             Notification.objects.filter(recipient=self.manager_user, kind='LEAVE_SUBMITTED').exists()
@@ -96,10 +97,24 @@ class LeaveNotificationTests(TestCase):
         self.assertFalse(Notification.objects.exists())
 
     def test_submitted_idempotent_no_duplicate(self):
+        hr = make_user('HR_STAFF', 'hrstaff@test.com')
+        lead = make_user('HR_LEAD', 'hrlead@test.com')
         notify_leave_submitted(self.leave)
         notify_leave_submitted(self.leave)
-        self.assertEqual(len(mail.outbox), 1)
-        self.assertEqual(Notification.objects.count(), 1)
+        self.assertEqual(len(mail.outbox), 2)  # manager + HR email, once each
+        self.assertEqual(
+            set(Notification.objects.values_list('recipient_id', flat=True)),
+            {self.manager_user.id, hr.id, lead.id},
+        )
+        self.assertEqual(Notification.objects.count(), 3)
+
+    def test_submitted_body_lists_actual_dates(self):
+        from apps.leaves.models import LeaveRequestDate
+
+        for d in (date(2026, 10, 5), date(2026, 10, 6), date(2026, 10, 9)):
+            LeaveRequestDate.objects.create(leave_request=self.leave, date=d)
+        notify_leave_submitted(self.leave)
+        self.assertIn('05 Okt, 06 Okt, 09 Okt 2026', mail.outbox[0].body)
 
     def test_approved_notifies_employee(self):
         notify_leave_status(self.leave, 'APPROVED')
@@ -414,7 +429,8 @@ class NotificationSettingsApiTests(TestCase):
         res = self.client.get(EVENTS_URL)
         self.assertEqual(res.status_code, 200)
         events = {row['event'] for row in res.data}
-        self.assertEqual(len(events), 6)
+        self.assertEqual(len(events), 7)
+        self.assertIn('REIMBURSEMENT_SUBMITTED', events)
         self.assertIn('BIRTHDAY_HR', events)
         self.assertIn('BIRTHDAY_EMPLOYEE', events)
         row = next(r for r in res.data if r['event'] == 'LEAVE_REJECTED')

@@ -27,8 +27,15 @@ AVAILABLE_PLACEHOLDERS = [
     '{{leave_type}}',
     '{{leave_start}}',
     '{{leave_end}}',
+    '{{leave_dates}}',
+    '{{leave_days}}',
     '{{leave_status}}',
+    '{{approver_name}}',
     '{{rejection_reason}}',
+    '{{reimbursement_category}}',
+    '{{reimbursement_amount}}',
+    '{{reimbursement_date}}',
+    '{{reimbursement_description}}',
 ]
 
 DEFAULT_TEMPLATES = {
@@ -36,7 +43,8 @@ DEFAULT_TEMPLATES = {
         '[HRIS] Pengajuan Izin/Cuti Baru - {{employee_name}}',
         'Halo {{manager_name}},\n\n'
         '{{employee_name}} mengajukan {{leave_type}}.\n\n'
-        'Periode: {{leave_start}} s/d {{leave_end}}\n'
+        'Tanggal: {{leave_dates}} ({{leave_days}} hari)\n'
+        'Atasan: {{manager_name}}\n'
         'Status: {{leave_status}}\n\n'
         'Silakan tinjau di menu Leave di HRIS Feraco.\n\n'
         'Terima kasih,\nHRIS Feraco',
@@ -44,16 +52,26 @@ DEFAULT_TEMPLATES = {
     'LEAVE_APPROVED': (
         '[HRIS] Pengajuan Izin/Cuti Disetujui',
         'Halo {{employee_name}},\n\n'
-        'Pengajuan {{leave_type}} Anda ({{leave_start}} s/d {{leave_end}}) '
-        'telah DISETUJUI oleh {{manager_name}}.\n\n'
+        'Pengajuan {{leave_type}} Anda ({{leave_dates}}) '
+        'telah DISETUJUI oleh {{approver_name}}.\n\n'
         'Terima kasih,\nHRIS Feraco',
     ),
     'LEAVE_REJECTED': (
         '[HRIS] Pengajuan Izin/Cuti Ditolak',
         'Halo {{employee_name}},\n\n'
-        'Pengajuan {{leave_type}} Anda ({{leave_start}} s/d {{leave_end}}) '
-        'DITOLAK oleh {{manager_name}}.\n\n'
+        'Pengajuan {{leave_type}} Anda ({{leave_dates}}) '
+        'DITOLAK oleh {{approver_name}}.\n\n'
         'Alasan: {{rejection_reason}}\n\n'
+        'Terima kasih,\nHRIS Feraco',
+    ),
+    'REIMBURSEMENT_SUBMITTED': (
+        '[HRIS] Pengajuan Reimbursement Baru - {{employee_name}}',
+        'Halo HR,\n\n'
+        '{{employee_name}} mengajukan reimbursement {{reimbursement_category}}.\n\n'
+        'Tanggal transaksi: {{reimbursement_date}}\n'
+        'Nominal: {{reimbursement_amount}}\n'
+        'Keterangan: {{reimbursement_description}}\n\n'
+        'Silakan tinjau di menu Reimbursement di HRIS Feraco.\n\n'
         'Terima kasih,\nHRIS Feraco',
     ),
     'CONTRACT': (
@@ -130,7 +148,14 @@ PREVIEW_CONTEXT = {
     'leave_type': 'Cuti Tahunan',
     'leave_start': '05 Okt 2026',
     'leave_end': '07 Okt 2026',
+    'leave_dates': '05 Okt, 06 Okt, 09 Okt 2026',
+    'leave_days': '3',
     'leave_status': 'Menunggu Persetujuan',
+    'approver_name': 'Andi Pratama',
+    'reimbursement_category': 'Transport',
+    'reimbursement_amount': 'Rp 250.000',
+    'reimbursement_date': '01 Okt 2026',
+    'reimbursement_description': 'Taksi ke lokasi event',
     'rejection_reason': 'Kuota cuti tidak mencukupi',
     'birthday_today': ' HARI INI',
 }

@@ -114,13 +114,21 @@ class ReimbursementViewSet(viewsets.ModelViewSet):
             return Response({'detail': 'Tidak berwenang.'}, status=status.HTTP_403_FORBIDDEN)
         if obj.status != 'DRAFT':
             return Response({'detail': 'Hanya pengajuan DRAFT yang dapat dikirim.'}, status=status.HTTP_400_BAD_REQUEST)
-        if obj.category.requires_attachment and not obj.attachment_path:
-            return Response({'detail': 'Lampiran wajib untuk kategori ini.'}, status=status.HTTP_400_BAD_REQUEST)
+        # Lampiran wajib untuk SEMUA pengajuan (bukan hanya kategori tertentu).
+        if not obj.attachment_path:
+            return Response(
+                {'attachment': 'Lampiran wajib diunggah sebelum pengajuan dikirim.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         obj.status = 'PENDING'
         obj.submitted_at = timezone.now()
         obj.save(update_fields=['status', 'submitted_at', 'updated_at'])
         for recipient in self._hr_users():
             notify(recipient, obj, f'Pengajuan reimbursement {obj.employee.full_name} ({obj.category.name}) menunggu persetujuan.')
+        # Centralized notification system: HR Staff/HR Lead bell + HR email (idempotent, best-effort).
+        from apps.notifications.services import notify_reimbursement_submitted
+
+        notify_reimbursement_submitted(obj)
         log_event(request, 'update', obj=obj, description=f'Reimbursement {obj.id} submitted')
         return Response(ReimbursementSerializer(obj, context={'request': request}).data)
 
@@ -303,6 +311,29 @@ class ReimbursementViewSet(viewsets.ModelViewSet):
         from django.shortcuts import redirect
         log_event(request, 'download', obj=obj, description=f'Reimbursement {obj.id} {name_field} downloaded')
         return redirect(signed_url(_bucket(), getattr(obj, path_field)))
+
+    @action(detail=False, methods=['get'])
+    def summary(self, request):
+        """Live status counts from the same scoped queryset as the list.
+
+        `?mine=1` limits to the caller's own employee record (Employee
+        Overview / self-service pages), so KPI cards never depend on a
+        single paginated page or on client-side filtering.
+        """
+        from django.db.models import Count, DecimalField, Sum
+        from django.db.models.functions import Coalesce
+
+        qs = self.get_queryset()
+        if request.query_params.get('mine') in ('1', 'true'):
+            employee = _employee_for(request.user)
+            qs = qs.filter(employee_id=employee.id) if employee is not None else qs.none()
+        counts = {key: 0 for key, _ in Reimbursement.STATUS_CHOICES}
+        for row in qs.values('status').annotate(n=Count('id')):
+            counts[row['status']] = row['n']
+        paid = qs.filter(status='PAID').aggregate(
+            total=Coalesce(Sum(Coalesce('approved_amount', 'amount')), 0, output_field=DecimalField())
+        )['total']
+        return Response({'counts': counts, 'total': sum(counts.values()), 'paid_amount': paid})
 
     @action(detail=False, methods=['get'])
     def notifications(self, request):

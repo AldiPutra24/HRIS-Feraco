@@ -37,6 +37,7 @@ const NOTIF_ICON: Record<string, keyof typeof Icons> = {
   LEAVE_SUBMITTED: 'leave',
   LEAVE_APPROVED: 'leave',
   LEAVE_REJECTED: 'leave',
+  REIMBURSEMENT_SUBMITTED: 'receipt',
   CONTRACT: 'page',
   BIRTHDAY: 'user',
 };

@@ -24,6 +24,7 @@ EVENT_KEYS = (
     'LEAVE_SUBMITTED',
     'LEAVE_APPROVED',
     'LEAVE_REJECTED',
+    'REIMBURSEMENT_SUBMITTED',
     'CONTRACT',
     'BIRTHDAY_HR',
     'BIRTHDAY_EMPLOYEE',
@@ -156,7 +157,7 @@ class NotificationEventConfigViewSet(viewsets.ModelViewSet):
         return NotificationEventConfig.objects.all()
 
     def list(self, request, *args, **kwargs):
-        # Ensure all six config rows exist so the UI gets a complete list.
+        # Ensure every config row exists so the UI gets a complete list.
         for event in EVENT_KEYS:
             NotificationEventConfig.objects.get_or_create(event=event)
         return super().list(request, *args, **kwargs)

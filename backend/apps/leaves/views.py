@@ -12,7 +12,13 @@ from apps.personnel.permissions import _role
 from apps.personnel.storage import is_configured, signed_url, upload_bytes
 
 from .models import LeaveBalance, LeaveNotification, LeaveRequest, LeaveType
-from .permissions import LEAVE_ADMIN_ROLES, IsLeaveAdmin, LeaveRequestPermission, _employee_for
+from .permissions import (
+    HR_APPROVER_ROLES,
+    LEAVE_ADMIN_ROLES,
+    IsLeaveAdmin,
+    LeaveRequestPermission,
+    _employee_for,
+)
 from .serializers import LeaveBalanceSerializer, LeaveRequestSerializer, LeaveTypeSerializer
 from .services import apply_approval_deduction, get_balance, notify
 
@@ -68,7 +74,7 @@ class LeaveBalanceViewSet(viewsets.ModelViewSet):
 
 
 class LeaveRequestViewSet(viewsets.ModelViewSet):
-    queryset = LeaveRequest.objects.select_related('employee', 'leave_type', 'approver').all()
+    queryset = LeaveRequest.objects.select_related('employee', 'leave_type', 'approver').prefetch_related('dates').all()
     serializer_class = LeaveRequestSerializer
     permission_classes = [LeaveRequestPermission]
     filterset_fields = ['status', 'employee', 'leave_type', 'leave_type__kind']
@@ -111,6 +117,27 @@ class LeaveRequestViewSet(viewsets.ModelViewSet):
             raise ValidationError(
                 {'detail': 'Pengajuan yang sama sudah ada. Periksa status pengajuan Anda.'}
             )
+        # No day may be requested twice across active (PENDING/APPROVED) requests.
+        start, end = data.get('start_date'), data.get('end_date')
+        wanted = set(data.get('_dates') or [])
+        if not wanted and start and end:
+            from datetime import timedelta
+
+            wanted = {start + timedelta(days=i) for i in range((end - start).days + 1)}
+        if wanted:
+            taken = set()
+            for other in LeaveRequest.objects.filter(
+                employee=employee, status__in=('PENDING', 'APPROVED'),
+                start_date__lte=max(wanted), end_date__gte=min(wanted),
+            ).prefetch_related('dates'):
+                taken |= wanted & set(other.selected_dates())
+            if taken:
+                from rest_framework.exceptions import ValidationError
+
+                raise ValidationError({'dates': (
+                    'Tanggal sudah ada di pengajuan lain yang aktif: '
+                    + ', '.join(d.isoformat() for d in sorted(taken)) + '.'
+                )})
         request_obj = serializer.save(employee=employee)
         # Notify the employee's manager (in-app).
         manager_employee = employee.manager
@@ -120,7 +147,7 @@ class LeaveRequestViewSet(viewsets.ModelViewSet):
             request_obj,
             f'Pengajuan {request_obj.leave_type.name} dari {employee.full_name} menunggu persetujuan.',
         )
-        # Notification system: in-app + email ke Reporting To (best-effort).
+        # Notification system: in-app + email ke Reporting To + HR Staff/HR Lead (best-effort).
         from apps.notifications.services import notify_leave_submitted
 
         notify_leave_submitted(request_obj)
@@ -172,13 +199,17 @@ class LeaveRequestViewSet(viewsets.ModelViewSet):
         leave, err = self._load_request(request, pk)
         if err:
             return err
-        # Only the employee's direct manager (atasan) may approve.
-        manager = _employee_for(request.user)
-        if manager is None or leave.employee.manager_id != manager.id:
-            return Response({'detail': 'Hanya atasan langsung yang dapat menyetujui.'}, status=status.HTTP_403_FORBIDDEN)
-        if leave.status != 'PENDING':
-            return Response({'detail': 'Hanya pengajuan PENDING yang dapat disetujui.'}, status=status.HTTP_400_BAD_REQUEST)
+        denied = self._decision_denied(request, leave, 'menyetujui')
+        if denied:
+            return denied
         with transaction.atomic():
+            # Row lock + re-check: the first valid approver wins; a concurrent
+            # approve/reject by the other approver gets 400 (no double decision).
+            leave = LeaveRequest.objects.select_for_update().select_related(
+                'employee', 'leave_type',
+            ).get(pk=leave.pk)
+            if leave.status != 'PENDING':
+                return Response({'detail': 'Hanya pengajuan PENDING yang dapat disetujui.'}, status=status.HTTP_400_BAD_REQUEST)
             leave.status = 'APPROVED'
             leave.approved_at = timezone.now()
             leave.approver = request.user
@@ -200,20 +231,23 @@ class LeaveRequestViewSet(viewsets.ModelViewSet):
         leave, err = self._load_request(request, pk)
         if err:
             return err
-        # Only the employee's direct manager (atasan) may reject.
-        manager = _employee_for(request.user)
-        if manager is None or leave.employee.manager_id != manager.id:
-            return Response({'detail': 'Hanya atasan langsung yang dapat menolak.'}, status=status.HTTP_403_FORBIDDEN)
-        if leave.status != 'PENDING':
-            return Response({'detail': 'Hanya pengajuan PENDING yang dapat ditolak.'}, status=status.HTTP_400_BAD_REQUEST)
+        denied = self._decision_denied(request, leave, 'menolak')
+        if denied:
+            return denied
         reason = (request.data.get('rejection_reason') or '').strip()
-        if not reason:
+        if leave.status == 'PENDING' and not reason:
             return Response({'rejection_reason': 'Alasan penolakan wajib diisi.'}, status=status.HTTP_400_BAD_REQUEST)
-        leave.status = 'REJECTED'
-        leave.rejected_at = timezone.now()
-        leave.approver = request.user
-        leave.rejection_reason = reason
-        leave.save(update_fields=['status', 'rejected_at', 'approver', 'rejection_reason', 'updated_at'])
+        with transaction.atomic():
+            leave = LeaveRequest.objects.select_for_update().select_related(
+                'employee', 'leave_type',
+            ).get(pk=leave.pk)
+            if leave.status != 'PENDING':
+                return Response({'detail': 'Hanya pengajuan PENDING yang dapat ditolak.'}, status=status.HTTP_400_BAD_REQUEST)
+            leave.status = 'REJECTED'
+            leave.rejected_at = timezone.now()
+            leave.approver = request.user
+            leave.rejection_reason = reason
+            leave.save(update_fields=['status', 'rejected_at', 'approver', 'rejection_reason', 'updated_at'])
         for recipient in self._hr_users():
             notify(recipient, leave, f'Pengajuan {leave.leave_type.name} {leave.employee.full_name} ditolak.')
         notify(getattr(leave.employee, 'user', None), leave, f'Pengajuan {leave.leave_type.name} Anda ditolak.')
@@ -296,3 +330,22 @@ class LeaveRequestViewSet(viewsets.ModelViewSet):
         from apps.accounts.models import User
 
         return list(User.objects.filter(role__key__in=LEAVE_ADMIN_ROLES))
+
+    @staticmethod
+    def _decision_denied(request, leave, verb):
+        """Approve/reject authorization (backend source of truth).
+
+        Primary approver = the employee's Reporting To (direct manager).
+        HR Staff / HR Lead may decide as a fallback. Nobody decides their
+        own request.
+        """
+        actor = _employee_for(request.user)
+        if actor is not None and leave.employee_id == actor.id:
+            return Response({'detail': f'Tidak dapat {verb} pengajuan sendiri.'}, status=status.HTTP_403_FORBIDDEN)
+        is_manager = actor is not None and leave.employee.manager_id == actor.id
+        if not is_manager and _role(request.user) not in HR_APPROVER_ROLES:
+            return Response(
+                {'detail': f'Hanya atasan langsung atau HR Staff/HR Lead yang dapat {verb}.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        return None
