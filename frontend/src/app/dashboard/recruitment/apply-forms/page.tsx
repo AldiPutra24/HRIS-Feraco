@@ -1,12 +1,6 @@
-import { Metadata } from 'next';
+import { redirect } from 'next/navigation';
 
-import { ApplyFormsPage } from '@/features/recruitment/apply-forms-page';
-
-export const metadata: Metadata = {
-  title: 'Form Job Portal Freelance',
-  description: 'Kelola form publik lamaran freelance dan lihat applicants.',
-};
-
+// Apply forms were consolidated into Job Freelance.
 export default function Page() {
-  return <ApplyFormsPage />;
+  redirect('/dashboard/recruitment/jobs?type=FREELANCE');
 }

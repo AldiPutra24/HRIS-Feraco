@@ -13,14 +13,14 @@ from apps.freelance.models import Skill, SkillCategory
 from apps.personnel.permissions import _role
 from apps.personnel.storage import is_configured, signed_url, upload_bytes
 
-from .models import Candidate, CandidateSkill, FreelanceApplyForm, Job
+from .models import Candidate, FreelanceApplyForm, Job
 from .permissions import IsRecruitmentAdmin, RECRUITMENT_ADMIN_ROLES
+from . import antispam
 from .serializers import (
     CandidateSerializer,
     FreelanceApplyFormSerializer,
     JobPublicSerializer,
     JobSerializer,
-    PublicFreelanceApplySerializer,
 )
 from rest_framework.views import APIView
 from .services import _bucket, transition_candidate
@@ -165,7 +165,34 @@ class CandidateViewSet(viewsets.ModelViewSet):
         rtype = self.request.query_params.get('recruitment_type')
         if rtype in ('INHOUSE', 'FREELANCE'):
             qs = qs.filter(job__recruitment_type=rtype)
+        # ?skill=<id>: applicants per position (replaces the retired
+        # apply-form "applicants by skill" view).
+        skill = self.request.query_params.get('skill')
+        if skill and skill.isdigit():
+            qs = qs.filter(applied_skill__skill_id=int(skill))
         return qs
+
+    def create(self, request, *args, **kwargs):
+        """Public apply. FREELANCE jobs get the portal guards: per-IP rate
+        limit (429), CV or portfolio URL required (400), and duplicate
+        email + position on the same job within 24h (409). INHOUSE unchanged."""
+        job_id = str(request.data.get('job') or '')
+        job = Job.objects.filter(pk=job_id).first() if job_id.isdigit() else None
+        if job is not None and job.recruitment_type == 'FREELANCE':
+            if antispam.rate_limited(request):
+                return Response(
+                    {'detail': 'Terlalu banyak percobaan. Coba lagi nanti.'},
+                    status=status.HTTP_429_TOO_MANY_REQUESTS,
+                )
+            portfolio_url = (request.data.get('portfolio_url') or '').strip()
+            if request.FILES.get('cv') is None and not portfolio_url:
+                return Response({'cv': ['Upload CV atau isi URL portfolio.']}, status=status.HTTP_400_BAD_REQUEST)
+            if antispam.duplicate_application(job, request.data.get('email'), request.data.get('skill_id')):
+                return Response(
+                    {'detail': 'Lamaran dengan email dan posisi yang sama sudah dikirim dalam 24 jam terakhir.'},
+                    status=status.HTTP_409_CONFLICT,
+                )
+        return super().create(request, *args, **kwargs)
 
     def get_permissions(self):
         if self.action == 'create':
@@ -320,11 +347,12 @@ class CandidateViewSet(viewsets.ModelViewSet):
     def hard_delete(self, request, pk=None):
         return self.destroy(request, pk=pk)
 
-class FreelanceApplyFormViewSet(viewsets.ModelViewSet):
-    """HR management of public freelance apply forms.
+class FreelanceApplyFormViewSet(viewsets.ReadOnlyModelViewSet):
+    """RETIRED apply forms — read-only history.
 
-    CRUD + applicant browsing per form. Uses the freelance-management roles
-    (same as the /dashboard/freelance Skill/Kategori master).
+    Freelance intake is consolidated into Job Freelance (/jobs/<slug>);
+    migration 0010 converted every form into its `portal-<slug>` job.
+    Kept for historical applicants per form (no create/update/delete).
     """
 
     from apps.freelance.permissions import IsFreelanceManager
@@ -335,19 +363,6 @@ class FreelanceApplyFormViewSet(viewsets.ModelViewSet):
     filterset_fields = ['is_active']
     search_fields = ['title']
     pagination_class = None
-
-    def perform_create(self, serializer):
-        obj = serializer.save(created_by=self.request.user)
-        log_event(self.request, 'create', obj=obj, description=f'Freelance apply form "{obj.title}" created')
-
-    def perform_update(self, serializer):
-        obj = serializer.save()
-        log_event(self.request, 'update', obj=obj, description=f'Freelance apply form "{obj.title}" updated')
-
-    def perform_destroy(self, instance):
-        name = instance.title
-        instance.delete()
-        log_event(self.request, 'delete', obj=None, description=f'Freelance apply form "{name}" deleted')
 
     @action(detail=True, methods=['get'])
     def applicants(self, request, pk=None):
@@ -375,12 +390,10 @@ class FreelanceApplyFormViewSet(viewsets.ModelViewSet):
 
 
 class PublicFreelancePortalView(APIView):
-    """Public (no login) endpoints for the /freelance/apply/<slug> portal.
+    """RETIRED public /freelance/apply/<slug> portal -> 410 Gone.
 
-    GET: the form's open skills (only skills HR selected, form must be active).
-    POST: submit an application -> ONE Candidate linked to the chosen Skill.
-    CSRF-exempt (session-less public form); anti-spam via per-IP rate limit +
-    duplicate guard. Never exposes HR/internal endpoints or data.
+    The form was converted into Job Freelance `portal-<slug>` (migration
+    0010); old links are redirected by the frontend to /jobs/portal-<slug>.
     """
 
     from rest_framework.authentication import BaseAuthentication
@@ -391,106 +404,18 @@ class PublicFreelancePortalView(APIView):
 
     authentication_classes = [_NoAuth]
     permission_classes = [AllowAny]
-    parser_classes = [MultiPartParser, FormParser]
 
-    # Simple in-memory per-IP rate limit: max 5 submissions / 10 minutes.
-    RATE_LIMIT = 5
-    RATE_WINDOW_SECONDS = 600
-    _rate: dict = {}
-
-    def _client_ip(self, request):
-        fwd = request.META.get('HTTP_X_FORWARDED_FOR', '')
-        return (fwd.split(',')[0].strip() if fwd else request.META.get('REMOTE_ADDR', '')) or 'unknown'
-
-    def _rate_limited(self, request):
-        import time
-
-        now = time.monotonic()
-        ip = self._client_ip(request)
-        hits = [t for t in self._rate.get(ip, []) if now - t < self.RATE_WINDOW_SECONDS]
-        if len(hits) >= self.RATE_LIMIT:
-            return True
-        hits.append(now)
-        self._rate[ip] = hits
-        return False
-
-    def _duplicate(self, form, email, skill_id):
-        """Same email + same skill submitted in the last 24h -> duplicate."""
-        from datetime import timedelta
-
-        since = timezone.now() - timedelta(hours=24)
-        return CandidateSkill.objects.filter(
-            form=form,
-            skill_id=skill_id,
-            candidate__email=(email or '').strip().lower(),
-            submitted_at__gte=since,
-        ).exists()
-
-    def _get_form(self, slug):
-        form = FreelanceApplyForm.objects.filter(slug=slug).first()
-        if form is None or not form.is_active:
-            return None
-        return form
+    def _gone(self, slug):
+        return Response(
+            {
+                'detail': 'Form ini sudah dipindahkan ke lowongan freelance.',
+                'job_slug': f'portal-{slug}',
+            },
+            status=status.HTTP_410_GONE,
+        )
 
     def get(self, request, slug):
-        form = self._get_form(slug)
-        if form is None:
-            return Response({'detail': 'Form tidak ditemukan atau tidak aktif.'}, status=status.HTTP_404_NOT_FOUND)
-        skills = form.skills.filter(is_active=True).order_by('name')
-        return Response({
-            'title': form.title,
-            'description': form.description,
-            'skills': [
-                {'id': s.id, 'name': s.name, 'category': s.category.name if s.category_id else None}
-                for s in skills
-            ],
-        })
+        return self._gone(slug)
 
     def post(self, request, slug):
-        form = self._get_form(slug)
-        if form is None:
-            return Response({'detail': 'Form tidak ditemukan atau tidak aktif.'}, status=status.HTTP_404_NOT_FOUND)
-        if self._rate_limited(request):
-            return Response(
-                {'detail': 'Terlalu banyak percobaan. Coba lagi nanti.'},
-                status=status.HTTP_429_TOO_MANY_REQUESTS,
-            )
-        data = request.data.dict() if hasattr(request.data, 'dict') else dict(request.data)
-        file = request.FILES.get('cv')
-        portfolio_url = (data.get('portfolio_url') or '').strip()
-        if file is None and not portfolio_url:
-            return Response({'cv': ['Upload CV atau isi URL portfolio.']}, status=status.HTTP_400_BAD_REQUEST)
-        if file is not None:
-            err = _validate_cv(file)
-            if err:
-                return Response({'cv': [err]}, status=status.HTTP_400_BAD_REQUEST)
-        ser = PublicFreelanceApplySerializer(data=data, context={'request': request, 'form': form})
-        ser.is_valid(raise_exception=True)
-        if self._duplicate(form, ser.validated_data.get('email'), ser.validated_data.get('skill_id')):
-            return Response(
-                {'detail': 'Lamaran dengan email dan posisi yang sama sudah dikirim dalam 24 jam terakhir.'},
-                status=status.HTTP_409_CONFLICT,
-            )
-        if file is not None and not is_configured():
-            return Response({'detail': 'Storage not configured.'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
-
-        cand = ser.save()
-        if file is not None:
-            path = f'cvs/portal/{cand.id}/{file.name}'
-            try:
-                upload_bytes(_bucket(), path, file.read(), file.content_type or 'application/octet-stream')
-            except Exception as exc:
-                cand.delete()
-                return Response(
-                    {'detail': f'Gagal mengunggah CV ke storage: {str(exc)[:150]}'},
-                    status=status.HTTP_502_BAD_GATEWAY,
-                )
-            cand.cv_name = file.name
-            cand.cv_path = path
-            cand.cv_content_type = file.content_type or ''
-            cand.save(update_fields=['cv_name', 'cv_path', 'cv_content_type', 'updated_at'])
-        log_event(request, 'create', obj=cand, description=f'Public freelance application "{cand.full_name}" via form "{form.title}"')
-        return Response(
-            {'detail': 'Lamaran berhasil dikirim. Terima kasih!'},
-            status=status.HTTP_201_CREATED,
-        )
+        return self._gone(slug)

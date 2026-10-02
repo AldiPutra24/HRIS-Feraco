@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { toast } from 'react-toastify';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -20,6 +20,7 @@ import {
 } from '@/lib/recruitment';
 import { ALL_STATUSES, statusLabel } from '@/features/recruitment/candidate-pipeline';
 import { useAuth } from '@/lib/auth/auth-provider';
+import { listSkills, type Skill } from '@/lib/freelance';
 
 const STATUS_OPTIONS = [...ALL_STATUSES];
 
@@ -37,22 +38,27 @@ export function RecruitmentCandidatesPage({
   recruitmentType?: RecruitmentType;
 }) {
   const router = useRouter();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin';
   const isFreelance = recruitmentType === 'FREELANCE';
   const fJob = fixedJobId ?? (searchParams.get('job') ?? '');
   const fStatus = searchParams.get('status') ?? '';
+  // Freelance: applicants per position (Skill & Kategori).
+  const fSkill = isFreelance ? (searchParams.get('skill') ?? '') : '';
 
   function setFilter(key: string, value: string) {
     const params = new URLSearchParams(searchParams);
     if (value) params.set(key, value);
     else params.delete(key);
-    router.replace(`/dashboard/recruitment/candidates${params.size ? `?${params}` : ''}`);
+    // Stay on the current list (inhouse vs freelance route).
+    router.replace(`${pathname}${params.size ? `?${params}` : ''}`);
   }
 
   const [items, setItems] = useState<Candidate[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
+  const [skills, setSkills] = useState<Skill[]>([]);
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
@@ -60,6 +66,7 @@ export function RecruitmentCandidatesPage({
     const params: Record<string, string> = {};
     if (fJob) params.job = fJob;
     if (fStatus) params.status = fStatus;
+    if (fSkill) params.skill = fSkill;
     if (recruitmentType) params.recruitment_type = recruitmentType;
     try {
       const candidates = await listCandidates(params);
@@ -69,7 +76,7 @@ export function RecruitmentCandidatesPage({
     } finally {
       setLoading(false);
     }
-  }, [fJob, fStatus, recruitmentType]);
+  }, [fJob, fStatus, fSkill, recruitmentType]);
 
   useEffect(() => {
     load();
@@ -80,6 +87,7 @@ export function RecruitmentCandidatesPage({
     listJobs(recruitmentType ? { recruitment_type: recruitmentType } : {})
       .then(setJobs)
       .catch(() => {});
+    if (recruitmentType === 'FREELANCE') listSkills().then(setSkills).catch(() => {});
   }, [recruitmentType]);
 
   async function handleAcceptFreelance(c: Candidate) {
@@ -169,8 +177,25 @@ export function RecruitmentCandidatesPage({
                 ))}
               </select>
             </div>
+            {isFreelance && (
+              <div>
+                <Label className='text-xs'>Posisi (Skill)</Label>
+                <select
+                  className='border-input h-9 w-full rounded-lg border bg-transparent px-2.5 text-sm'
+                  value={fSkill}
+                  onChange={(e) => setFilter('skill', e.target.value)}
+                >
+                  <option value=''>Semua posisi</option>
+                  {skills.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.category_name ? `${s.category_name} · ${s.name}` : s.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
             <div className='flex items-end'>
-              <Button variant='ghost' onClick={() => router.replace('/dashboard/recruitment/candidates')}>
+              <Button variant='ghost' onClick={() => router.replace(pathname)}>
                 Reset
               </Button>
             </div>
