@@ -111,6 +111,23 @@ Catatan: filtering menu di frontend (`use-nav.ts`) hanya UI; otorisasi di backen
 
 ## Last Progress
 
+### Leave, Reimbursement 2 layer, HR Lead self-service (2026-10-05)
+- **Sisa kuota cuti "per hari ini"** (`GET /api/leaves/balances/me/`) dari engine kuota existing + carry-forward + adjustment HR - pemakaian; pending ditampilkan terpisah. Dipakai di Employee Overview, Pengajuan Saya, dan form cuti.
+- **Cuti Tahunan Full Day (1) / Half Day (0,5)** per tanggal pada pengajuan multi-tanggal (mis. 2,5 hari). Semua angka hari kini desimal (request, balance, approval, history, dashboard).
+- **Adjustment kuota oleh HR** (`/api/leaves/adjustments/`, +/-, kelipatan 0,5, alasan wajib, audit trail; base quota tidak diubah). Balance = quota + adjustment - usage. UI di Kuota Karyawan (/dashboard/leave).
+- **No backdate**: pengajuan izin/cuti untuk tanggal sebelum hari ini ditolak (backend + kalender).
+- **HR Lead** kini punya mode HRIS + Employee self-service (data milik sendiri), memakai mekanisme mode HR Staff.
+- **Reimbursement semi-hierarchical**: Pending HR Staff -> HR Staff tetapkan Nominal Disetujui (`review`) -> Waiting HR Lead -> HR Lead approve/reject pembayaran -> Paid. Otorisasi per layer di backend, audit siapa menetapkan nominal & siapa approve, notifikasi per tahap (email konfirmasi transfer ke email pada pengajuan).
+- **Form reimbursement**: Nama Bank, Nama Pemilik Rekening, Nomor Rekening, Email (wajib) + "Bukti Payment/Tagihan/Invoice" wajib PDF.
+- **Task & Progress** disembunyikan dari sidebar (backend & data tetap).
+- Migration: leaves 0007, reimbursement 0004, notifications 0003. Test: leaves 86 OK, reimbursement + notifications 115 OK.
+
+### Konsolidasi rekrutmen freelance & revisi notifikasi (2026-10-02)
+- Intake freelance kini satu jalur: **Job Freelance** (`/jobs/<slug>`) dengan pilihan posisi dari Skill & Kategori, field domisili/portfolio/rate/catatan, anti-spam (rate limit + duplikat 24 jam). Apply Forms dipensiunkan: tiap form dikonversi menjadi Job `portal-<slug>` (migration recruitment 0010); link lama `/freelance/apply/<slug>` diarahkan ke job tersebut.
+- Cuti multi-tanggal tidak berurutan, approval fallback HR Staff/HR Lead, lampiran reimbursement wajib, notifikasi lonceng reimbursement & izin/cuti (termasuk Admin), target KMS per karyawan ("Nama - Posisi"), "Cuti Tanpa Gaji" dinonaktifkan.
+
+> Catatan: entri "Refactor: Public Job Portal Freelance berbasis Skill master + Form" di bawah sudah digantikan oleh konsolidasi ke Job Freelance (2026-10-02).
+
 ### Refactor: Public Job Portal Freelance berbasis Skill master + Form (2026-10-02)
 - Flow baru: HR membuat "Form Job Portal Freelance" (multi-select Skill/Kategori dari master `/dashboard/freelance`, aktif/nonaktif, copy public link) -> candidate buka `/freelance/apply/<slug>` TANPA login -> pilih SATU posisi/skill dari pilihan HR -> isi biodata + CV/portfolio -> submit -> masuk Recruitment Freelance.
 - Model: `FreelanceApplyForm` (title, slug, description, M2M `freelance.Skill`, is_active, created_by, created_at) + `CandidateSkill` (OneToOne Candidate -> existing Skill, form, submitted_at). CandidateJob lama dihapus (migration 0008).

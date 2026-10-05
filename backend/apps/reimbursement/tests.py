@@ -14,6 +14,31 @@ from .serializers import ReimbursementSerializer
 
 User = get_user_model()
 
+BANK = {
+    'bank_name': 'BCA',
+    'bank_account_name': 'John Doe',
+    'bank_account_number': '1234567890',
+    'contact_email': 'john.transfer@gmail.com',
+}
+PDF_BYTES = b'%PDF-1.4\n%test\n'
+
+
+def _approve_two_step(client, rid, data):
+    """Semi-hierarchical approval: the logged-in HR Staff reviews (sets
+    Nominal Disetujui), then an HR Lead approves payment. Returns the first
+    failing response, else the HR Lead approve response; restores the
+    original session user."""
+    uid = client.session.get('_auth_user_id')
+    res = client.post(f'/api/reimbursements/{rid}/review/', data, content_type='application/json')
+    if res.status_code != 200:
+        return res
+    lead = User.objects.filter(role__key='HR_LEAD').first() or make_user('HR_LEAD', 'lead.helper@test.com')
+    client.force_login(lead)
+    res = client.post(f'/api/reimbursements/{rid}/approve/')
+    if uid:
+        client.force_login(User.objects.get(pk=uid))
+    return res
+
 def make_user(key='ADMIN', username='admin@test.com'):
     role, _ = Role.objects.get_or_create(key=key, defaults={'name': key})
     user = User.objects.create_user(username=username, email=username, password='password')
@@ -47,6 +72,7 @@ class ReimbursementWorkflowTests(TestCase):
             amount=amount,
             description='Test',
             status='DRAFT',
+            **BANK,
             attachment_name='nota.pdf',
             attachment_path='reimbursements/test/attachments/nota.pdf',
         )
@@ -56,7 +82,7 @@ class ReimbursementWorkflowTests(TestCase):
 
     def test_employee_create_reimbursement(self):
         self._login(self.emp_user)
-        resp = self.client.post('/api/reimbursements/', {
+        resp = self.client.post('/api/reimbursements/', {**BANK,
             'category': self.cat_no_attach.id,
             'transaction_date': '2026-08-01',
             'amount': 75000,
@@ -101,7 +127,7 @@ class ReimbursementWorkflowTests(TestCase):
 
     def test_create_attachment_required_cat_allowed_but_submit_blocked(self):
         self._login(self.emp_user)
-        resp = self.client.post('/api/reimbursements/', {
+        resp = self.client.post('/api/reimbursements/', {**BANK,
             'category': self.cat_attachment.id,
             'transaction_date': '2026-08-01',
             'amount': 75000,
@@ -121,13 +147,13 @@ class ReimbursementWorkflowTests(TestCase):
         self.client.post(f'/api/reimbursements/{r.id}/submit/')
         self.client.logout()
         self._login(self.hr)
-        resp = self.client.post(f'/api/reimbursements/{r.id}/approve/',
-                                {'approved_amount': 40000}, content_type='application/json')
+        resp = _approve_two_step(self.client, r.id, {'approved_amount': 40000})
         self.assertEqual(resp.status_code, 200)
         r.refresh_from_db()
         self.assertEqual(r.status, 'APPROVED')
         self.assertIsNotNone(r.approved_at)
-        self.assertEqual(r.reviewer, self.hr)
+        self.assertEqual(r.amount_set_by, self.hr)  # HR Staff set the amount
+        self.assertEqual(r.reviewer.role.key, 'HR_LEAD')  # HR Lead approved payment
 
     def test_reject_requires_reason(self):
         self._login(self.emp_user)
@@ -153,8 +179,7 @@ class ReimbursementWorkflowTests(TestCase):
         self.client.post(f'/api/reimbursements/{r.id}/submit/')
         self.client.logout()
         self._login(self.hr)
-        self.client.post(f'/api/reimbursements/{r.id}/approve/',
-                         {'approved_amount': 40000}, content_type='application/json')
+        _approve_two_step(self.client, r.id, {'approved_amount': 40000})
         resp = self.client.post(f'/api/reimbursements/{r.id}/mark_paid/',
                                 {'payment_reference': 'TRF/2026/08/001'},
                                 content_type='application/json')
@@ -166,7 +191,7 @@ class ReimbursementWorkflowTests(TestCase):
 
     def test_invalid_amount_negative(self):
         self._login(self.emp_user)
-        resp = self.client.post('/api/reimbursements/', {
+        resp = self.client.post('/api/reimbursements/', {**BANK,
             'category': self.cat_no_attach.id,
             'transaction_date': '2026-08-01',
             'amount': -100,
@@ -176,7 +201,7 @@ class ReimbursementWorkflowTests(TestCase):
 
     def test_invalid_amount_zero(self):
         self._login(self.emp_user)
-        resp = self.client.post('/api/reimbursements/', {
+        resp = self.client.post('/api/reimbursements/', {**BANK,
             'category': self.cat_no_attach.id,
             'transaction_date': '2026-08-01',
             'amount': 0,
@@ -194,7 +219,7 @@ class ReimbursementWorkflowTests(TestCase):
         self.emp_user.inactive_by_employee = False
         self.emp_user.save(update_fields=['is_active', 'inactive_by_employee'])
         self._login(self.emp_user)
-        resp = self.client.post('/api/reimbursements/', {
+        resp = self.client.post('/api/reimbursements/', {**BANK,
             'category': self.cat_no_attach.id,
             'transaction_date': '2026-08-01',
             'amount': 50000,
@@ -233,7 +258,7 @@ class ReimbursementWorkflowTests(TestCase):
         self._login(self.emp_user)
         r = self._create_draft()
         # create via API so the 'create' audit entry is recorded
-        resp = self.client.post('/api/reimbursements/', {
+        resp = self.client.post('/api/reimbursements/', {**BANK,
             'category': self.cat_no_attach.id,
             'transaction_date': '2026-08-01',
             'amount': 75000,
@@ -245,8 +270,7 @@ class ReimbursementWorkflowTests(TestCase):
         self.client.post(f'/api/reimbursements/{rid}/submit/')
         self.client.logout()
         self._login(self.hr)
-        self.client.post(f'/api/reimbursements/{rid}/approve/',
-                         {'approved_amount': 40000}, content_type='application/json')
+        _approve_two_step(self.client, rid, {'approved_amount': 40000})
         logs = AuditLog.objects.filter(object_id=str(rid))
         actions = set(logs.values_list('action', flat=True))
         # create + update (submit) + approve
@@ -272,8 +296,7 @@ class ReimbursementWorkflowTests(TestCase):
         self.client.logout()
         # approve
         self._login(self.hr)
-        self.client.post(f'/api/reimbursements/{r.id}/approve/',
-                         {'approved_amount': 40000}, content_type='application/json')
+        _approve_two_step(self.client, r.id, {'approved_amount': 40000})
         r.refresh_from_db()
         self.assertEqual(r.status, 'APPROVED')
         # reject from approved should fail
@@ -326,8 +349,7 @@ class ReimbursementWorkflowTests(TestCase):
         self.client.post(f'/api/reimbursements/{r.id}/submit/')
         self.client.logout()
         self._login(self.hr)
-        self.client.post(f'/api/reimbursements/{r.id}/approve/',
-                         {'approved_amount': 40000}, content_type='application/json')
+        _approve_two_step(self.client, r.id, {'approved_amount': 40000})
         from io import BytesIO
         from django.core.files.uploadedfile import SimpleUploadedFile
         resp = self.client.post(f'/api/reimbursements/{r.id}/mark_paid/',
@@ -343,8 +365,7 @@ class ReimbursementWorkflowTests(TestCase):
         self.client.post(f'/api/reimbursements/{r.id}/submit/')
         self.client.logout()
         self._login(self.hr)
-        self.client.post(f'/api/reimbursements/{r.id}/approve/',
-                         {'approved_amount': 40000}, content_type='application/json')
+        _approve_two_step(self.client, r.id, {'approved_amount': 40000})
         self.client.post(f'/api/reimbursements/{r.id}/mark_paid/',
                          {'payment_reference': 'TRF/2026/08/001'}, content_type='application/json')
         resp = self.client.get(f'/api/reimbursements/{r.id}/')
@@ -405,7 +426,7 @@ class ReimbursementWorkflowTests(TestCase):
         resp = self.client.patch(f'/api/reimbursements/{r.id}/', {'approved_amount': 10000}, content_type='application/json')
         # PATCH not routed on this viewset (list only POST/GET) — use POST create instead
         # Employee attempting approved_amount on create must be rejected.
-        resp = self.client.post('/api/reimbursements/', {
+        resp = self.client.post('/api/reimbursements/', {**BANK,
             'category': self.cat_no_attach.id,
             'transaction_date': '2026-08-01',
             'amount': 75000,
@@ -419,8 +440,7 @@ class ReimbursementWorkflowTests(TestCase):
     def test_hr_can_set_approved_amount(self):
         r = self._submit_as_emp()
         self._login(self.hr)
-        resp = self.client.post(f'/api/reimbursements/{r.id}/approve/',
-                                {'approved_amount': 40000}, content_type='application/json')
+        resp = _approve_two_step(self.client, r.id, {'approved_amount': 40000})
         self.assertEqual(resp.status_code, 200)
         r.refresh_from_db()
         self.assertEqual(r.status, 'APPROVED')
@@ -429,8 +449,7 @@ class ReimbursementWorkflowTests(TestCase):
     def test_approve_without_approved_amount_rejected(self):
         r = self._submit_as_emp()
         self._login(self.hr)
-        resp = self.client.post(f'/api/reimbursements/{r.id}/approve/',
-                                {}, content_type='application/json')
+        resp = _approve_two_step(self.client, r.id, {})
         self.assertEqual(resp.status_code, 400)
         r.refresh_from_db()
         self.assertEqual(r.status, 'PENDING')
@@ -438,15 +457,14 @@ class ReimbursementWorkflowTests(TestCase):
     def test_approved_amount_cannot_exceed_amount(self):
         r = self._submit_as_emp()
         self._login(self.hr)
-        resp = self.client.post(f'/api/reimbursements/{r.id}/approve/',
-                                {'approved_amount': 999999}, content_type='application/json')
+        resp = _approve_two_step(self.client, r.id, {'approved_amount': 999999})
         self.assertEqual(resp.status_code, 400)
         r.refresh_from_db()
         self.assertEqual(r.status, 'PENDING')
 
     def test_project_category_valid_choices(self):
         self._login(self.emp_user)
-        resp = self.client.post('/api/reimbursements/', {
+        resp = self.client.post('/api/reimbursements/', {**BANK,
             'category': self.cat_no_attach.id,
             'transaction_date': '2026-08-01',
             'amount': 75000,
@@ -458,7 +476,7 @@ class ReimbursementWorkflowTests(TestCase):
 
     def test_other_requires_other_text(self):
         self._login(self.emp_user)
-        resp = self.client.post('/api/reimbursements/', {
+        resp = self.client.post('/api/reimbursements/', {**BANK,
             'category': self.cat_no_attach.id,
             'transaction_date': '2026-08-01',
             'amount': 75000,
@@ -471,7 +489,7 @@ class ReimbursementWorkflowTests(TestCase):
 
     def test_non_other_rejects_other_text(self):
         self._login(self.emp_user)
-        resp = self.client.post('/api/reimbursements/', {
+        resp = self.client.post('/api/reimbursements/', {**BANK,
             'category': self.cat_no_attach.id,
             'transaction_date': '2026-08-01',
             'amount': 75000,
@@ -486,7 +504,7 @@ class ReimbursementWorkflowTests(TestCase):
 
     def test_other_with_text_ok(self):
         self._login(self.emp_user)
-        resp = self.client.post('/api/reimbursements/', {
+        resp = self.client.post('/api/reimbursements/', {**BANK,
             'category': self.cat_no_attach.id,
             'transaction_date': '2026-08-01',
             'amount': 75000,
@@ -502,10 +520,11 @@ class ReimbursementWorkflowTests(TestCase):
     def test_audit_approved_amount_change(self):
         r = self._submit_as_emp()
         self._login(self.hr)
-        self.client.post(f'/api/reimbursements/{r.id}/approve/',
-                         {'approved_amount': 40000}, content_type='application/json')
+        _approve_two_step(self.client, r.id, {'approved_amount': 40000})
         log = AuditLog.objects.filter(object_id=str(r.id), action='approve').latest('created_at')
-        self.assertEqual(log.changes_after['approved_amount'], '40000.0')
+        self.assertEqual(log.changes_after['approved_amount'], '40000.00')
+        review = AuditLog.objects.filter(object_id=str(r.id), description__icontains='reviewed').get()
+        self.assertEqual(review.changes_after['approved_amount'], '40000')
 
 
 class ManagementScopeTests(TestCase):
@@ -532,7 +551,7 @@ class ManagementScopeTests(TestCase):
     def _create(self, emp, status='PENDING'):
         return Reimbursement.objects.create(
             employee=emp, category=self.cat,
-            transaction_date=date.today(), amount=50000, status=status,
+            transaction_date=date.today(), amount=50000, status=status, **BANK,
         )
 
     def test_management_sees_only_own(self):
@@ -556,7 +575,7 @@ class ManagementScopeTests(TestCase):
 
     def test_management_can_create_own(self):
         self.client.force_login(self.mgr_user)
-        resp = self.client.post('/api/reimbursements/', {
+        resp = self.client.post('/api/reimbursements/', {**BANK,
             'category': self.cat.id,
             'transaction_date': '2026-09-01',
             'amount': 10000,
@@ -569,7 +588,7 @@ class ManagementScopeTests(TestCase):
 
     def test_management_cannot_set_other_requester(self):
         self.client.force_login(self.mgr_user)
-        resp = self.client.post('/api/reimbursements/', {
+        resp = self.client.post('/api/reimbursements/', {**BANK,
             'category': self.cat.id,
             'transaction_date': '2026-09-01',
             'amount': 10000,
@@ -583,7 +602,7 @@ class ManagementScopeTests(TestCase):
 
     def test_management_can_edit_and_submit_own_draft(self):
         self.client.force_login(self.mgr_user)
-        resp = self.client.post('/api/reimbursements/', {
+        resp = self.client.post('/api/reimbursements/', {**BANK,
             'category': self.cat.id,
             'transaction_date': '2026-09-01',
             'amount': 10000,
@@ -601,10 +620,7 @@ class ManagementScopeTests(TestCase):
     def test_management_cannot_approve_reject_mark_paid(self):
         r = self._create(self.mgr, status='PENDING')
         self.client.force_login(self.mgr_user)
-        resp = self.client.post(
-            f'/api/reimbursements/{r.id}/approve/',
-            {'approved_amount': 40000}, content_type='application/json',
-        )
+        resp = _approve_two_step(self.client, r.id, {'approved_amount': 40000})
         self.assertEqual(resp.status_code, 403)
         resp = self.client.post(
             f'/api/reimbursements/{r.id}/reject/',
@@ -629,10 +645,7 @@ class ManagementScopeTests(TestCase):
         r = self._create(self.mgr)
         hr = make_user('HR_STAFF', 'hr2@test.com')
         self.client.force_login(hr)
-        resp = self.client.post(
-            f'/api/reimbursements/{r.id}/approve/',
-            {'approved_amount': 50000}, content_type='application/json',
-        )
+        resp = _approve_two_step(self.client, r.id, {'approved_amount': 50000})
         self.assertEqual(resp.status_code, 200)
         r.refresh_from_db()
         self.assertEqual(r.status, 'APPROVED')
@@ -666,7 +679,7 @@ class ReimbursementRevisionTests(TestCase):
 
     def _draft(self):
         self.client.force_login(self.emp_user)
-        resp = self.client.post('/api/reimbursements/', {
+        resp = self.client.post('/api/reimbursements/', {**BANK,
             'category': self.cat.id, 'transaction_date': '2026-09-01', 'amount': 75000,
             'description': 'Makan klien',
         }, content_type='application/json')
@@ -677,10 +690,10 @@ class ReimbursementRevisionTests(TestCase):
         rid = self._draft()
         resp = self.client.post(f'/api/reimbursements/{rid}/submit/')
         self.assertEqual(resp.status_code, 400)
-        self.assertIn('Lampiran wajib', resp.json()['attachment'])
+        self.assertIn('Bukti Payment', resp.json()['attachment'])
         self.assertEqual(Reimbursement.objects.get(pk=rid).status, 'DRAFT')
 
-    def test_submit_with_attachment_notifies_admin_hr_staff_and_lead(self):
+    def test_submit_with_attachment_notifies_hr_staff_and_admin(self):
         from django.core import mail
 
         from apps.notifications.models import Notification
@@ -690,8 +703,8 @@ class ReimbursementRevisionTests(TestCase):
         resp = self.client.post(f'/api/reimbursements/{rid}/submit/')
         self.assertEqual(resp.status_code, 200, resp.content)
         notifs = Notification.objects.filter(kind='REIMBURSEMENT_SUBMITTED')
-        # Every reimbursement approver role gets the bell; the employee does not.
-        self.assertEqual({n.recipient_id for n in notifs}, {self.admin.id, self.hr.id, self.lead.id})
+        # Stage 1 (review) -> HR Staff + Admin; HR Lead is notified after review.
+        self.assertEqual({n.recipient_id for n in notifs}, {self.admin.id, self.hr.id})
         self.assertTrue(all(n.link == f'/dashboard/reimbursements?id={rid}' for n in notifs))
         self.assertTrue(all(not n.is_read for n in notifs))
         self.assertEqual(len(mail.outbox), 1)  # default HR email from settings
@@ -711,7 +724,7 @@ class ReimbursementRevisionTests(TestCase):
         _attach(rid)
         self.client.post(f'/api/reimbursements/{rid}/submit/')
         notify_reimbursement_submitted(Reimbursement.objects.get(pk=rid))  # re-fired hook
-        self.assertEqual(Notification.objects.filter(kind='REIMBURSEMENT_SUBMITTED').count(), 3)
+        self.assertEqual(Notification.objects.filter(kind='REIMBURSEMENT_SUBMITTED').count(), 2)
         self.assertEqual(len(mail.outbox), 1)
 
     def test_summary_tracks_pending_through_approval(self):
@@ -722,8 +735,7 @@ class ReimbursementRevisionTests(TestCase):
         self.client.post(f'/api/reimbursements/{rid}/submit/')
         self.assertEqual(self.client.get(url).json()['counts']['PENDING'], 1)
         self.client.force_login(self.hr)
-        self.client.post(f'/api/reimbursements/{rid}/approve/', {'approved_amount': 50000},
-                         content_type='application/json')
+        _approve_two_step(self.client, rid, {'approved_amount': 50000})
         self.client.force_login(self.emp_user)
         counts = self.client.get(url).json()['counts']
         self.assertEqual(counts['PENDING'], 0)
@@ -736,3 +748,192 @@ class ReimbursementRevisionTests(TestCase):
         self.client.force_login(self.hr)  # HR without employee record
         self.assertEqual(self.client.get('/api/reimbursements/summary/?mine=1').json()['total'], 0)
         self.assertEqual(self.client.get('/api/reimbursements/summary/').json()['counts']['PENDING'], 1)
+
+
+
+@override_settings(EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend')
+class ReimbursementTwoLayerTests(TestCase):
+    """Semi-hierarchical approval: HR Staff sets amount -> HR Lead approves
+    payment; required bank/email fields; PDF-only evidence."""
+
+    def setUp(self):
+        self.admin = make_user('ADMIN', 'admin@test.com')
+        self.hr = make_user('HR_STAFF', 'oci@test.com')
+        self.lead = make_user('HR_LEAD', 'atika@test.com')
+        self.emp_user = make_user('EMPLOYEE', 'emp@test.com')
+        self.emp = Employee.objects.create(employee_id='E001', full_name='John', employment_status='ACTIVE')
+        self.emp.user = self.emp_user
+        self.emp.save()
+        self.cat = ReimbursementCategory.objects.create(name='Meal', code='MEAL')
+
+    def _create(self, **over):
+        self.client.force_login(self.emp_user)
+        data = {'category': self.cat.id, 'transaction_date': '2026-09-01', 'amount': 100000,
+                'description': 'Makan klien', **BANK}
+        data.update(over)
+        return self.client.post('/api/reimbursements/', data, content_type='application/json')
+
+    def _submitted(self):
+        rid = self._create().json()['id']
+        _attach(rid)
+        self.assertEqual(self.client.post(f'/api/reimbursements/{rid}/submit/').status_code, 200)
+        return rid
+
+    def _as(self, user, url, data=None):
+        self.client.force_login(user)
+        return self.client.post(url, data or {}, content_type='application/json')
+
+    # --- required fields ---
+    def test_bank_fields_and_email_required(self):
+        for field in ('bank_name', 'bank_account_name', 'bank_account_number', 'contact_email'):
+            res = self._create(**{field: ''})
+            self.assertEqual(res.status_code, 400, field)
+            self.assertIn(field, res.json())
+        self.assertEqual(self._create(contact_email='bukan-email').status_code, 400)
+        self.assertEqual(self._create(bank_account_number='12AB34').status_code, 400)
+        res = self._create(bank_account_number='1234-5678 90')
+        self.assertEqual(res.status_code, 201, res.content)
+        self.assertEqual(res.json()['bank_account_number'], '1234567890')
+
+    def test_submit_blocks_legacy_draft_without_bank_data(self):
+        r = Reimbursement.objects.create(employee=self.emp, category=self.cat, transaction_date=date(2026, 9, 1),
+                                         amount=1000, status='DRAFT', attachment_path='x.pdf')
+        self.client.force_login(self.emp_user)
+        res = self.client.post(f'/api/reimbursements/{r.id}/submit/')
+        self.assertEqual(res.status_code, 400)
+        self.assertIn('bank_name', res.json())
+
+    # --- PDF evidence ---
+    def _upload(self, rid, name, content, ctype='application/pdf'):
+        from unittest import mock
+
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        self.client.force_login(self.emp_user)
+        with mock.patch('apps.reimbursement.views.is_configured', return_value=True), \
+             mock.patch('apps.reimbursement.views.upload_bytes') as up:
+            res = self.client.post(f'/api/reimbursements/{rid}/attachment/',
+                                   {'file': SimpleUploadedFile(name, content, content_type=ctype)})
+        return res, up
+
+    def test_evidence_must_be_pdf(self):
+        rid = self._create().json()['id']
+        res, up = self._upload(rid, 'nota.jpg', b'\xff\xd8jpeg', 'image/jpeg')
+        self.assertEqual(res.status_code, 400)
+        res, _ = self._upload(rid, 'nota.pdf', b'not really a pdf')  # wrong content
+        self.assertEqual(res.status_code, 400)
+        res, _ = self._upload(rid, 'nota.pdf', PDF_BYTES, 'image/png')  # wrong type
+        self.assertEqual(res.status_code, 400)
+        res, up = self._upload(rid, 'nota.pdf', PDF_BYTES)
+        self.assertEqual(res.status_code, 200, res.content)
+        up.assert_called_once()
+        self.assertEqual(Reimbursement.objects.get(pk=rid).attachment_name, 'nota.pdf')
+
+    def test_submit_requires_pdf_evidence(self):
+        rid = self._create().json()['id']
+        res = self.client.post(f'/api/reimbursements/{rid}/submit/')
+        self.assertEqual(res.status_code, 400)
+        self.assertIn('Bukti Payment', res.json()['attachment'])
+
+    # --- approval layers ---
+    def test_full_flow_and_audit(self):
+        rid = self._submitted()
+        r = Reimbursement.objects.get(pk=rid)
+        self.assertEqual(r.status, 'PENDING')
+        res = self._as(self.hr, f'/api/reimbursements/{rid}/review/', {'approved_amount': 80000})
+        self.assertEqual(res.status_code, 200, res.content)
+        self.assertEqual(res.json()['status'], 'WAITING_HR_LEAD')
+        self.assertEqual(res.json()['status_display'], 'Waiting HR Lead')
+        res = self._as(self.lead, f'/api/reimbursements/{rid}/approve/')
+        self.assertEqual(res.status_code, 200, res.content)
+        r.refresh_from_db()
+        self.assertEqual(r.status, 'APPROVED')
+        self.assertEqual(float(r.approved_amount), 80000)
+        self.assertEqual(r.amount_set_by, self.hr)  # who set the amount
+        self.assertEqual(r.reviewer, self.lead)     # who approved payment
+        self.assertTrue(AuditLog.objects.filter(object_id=str(rid), action='approve').exists())
+        review_log = AuditLog.objects.filter(object_id=str(rid), description__icontains='reviewed').get()
+        self.assertEqual(review_log.changes_after['approved_amount'], '80000')
+        res = self._as(self.hr, f'/api/reimbursements/{rid}/mark_paid/', {'payment_reference': 'TRF-1'})
+        self.assertEqual(res.status_code, 200, res.content)
+
+    def test_hr_staff_is_not_final_approver(self):
+        rid = self._submitted()
+        self._as(self.hr, f'/api/reimbursements/{rid}/review/', {'approved_amount': 80000})
+        self.assertEqual(self._as(self.hr, f'/api/reimbursements/{rid}/approve/').status_code, 403)
+        self.assertEqual(Reimbursement.objects.get(pk=rid).status, 'WAITING_HR_LEAD')
+
+    def test_hr_lead_cannot_set_or_change_amount(self):
+        rid = self._submitted()
+        # HR Lead cannot do the HR Staff review step.
+        self.assertEqual(self._as(self.lead, f'/api/reimbursements/{rid}/review/', {'approved_amount': 1}).status_code, 403)
+        # Cannot approve before HR Staff review.
+        self.assertEqual(self._as(self.lead, f'/api/reimbursements/{rid}/approve/').status_code, 400)
+        self._as(self.hr, f'/api/reimbursements/{rid}/review/', {'approved_amount': 80000})
+        res = self._as(self.lead, f'/api/reimbursements/{rid}/approve/', {'approved_amount': 100000})
+        self.assertEqual(res.status_code, 400)
+        # No PATCH path either.
+        self.client.force_login(self.lead)
+        res = self.client.patch(f'/api/reimbursements/{rid}/', {'approved_amount': 100000}, content_type='application/json')
+        self.assertIn(res.status_code, (400, 403))
+        self.assertEqual(float(Reimbursement.objects.get(pk=rid).approved_amount), 80000)
+
+    def test_review_amount_validation(self):
+        rid = self._submitted()
+        self.assertEqual(self._as(self.hr, f'/api/reimbursements/{rid}/review/', {}).status_code, 400)
+        self.assertEqual(self._as(self.hr, f'/api/reimbursements/{rid}/review/', {'approved_amount': 999999}).status_code, 400)
+        self.assertEqual(self._as(self.hr, f'/api/reimbursements/{rid}/review/', {'approved_amount': -1}).status_code, 400)
+
+    def test_reject_per_layer(self):
+        rid = self._submitted()
+        data = {'rejection_reason': 'Nota tidak valid'}
+        self.assertEqual(self._as(self.lead, f'/api/reimbursements/{rid}/reject/', data).status_code, 403)
+        self.assertEqual(self._as(self.hr, f'/api/reimbursements/{rid}/reject/', data).status_code, 200)
+        rid2 = self._submitted()
+        self._as(self.hr, f'/api/reimbursements/{rid2}/review/', {'approved_amount': 50000})
+        self.assertEqual(self._as(self.hr, f'/api/reimbursements/{rid2}/reject/', data).status_code, 403)
+        self.assertEqual(self._as(self.lead, f'/api/reimbursements/{rid2}/reject/', data).status_code, 200)
+        self.assertEqual(Reimbursement.objects.get(pk=rid2).reviewer, self.lead)
+
+    def test_employee_and_admin_layers(self):
+        rid = self._submitted()
+        self.assertEqual(self._as(self.emp_user, f'/api/reimbursements/{rid}/review/', {'approved_amount': 1}).status_code, 403)
+        self.assertEqual(self._as(self.emp_user, f'/api/reimbursements/{rid}/approve/').status_code, 403)
+        # Admin (superadmin fallback) may act on both layers.
+        self.assertEqual(self._as(self.admin, f'/api/reimbursements/{rid}/review/', {'approved_amount': 10}).status_code, 200)
+        self.assertEqual(self._as(self.admin, f'/api/reimbursements/{rid}/approve/').status_code, 200)
+
+    def test_owner_edit_only_before_review(self):
+        rid = self._submitted()
+        self.client.force_login(self.emp_user)
+        res = self.client.patch(f'/api/reimbursements/{rid}/', {'bank_name': 'Mandiri'}, content_type='application/json')
+        self.assertEqual(res.status_code, 200, res.content)  # PENDING: still editable
+        self._as(self.hr, f'/api/reimbursements/{rid}/review/', {'approved_amount': 50000})
+        self.client.force_login(self.emp_user)
+        res = self.client.patch(f'/api/reimbursements/{rid}/', {'amount': 1}, content_type='application/json')
+        self.assertEqual(res.status_code, 400)
+        # HR never edits via PATCH.
+        self.client.force_login(self.hr)
+        res = self.client.patch(f'/api/reimbursements/{rid}/', {'description': 'x'}, content_type='application/json')
+        self.assertEqual(res.status_code, 403)
+
+    def test_notifications_follow_stage(self):
+        from django.core import mail
+
+        from apps.notifications.models import Notification
+
+        rid = self._submitted()
+        stage1 = set(Notification.objects.filter(kind='REIMBURSEMENT_SUBMITTED').values_list('recipient_id', flat=True))
+        self.assertEqual(stage1, {self.hr.id, self.admin.id})
+        self._as(self.hr, f'/api/reimbursements/{rid}/review/', {'approved_amount': 80000})
+        stage2 = set(Notification.objects.filter(kind='REIMBURSEMENT_REVIEWED').values_list('recipient_id', flat=True))
+        self.assertEqual(stage2, {self.lead.id, self.admin.id})
+        mail.outbox.clear()
+        self._as(self.lead, f'/api/reimbursements/{rid}/approve/')
+        self.assertTrue(Notification.objects.filter(kind='REIMBURSEMENT_APPROVED', recipient=self.emp_user).exists())
+        self.assertEqual(mail.outbox[-1].to, ['john.transfer@gmail.com'])
+        self._as(self.hr, f'/api/reimbursements/{rid}/mark_paid/', {'payment_reference': 'TRF-9'})
+        paid = mail.outbox[-1]
+        self.assertEqual(paid.to, ['john.transfer@gmail.com'])
+        self.assertIn('TRF-9', paid.body)
+        self.assertIn('BCA 1234567890', paid.body)

@@ -14,6 +14,10 @@ class Notification(models.Model):
         ('LEAVE_APPROVED', 'Izin/Cuti - Disetujui'),
         ('LEAVE_REJECTED', 'Izin/Cuti - Ditolak'),
         ('REIMBURSEMENT_SUBMITTED', 'Reimbursement - Pengajuan Baru'),
+        ('REIMBURSEMENT_REVIEWED', 'Reimbursement - Menunggu Approval HR Lead'),
+        ('REIMBURSEMENT_APPROVED', 'Reimbursement - Disetujui'),
+        ('REIMBURSEMENT_REJECTED', 'Reimbursement - Ditolak'),
+        ('REIMBURSEMENT_PAID', 'Reimbursement - Dibayar'),
         ('CONTRACT', 'End of Contract'),
         ('BIRTHDAY', 'Birthday'),
     ]

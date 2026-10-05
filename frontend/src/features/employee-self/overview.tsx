@@ -7,7 +7,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet';
 import { Icons } from '@/components/icons';
 import { listAnnouncements, type Announcement } from '@/lib/announcements';
-import { listBalances, listLeaveRequests, type LeaveBalance, type LeaveRequest } from '@/lib/leaves';
+import { formatDays, getMyBalances, listLeaveRequests, type LeaveRequest, type MyBalance } from '@/lib/leaves';
 import { getReimbursementSummary, type ReimbursementSummary } from '@/lib/reimbursements';
 import { useMyEmployee } from './use-my-employee';
 
@@ -36,7 +36,7 @@ function greeting(): string {
 
 export function EmployeeOverview() {
   const { employee, contracts, loading: profileLoading } = useMyEmployee();
-  const [balances, setBalances] = useState<LeaveBalance[]>([]);
+  const [balances, setBalances] = useState<MyBalance[]>([]);
   const [requests, setRequests] = useState<LeaveRequest[]>([]);
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [reimbursement, setReimbursement] = useState<ReimbursementSummary | null>(null);
@@ -45,14 +45,14 @@ export function EmployeeOverview() {
 
   const load = useCallback(async () => {
     const [b, r, a, rs] = await Promise.all([
-      listBalances(),
+      getMyBalances().catch(() => [] as MyBalance[]),
       listLeaveRequests(),
       listAnnouncements(),
       getReimbursementSummary(true).catch(() => null)
     ]);
     // HR staff sees all data server-side; scope to own employee when linked.
     const myId = employee?.id ?? null;
-    setBalances(myId ? b.filter((x) => x.employee === myId) : b);
+    setBalances(b);
     setRequests(myId ? r.filter((x) => x.employee === myId) : r);
     setAnnouncements(a.slice(0, 3));
     setReimbursement(rs);
@@ -85,7 +85,8 @@ export function EmployeeOverview() {
 
   const pending = requests.filter((r) => r.status === 'PENDING').length;
   const approved = requests.filter((r) => r.status === 'APPROVED').length;
-  const totalRemaining = balances.reduce((sum, b) => sum + b.remaining_days, 0);
+  // Sisa kuota "per hari ini" from the quota engine (Cuti Tahunan first).
+  const mainQuota = balances.find((b) => b.leave_type_code === 'ANNUAL') ?? balances[0] ?? null;
   const current = contracts.find((c) => c.is_current) ?? null;
   const accumulation = employee.contract_accumulation;
   const recent = requests.slice(0, 5);
@@ -119,7 +120,13 @@ export function EmployeeOverview() {
             <CardTitle className='text-sm'>Sisa Kuota</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className='text-3xl font-semibold'>{totalRemaining}</p>
+            <p className='text-3xl font-semibold'>{mainQuota ? formatDays(mainQuota.remaining_days) : '-'}</p>
+            {mainQuota && (
+              <p className='text-muted-foreground text-xs'>
+                {mainQuota.leave_type_name} per{' '}
+                {new Date(mainQuota.as_of).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' })}
+              </p>
+            )}
           </CardContent>
         </Card>
         <Card>

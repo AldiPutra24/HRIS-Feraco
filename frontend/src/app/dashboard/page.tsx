@@ -1,7 +1,7 @@
 'use client';
 
 import { useAuth } from '@/lib/auth/auth-provider';
-import { readMode } from '@/lib/auth/dashboard-mode';
+import { hasDualMode, readMode } from '@/lib/auth/dashboard-mode';
 import { useRouter } from 'next/navigation';
 import { useEffect } from 'react';
 
@@ -13,7 +13,7 @@ export default function Dashboard() {
     if (isLoading) return;
     if (user?.role === 'employee') router.replace('/dashboard/employee');
     else if (user?.role === 'management' || user?.role === 'general_manager') router.replace('/dashboard/management/overview');
-    else if (user?.role === 'hr_staff') {
+    else if (hasDualMode(user?.role)) {
       const mode = readMode();
       if (mode === 'hris') router.replace('/dashboard/overview');
       else if (mode === 'employee') router.replace('/dashboard/employee');

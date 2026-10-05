@@ -11,6 +11,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import {
   approveLeave,
+  formatDays,
   listLeaveRequests,
   rejectLeave,
   type LeaveRequest
@@ -145,7 +146,7 @@ export function ManagementLeave() {
                       <TableCell>
                         {r.leave_dates_display || `${r.start_date} — ${r.end_date}`}
                       </TableCell>
-                      <TableCell>{r.total_days}</TableCell>
+                      <TableCell>{formatDays(r.total_days)}</TableCell>
                       <TableCell>
                         <StatusBadge status={r.status} />
                       </TableCell>

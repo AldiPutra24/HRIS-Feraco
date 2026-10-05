@@ -10,6 +10,7 @@ import { TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/compon
 import {
   cancelReimbursement,
   getReimbursementSummary,
+  REIMBURSEMENT_STATUS_LABELS,
   listReimbursements,
   type Reimbursement,
   type ReimbursementSummary
@@ -20,6 +21,7 @@ import { toast } from 'react-toastify';
 const STATUS_VARIANT: Record<string, 'default' | 'secondary' | 'destructive' | 'outline'> = {
   DRAFT: 'outline',
   PENDING: 'secondary',
+  WAITING_HR_LEAD: 'secondary',
   APPROVED: 'default',
   REJECTED: 'destructive',
   PAID: 'default',
@@ -27,7 +29,7 @@ const STATUS_VARIANT: Record<string, 'default' | 'secondary' | 'destructive' | '
 };
 
 function StatusBadge({ status }: { status: string }) {
-  return <Badge variant={STATUS_VARIANT[status] ?? 'secondary'}>{status}</Badge>;
+  return <Badge variant={STATUS_VARIANT[status] ?? 'secondary'}>{REIMBURSEMENT_STATUS_LABELS[status] ?? status}</Badge>;
 }
 
 function formatAmount(n: number): string {

@@ -59,9 +59,17 @@ export type Reimbursement = {
   project_category: string;
   project_category_other: string;
   description: string;
+  bank_name: string;
+  bank_account_name: string;
+  bank_account_number: string;
+  contact_email: string;
   attachment_name: string;
   attachment_url: string | null;
   status: string;
+  status_display: string;
+  amount_set_by: number | null;
+  amount_set_by_name: string | null;
+  amount_set_at: string | null;
   submitted_at: string | null;
   approved_at: string | null;
   rejected_at: string | null;
@@ -93,6 +101,17 @@ export function listReimbursementCategories(): Promise<ReimbursementCategory[]> 
   return request<ReimbursementCategory[]>('/categories/').then(unwrapList);
 }
 
+/** Semi-hierarchical approval statuses (labels follow the backend). */
+export const REIMBURSEMENT_STATUS_LABELS: Record<string, string> = {
+  DRAFT: 'Draft',
+  PENDING: 'Pending HR Staff',
+  WAITING_HR_LEAD: 'Waiting HR Lead',
+  APPROVED: 'Approved',
+  REJECTED: 'Rejected',
+  PAID: 'Paid',
+  CANCELLED: 'Cancelled'
+};
+
 export type ReimbursementSummary = {
   counts: Record<string, number>;
   total: number;
@@ -120,19 +139,29 @@ export function createReimbursement(data: {
   transaction_date: string;
   amount: number;
   description: string;
+  bank_name: string;
+  bank_account_name: string;
+  bank_account_number: string;
+  contact_email: string;
 }): Promise<Reimbursement> {
   return request<Reimbursement>('/', { method: 'POST', body: JSON.stringify(data) });
+}
+
+/** Layer 1 — HR Staff sets Nominal Disetujui (PENDING -> WAITING_HR_LEAD). */
+export function reviewReimbursement(id: number, approved_amount: number): Promise<Reimbursement> {
+  return request<Reimbursement>(`/${id}/review/`, {
+    method: 'POST',
+    body: JSON.stringify({ approved_amount })
+  });
 }
 
 export function submitReimbursement(id: number): Promise<Reimbursement> {
   return request<Reimbursement>(`/${id}/submit/`, { method: 'POST' });
 }
 
-export function approveReimbursement(id: number, approved_amount: number): Promise<Reimbursement> {
-  return request<Reimbursement>(`/${id}/approve/`, {
-    method: 'POST',
-    body: JSON.stringify({ approved_amount }),
-  });
+/** Layer 2 — HR Lead approves payment of the reviewed amount (no amount change). */
+export function approveReimbursement(id: number): Promise<Reimbursement> {
+  return request<Reimbursement>(`/${id}/approve/`, { method: 'POST' });
 }
 
 export function rejectReimbursement(id: number, rejection_reason: string): Promise<Reimbursement> {

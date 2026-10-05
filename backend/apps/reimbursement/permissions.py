@@ -4,6 +4,9 @@ from apps.personnel.permissions import _role
 
 # HR/admin can see everything and manage reimbursements.
 REIMBURSEMENT_ADMIN_ROLES = {'ADMIN', 'HR_STAFF', 'HR_LEAD'}
+# Approval layers (ADMIN may act on either layer as superadmin fallback).
+REVIEW_ROLES = {'HR_STAFF', 'ADMIN'}        # set Nominal Disetujui
+FINAL_APPROVER_ROLES = {'HR_LEAD', 'ADMIN'}  # approve/reject payment
 
 def _employee_for(user):
     personnel = getattr(user, 'personnel', None)

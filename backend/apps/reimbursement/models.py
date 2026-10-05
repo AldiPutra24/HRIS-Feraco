@@ -19,9 +19,14 @@ class ReimbursementCategory(models.Model):
 
 
 class Reimbursement(models.Model):
+    # Semi-hierarchical approval:
+    #   PENDING (menunggu HR Staff) -> HR Staff review menetapkan Nominal
+    #   Disetujui -> WAITING_HR_LEAD -> HR Lead approve/reject -> APPROVED /
+    #   REJECTED -> PAID.
     STATUS_CHOICES = [
         ('DRAFT', 'Draft'),
-        ('PENDING', 'Pending'),
+        ('PENDING', 'Pending HR Staff'),
+        ('WAITING_HR_LEAD', 'Waiting HR Lead'),
         ('APPROVED', 'Approved'),
         ('REJECTED', 'Rejected'),
         ('PAID', 'Paid'),
@@ -50,6 +55,12 @@ class Reimbursement(models.Model):
     project_category = models.CharField(max_length=32, choices=PROJECT_CATEGORY_CHOICES, blank=True, default='')
     project_category_other = models.CharField(max_length=255, blank=True, default='')
     description = models.TextField(blank=True)
+    # Transfer destination + contact for the transfer confirmation email.
+    # Required for new requests (serializer/submit); blank on legacy rows.
+    bank_name = models.CharField(max_length=128, blank=True, default='')
+    bank_account_name = models.CharField(max_length=255, blank=True, default='')
+    bank_account_number = models.CharField(max_length=64, blank=True, default='')
+    contact_email = models.EmailField(blank=True, default='')
     # Attachment binary lives in Supabase Storage (like LeaveRequest).
     attachment_name = models.CharField(max_length=255, blank=True)
     attachment_path = models.CharField(max_length=512, blank=True)
@@ -59,6 +70,16 @@ class Reimbursement(models.Model):
     approved_at = models.DateTimeField(null=True, blank=True)
     rejected_at = models.DateTimeField(null=True, blank=True)
     paid_at = models.DateTimeField(null=True, blank=True)
+    # Layer 1 — HR Staff who set the approved amount (Nominal Disetujui).
+    amount_set_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='amount_set_reimbursements',
+    )
+    amount_set_at = models.DateTimeField(null=True, blank=True)
+    # Layer 2 — final decision (HR Lead approve/reject payment).
     reviewer = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,

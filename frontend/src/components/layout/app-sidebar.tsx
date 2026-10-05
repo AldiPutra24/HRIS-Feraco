@@ -28,7 +28,7 @@ import { UserAvatarProfile } from '@/components/user-avatar-profile';
 import { employeeNavGroups, managementNavGroups, navGroups } from '@/config/nav-config';
 import { useMediaQuery } from '@/hooks/use-media-query';
 import { useAuth } from '@/lib/auth/auth-provider';
-import { readMode, writeMode } from '@/lib/auth/dashboard-mode';
+import { hasDualMode, readMode, writeMode } from '@/lib/auth/dashboard-mode';
 import { useFilteredNavGroups } from '@/hooks/use-nav';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
@@ -42,7 +42,8 @@ export default function AppSidebar() {
   const router = useRouter();
   const isEmployee = user?.role === 'employee';
   const isManagement = user?.role === 'management' || user?.role === 'general_manager';
-  const isHrStaff = user?.role === 'hr_staff';
+  // HR Staff / HR Lead: HRIS dashboard + own Employee self-service (switchable).
+  const isHrStaff = hasDualMode(user?.role);
   const [hrMode, setHrMode] = React.useState<'hris' | 'employee' | null>(null);
 
   React.useEffect(() => {

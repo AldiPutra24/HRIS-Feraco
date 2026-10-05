@@ -28,10 +28,13 @@ export function formatIsoShort(value: string): string {
  */
 export function MultiDateCalendar({
   value,
-  onChange
+  onChange,
+  minDate
 }: {
   value: string[];
   onChange: (next: string[]) => void;
+  /** ISO date; earlier days are disabled (no backdate). */
+  minDate?: string;
 }) {
   const today = new Date();
   const first = value[0] ? value[0].split('-').map(Number) : null;
@@ -84,15 +87,18 @@ export function MultiDateCalendar({
           if (day === null) return <span key={`blank-${i}`} />;
           const key = iso(cursor.y, cursor.m, day);
           const selected = value.includes(key);
+          const disabled = !!minDate && key < minDate;
           return (
             <button
               key={key}
               type='button'
               onClick={() => toggle(day)}
               aria-pressed={selected}
+              disabled={disabled}
               className={cn(
                 'h-8 rounded-md text-sm transition-colors',
-                selected ? 'bg-primary text-primary-foreground font-semibold' : 'hover:bg-muted',
+                disabled && 'text-muted-foreground/40 cursor-not-allowed',
+                selected ? 'bg-primary text-primary-foreground font-semibold' : !disabled && 'hover:bg-muted',
                 !selected && key === todayIso && 'border-primary border'
               )}
             >

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
-import { listBalances, listLeaveRequests, type LeaveBalance, type LeaveRequest } from '@/lib/leaves';
+import { formatDays, getMyBalances, listLeaveRequests, type LeaveRequest, type MyBalance } from '@/lib/leaves';
 import { useMyEmployee } from './use-my-employee';
 
 const STATUS_VARIANT: Record<string, 'default' | 'secondary' | 'destructive' | 'outline'> = {
@@ -21,16 +21,16 @@ function StatusBadge({ status }: { status: string }) {
 
 export function EmployeeLeave() {
   const { employee, loading: profileLoading, error: profileError } = useMyEmployee();
-  const [balances, setBalances] = useState<LeaveBalance[]>([]);
+  const [balances, setBalances] = useState<MyBalance[]>([]);
   const [requests, setRequests] = useState<LeaveRequest[]>([]);
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
     setLoading(true);
-    const [b, r] = await Promise.all([listBalances(), listLeaveRequests()]);
+    const [b, r] = await Promise.all([getMyBalances().catch(() => [] as MyBalance[]), listLeaveRequests()]);
     // HR staff sees all data server-side; scope to own employee when linked.
     const myId = employee?.id ?? null;
-    setBalances(myId ? b.filter((x) => x.employee === myId) : b);
+    setBalances(b);
     setRequests(myId ? r.filter((x) => x.employee === myId) : r);
     setLoading(false);
   }, [employee?.id]);
@@ -58,7 +58,8 @@ export function EmployeeLeave() {
 
   const pending = requests.filter((r) => r.status === 'PENDING').length;
   const approved = requests.filter((r) => r.status === 'APPROVED').length;
-  const totalRemaining = balances.reduce((sum, b) => sum + b.remaining_days, 0);
+  // Sisa kuota "per hari ini" from the quota engine (Cuti Tahunan first).
+  const mainQuota = balances.find((b) => b.leave_type_code === 'ANNUAL') ?? balances[0] ?? null;
 
   return (
     <div className='flex flex-1 flex-col gap-4 p-4 md:p-6'>
@@ -73,8 +74,15 @@ export function EmployeeLeave() {
             <CardTitle className='text-sm'>Sisa Kuota</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className='text-3xl font-semibold'>{totalRemaining}</p>
-            <p className='text-muted-foreground text-xs'>hari tersisa</p>
+            <p className='text-3xl font-semibold'>{mainQuota ? formatDays(mainQuota.remaining_days) : '-'}</p>
+            <p className='text-muted-foreground text-xs'>
+              {mainQuota
+                ? `hari ${mainQuota.leave_type_name} per ${new Date(mainQuota.as_of).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' })}`
+                : 'hari tersisa'}
+            </p>
+            {mainQuota && mainQuota.pending_days > 0 && (
+              <p className='text-muted-foreground text-xs'>{formatDays(mainQuota.pending_days)} hari menunggu persetujuan</p>
+            )}
           </CardContent>
         </Card>
         <Card>
@@ -126,7 +134,7 @@ export function EmployeeLeave() {
                       <td className='px-4 py-2'>
                         {r.leave_dates_display || `${r.start_date} — ${r.end_date}`}
                       </td>
-                      <td className='px-4 py-2'>{r.total_days}</td>
+                      <td className='px-4 py-2'>{formatDays(r.total_days)}</td>
                       <td className='px-4 py-2'>
                         <StatusBadge status={r.status} />
                       </td>

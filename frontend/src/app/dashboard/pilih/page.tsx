@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Icons } from '@/components/icons';
 import { useAuth } from '@/lib/auth/auth-provider';
-import { readMode, writeMode, type DashboardMode } from '@/lib/auth/dashboard-mode';
+import { hasDualMode, readMode, writeMode, type DashboardMode } from '@/lib/auth/dashboard-mode';
 import { useRouter } from 'next/navigation';
 import { useEffect } from 'react';
 
@@ -41,7 +41,7 @@ export default function PilihDashboardPage() {
       router.replace('/login');
       return;
     }
-    if (user.role !== 'hr_staff') {
+    if (!hasDualMode(user.role)) {
       router.replace('/dashboard');
       return;
     }

@@ -10,11 +10,13 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { QuotaAdjustmentPanel } from './quota-adjustment-panel';
 import { useAuth } from '@/lib/auth/auth-provider';
 import {
   approveLeave,
   cancelLeave,
   hardDeleteLeave,
+  formatDays,
   listBalances,
   listLeaveRequests,
   listLeaveTypes,
@@ -275,6 +277,7 @@ export function LeavePage() {
                       <TableHead>Jenis</TableHead>
                       <TableHead>Tahun</TableHead>
                       <TableHead>Dialokasikan</TableHead>
+                      <TableHead>Adjustment</TableHead>
                       <TableHead>Terpakai</TableHead>
                       <TableHead>Sisa</TableHead>
                     </TableRow>
@@ -283,19 +286,23 @@ export function LeavePage() {
                     {balances.map((b) => {
                       const meta = types.find((t) => t.id === b.leave_type);
                       const deductTarget = meta?.deducts_from != null ? types.find((t) => t.id === meta.deducts_from) : null;
-                      const hasQuota = b.allocated_days > 0;
+                      const hasQuota = b.allocated_days > 0 || b.adjustment_days !== 0;
                       return (
                         <TableRow key={b.id}>
                           <TableCell>{b.leave_type_name}</TableCell>
                           <TableCell>{b.year}</TableCell>
                           {hasQuota ? (
                             <>
-                              <TableCell>{b.allocated_days}</TableCell>
-                              <TableCell>{b.used_days}</TableCell>
-                              <TableCell>{b.remaining_days}</TableCell>
+                              <TableCell>{formatDays(b.allocated_days)}</TableCell>
+                              <TableCell>
+                                {b.adjustment_days > 0 ? '+' : ''}
+                                {formatDays(b.adjustment_days)}
+                              </TableCell>
+                              <TableCell>{formatDays(b.used_days)}</TableCell>
+                              <TableCell>{formatDays(b.remaining_days)}</TableCell>
                             </>
                           ) : (
-                            <TableCell colSpan={3}>
+                            <TableCell colSpan={4}>
                               <span className='text-muted-foreground text-sm'>
                                 {deductTarget ? `Mengurangi ${deductTarget.name}` : 'Tanpa kuota (hak khusus)'}
                               </span>
@@ -308,6 +315,14 @@ export function LeavePage() {
                 </Table>
               </>
             ) : null}
+            {balanceEmpId && (
+              <QuotaAdjustmentPanel
+                employeeId={balanceEmpId}
+                year={balanceYear}
+                types={types}
+                onSaved={() => reloadBalances()}
+              />
+            )}
           </CardContent>
         </Card>
       )}
@@ -416,7 +431,7 @@ export function LeavePage() {
                   <TableCell>
                     {r.leave_dates_display || `${r.start_date} — ${r.end_date}`}
                   </TableCell>
-                  <TableCell>{r.total_days}</TableCell>
+                  <TableCell>{formatDays(r.total_days)}</TableCell>
                   <TableCell>
                     <StatusBadge status={r.status} />
                   </TableCell>

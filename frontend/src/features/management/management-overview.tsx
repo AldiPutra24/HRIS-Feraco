@@ -119,7 +119,7 @@ function AttentionItem({ leave }: { leave: ManagementPendingLeave }) {
         <div className='min-w-0'>
           <p className='truncate text-sm font-medium'>{leave.employee_name}</p>
           <p className='text-muted-foreground truncate text-xs'>
-            {leave.leave_type_name} · {fmtDate(leave.start_date)} – {fmtDate(leave.end_date)} ({leave.total_days} hari)
+            {leave.leave_type_name} · {fmtDate(leave.start_date)} – {fmtDate(leave.end_date)} ({String(leave.total_days).replace('.', ',')} hari)
           </p>
         </div>
       </div>

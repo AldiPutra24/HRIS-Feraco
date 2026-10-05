@@ -26,7 +26,11 @@ export function ReimbursementForm({ redirectTo = '/dashboard/employee/reimbursem
     project_category_other: '',
     transaction_date: '',
     amount: '',
-    description: ''
+    description: '',
+    bank_name: '',
+    bank_account_name: '',
+    bank_account_number: '',
+    contact_email: ''
   });
   const [file, setFile] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
@@ -61,8 +65,24 @@ export function ReimbursementForm({ redirectTo = '/dashboard/employee/reimbursem
       toast.error('Jumlah harus lebih dari 0.');
       return;
     }
+    if (!form.bank_name.trim() || !form.bank_account_name.trim() || !form.bank_account_number.trim()) {
+      toast.error('Lengkapi Nama Bank, Nama Pemilik Rekening, dan Nomor Rekening.');
+      return;
+    }
+    if (!/^[\d\s-]{5,40}$/.test(form.bank_account_number.trim())) {
+      toast.error('Nomor rekening hanya boleh angka.');
+      return;
+    }
+    if (!/^\S+@\S+\.\S+$/.test(form.contact_email.trim())) {
+      toast.error('Email aktif wajib diisi dengan format yang benar.');
+      return;
+    }
     if (!file) {
-      toast.error('Lampiran wajib diunggah.');
+      toast.error('Bukti Payment/Tagihan/Invoice wajib diunggah.');
+      return;
+    }
+    if (!file.name.toLowerCase().endsWith('.pdf')) {
+      toast.error('Bukti Payment/Tagihan/Invoice harus berupa file PDF.');
       return;
     }
     setSaving(true);
@@ -73,7 +93,11 @@ export function ReimbursementForm({ redirectTo = '/dashboard/employee/reimbursem
         project_category_other: form.project_category_other,
         transaction_date: form.transaction_date,
         amount,
-        description: form.description
+        description: form.description,
+        bank_name: form.bank_name.trim(),
+        bank_account_name: form.bank_account_name.trim(),
+        bank_account_number: form.bank_account_number.trim(),
+        contact_email: form.contact_email.trim()
       });
       await uploadReimbursementAttachment(created.id, file);
       await submitReimbursement(created.id);
@@ -171,16 +195,73 @@ export function ReimbursementForm({ redirectTo = '/dashboard/employee/reimbursem
                 onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))}
               />
             </div>
+            <div className='md:col-span-4'>
+              <p className='text-sm font-medium'>Informasi Rekening</p>
+            </div>
             <div>
               <Label className='text-xs'>
-                Lampiran <span className='text-destructive'>*</span>
+                Nama Bank <span className='text-destructive'>*</span>
+              </Label>
+              <Input
+                required
+                placeholder='mis. BCA'
+                value={form.bank_name}
+                onChange={(e) => setForm((f) => ({ ...f, bank_name: e.target.value }))}
+              />
+            </div>
+            <div>
+              <Label className='text-xs'>
+                Nama Pemilik Rekening <span className='text-destructive'>*</span>
+              </Label>
+              <Input
+                required
+                placeholder='Sesuai buku tabungan'
+                value={form.bank_account_name}
+                onChange={(e) => setForm((f) => ({ ...f, bank_account_name: e.target.value }))}
+              />
+            </div>
+            <div>
+              <Label className='text-xs'>
+                Nomor Rekening <span className='text-destructive'>*</span>
+              </Label>
+              <Input
+                required
+                inputMode='numeric'
+                placeholder='1234567890'
+                value={form.bank_account_number}
+                onChange={(e) => setForm((f) => ({ ...f, bank_account_number: e.target.value }))}
+              />
+            </div>
+            <div>
+              <Label className='text-xs'>
+                Email <span className='text-destructive'>*</span>
+              </Label>
+              <Input
+                required
+                type='email'
+                placeholder='nama@email.com'
+                value={form.contact_email}
+                onChange={(e) => setForm((f) => ({ ...f, contact_email: e.target.value }))}
+              />
+              <p className='text-muted-foreground mt-1 text-xs'>
+                Mohon cantumkan alamat email yang aktif untuk menerima notifikasi konfirmasi transfer
+              </p>
+            </div>
+            <div className='md:col-span-4'>
+              <Label className='text-xs'>
+                Bukti Payment/Tagihan/Invoice <span className='text-destructive'>*</span>
               </Label>
               <input
                 type='file'
                 required
+                accept='application/pdf,.pdf'
                 className='mt-1 block w-full text-sm text-muted-foreground file:mr-3 file:rounded-md file:border-0 file:bg-primary file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-primary-foreground hover:file:bg-primary/80'
                 onChange={(e) => setFile(e.target.files?.[0] || null)}
               />
+              <p className='text-muted-foreground mt-1 text-xs'>
+                Lampirkan bukti transaksi untuk pengajuan reimburse. Jika terdapat lebih dari 1 bukti transaksi,
+                silakan duplicate/copy template sesuai jumlah item transaksi, kemudian upload dalam format PDF.
+              </p>
             </div>
             <div className='md:col-span-4'>
               <Label className='text-xs'>Deskripsi</Label>

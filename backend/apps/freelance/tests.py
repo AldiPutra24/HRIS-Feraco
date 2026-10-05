@@ -817,3 +817,15 @@ class TaskReminderRegressionTests(TestCase):
         self.assertEqual(result['sent'], 1)
         log = TaskReminderLog.objects.filter(kind='REMINDER').get()
         self.assertEqual(log.offset_days, 1)  # most urgent due offset, single email
+
+
+class TaskBackendKeptTests(TestCase):
+    """Task & Progress menu is hidden in the UI only; API/data stay available."""
+
+    def test_task_api_still_available(self):
+        role, _ = Role.objects.get_or_create(key='HR_STAFF', defaults={'name': 'HR_STAFF'})
+        user = User.objects.create_user(username='hrtask@test.com', email='hrtask@test.com', password='x')
+        user.role = role
+        user.save()
+        self.client.force_login(user)
+        self.assertEqual(self.client.get('/api/freelance/tasks/').status_code, 200)

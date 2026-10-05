@@ -272,13 +272,8 @@ export const navGroups: NavGroup[] = [
         isActive: false,
         items: []
       },
-      {
-        title: 'Task & Progress',
-        url: '/dashboard/task',
-        icon: 'task',
-        isActive: false,
-        items: []
-      },
+      // Task & Progress: hidden for now. Route /dashboard/task, API and data
+      // are kept — restore this item to re-enable.
       {
         title: 'Izin & Cuti',
         url: '/dashboard/leave',

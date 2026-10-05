@@ -36,6 +36,9 @@ AVAILABLE_PLACEHOLDERS = [
     '{{reimbursement_amount}}',
     '{{reimbursement_date}}',
     '{{reimbursement_description}}',
+    '{{reimbursement_approved_amount}}',
+    '{{reimbursement_bank}}',
+    '{{payment_reference}}',
 ]
 
 DEFAULT_TEMPLATES = {
@@ -71,7 +74,40 @@ DEFAULT_TEMPLATES = {
         'Tanggal transaksi: {{reimbursement_date}}\n'
         'Nominal: {{reimbursement_amount}}\n'
         'Keterangan: {{reimbursement_description}}\n\n'
-        'Silakan tinjau di menu Reimbursement di HRIS Feraco.\n\n'
+        'Silakan tinjau dan tetapkan Nominal Disetujui di menu Reimbursement HRIS Feraco.\n\n'
+        'Terima kasih,\nHRIS Feraco',
+    ),
+    'REIMBURSEMENT_REVIEWED': (
+        '[HRIS] Reimbursement Menunggu Approval HR Lead - {{employee_name}}',
+        'Halo HR Lead,\n\n'
+        'Reimbursement {{reimbursement_category}} dari {{employee_name}} sudah direview HR Staff.\n\n'
+        'Nominal diajukan: {{reimbursement_amount}}\n'
+        'Nominal disetujui: {{reimbursement_approved_amount}}\n\n'
+        'Silakan approve/reject pembayaran di menu Reimbursement HRIS Feraco.\n\n'
+        'Terima kasih,\nHRIS Feraco',
+    ),
+    'REIMBURSEMENT_APPROVED': (
+        '[HRIS] Reimbursement Disetujui',
+        'Halo {{employee_name}},\n\n'
+        'Reimbursement {{reimbursement_category}} Anda ({{reimbursement_date}}) telah DISETUJUI.\n'
+        'Nominal disetujui: {{reimbursement_approved_amount}}\n\n'
+        'Pembayaran akan ditransfer ke {{reimbursement_bank}}.\n\n'
+        'Terima kasih,\nHRIS Feraco',
+    ),
+    'REIMBURSEMENT_REJECTED': (
+        '[HRIS] Reimbursement Ditolak',
+        'Halo {{employee_name}},\n\n'
+        'Reimbursement {{reimbursement_category}} Anda ({{reimbursement_date}}) DITOLAK.\n\n'
+        'Alasan: {{rejection_reason}}\n\n'
+        'Terima kasih,\nHRIS Feraco',
+    ),
+    'REIMBURSEMENT_PAID': (
+        '[HRIS] Konfirmasi Transfer Reimbursement',
+        'Halo {{employee_name}},\n\n'
+        'Reimbursement {{reimbursement_category}} Anda telah DIBAYAR.\n\n'
+        'Nominal: {{reimbursement_approved_amount}}\n'
+        'Rekening tujuan: {{reimbursement_bank}}\n'
+        'Referensi transfer: {{payment_reference}}\n\n'
         'Terima kasih,\nHRIS Feraco',
     ),
     'CONTRACT': (
@@ -156,6 +192,9 @@ PREVIEW_CONTEXT = {
     'reimbursement_amount': 'Rp 250.000',
     'reimbursement_date': '01 Okt 2026',
     'reimbursement_description': 'Taksi ke lokasi event',
+    'reimbursement_approved_amount': 'Rp 200.000',
+    'reimbursement_bank': 'BCA 1234567890 a.n. Budi Santoso',
+    'payment_reference': 'TRF/2026/10/001',
     'rejection_reason': 'Kuota cuti tidak mencukupi',
     'birthday_today': ' HARI INI',
 }

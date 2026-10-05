@@ -429,8 +429,10 @@ class NotificationSettingsApiTests(TestCase):
         res = self.client.get(EVENTS_URL)
         self.assertEqual(res.status_code, 200)
         events = {row['event'] for row in res.data}
-        self.assertEqual(len(events), 7)
-        self.assertIn('REIMBURSEMENT_SUBMITTED', events)
+        self.assertEqual(len(events), 11)
+        for ev in ('REIMBURSEMENT_SUBMITTED', 'REIMBURSEMENT_REVIEWED', 'REIMBURSEMENT_APPROVED',
+                   'REIMBURSEMENT_REJECTED', 'REIMBURSEMENT_PAID'):
+            self.assertIn(ev, events)
         self.assertIn('BIRTHDAY_HR', events)
         self.assertIn('BIRTHDAY_EMPLOYEE', events)
         row = next(r for r in res.data if r['event'] == 'LEAVE_REJECTED')

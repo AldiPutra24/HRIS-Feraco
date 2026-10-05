@@ -18,6 +18,8 @@ import {
   listReimbursements,
   markReimbursementPaid,
   rejectReimbursement,
+  reviewReimbursement,
+  REIMBURSEMENT_STATUS_LABELS,
   type Reimbursement,
   type ReimbursementCategory
 } from '@/lib/reimbursements';
@@ -27,16 +29,17 @@ import { useAuth } from '@/lib/auth/auth-provider';
 const STATUS_VARIANT: Record<string, 'default' | 'secondary' | 'destructive' | 'outline'> = {
   DRAFT: 'outline',
   PENDING: 'secondary',
+  WAITING_HR_LEAD: 'secondary',
   APPROVED: 'default',
   REJECTED: 'destructive',
   PAID: 'default',
   CANCELLED: 'outline'
 };
 
-const STATUS_OPTIONS = ['DRAFT', 'PENDING', 'APPROVED', 'REJECTED', 'PAID', 'CANCELLED'];
+const STATUS_OPTIONS = ['DRAFT', 'PENDING', 'WAITING_HR_LEAD', 'APPROVED', 'REJECTED', 'PAID', 'CANCELLED'];
 
 function StatusBadge({ status }: { status: string }) {
-  return <Badge variant={STATUS_VARIANT[status] ?? 'secondary'}>{status}</Badge>;
+  return <Badge variant={STATUS_VARIANT[status] ?? 'secondary'}>{REIMBURSEMENT_STATUS_LABELS[status] ?? status}</Badge>;
 }
 
 function formatAmount(n: number): string {
@@ -53,6 +56,12 @@ export function ReimbursementPage() {
     if (user?.role === 'management' || user?.role === 'general_manager') router.replace('/dashboard/management/reimbursement');
   }, [user, router]);
   const canAct = user?.role !== 'management';
+  // Layer 1: HR Staff sets Nominal Disetujui. Layer 2: HR Lead approves payment.
+  // (Admin may act on both; the backend enforces every layer.)
+  const canReview = user?.role === 'hr_staff' || user?.role === 'admin';
+  const canFinalApprove = user?.role === 'hr_lead' || user?.role === 'admin';
+  const canRejectStatus = (s: string) =>
+    (s === 'PENDING' && canReview) || (s === 'WAITING_HR_LEAD' && canFinalApprove);
   const searchParams = useSearchParams();
   const fStatus = searchParams.get('status') ?? '';
   const fCategory = searchParams.get('category') ?? '';
@@ -120,10 +129,22 @@ export function ReimbursementPage() {
       return;
     }
     try {
-      await approveReimbursement(approving.id, val);
-      toast.success('Reimbursement disetujui.');
+      await reviewReimbursement(approving.id, val);
+      toast.success('Nominal disetujui ditetapkan. Menunggu approval HR Lead.');
       setApproving(null);
       setApproveAmount('');
+      load();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Gagal menyetujui.');
+    }
+  }
+
+  async function finalApprove(r: Reimbursement) {
+    const amount = r.approved_amount != null ? formatAmount(r.approved_amount) : '-';
+    if (!window.confirm(`Setujui pembayaran reimbursement ${r.employee_name} sebesar ${amount}?`)) return;
+    try {
+      await approveReimbursement(r.id);
+      toast.success('Pembayaran reimbursement disetujui.');
       load();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Gagal menyetujui.');
@@ -280,7 +301,21 @@ export function ReimbursementPage() {
                 <span className='text-muted-foreground'>Status:</span> <StatusBadge status={focused.status} />
               </p>
               <p>
-                <span className='text-muted-foreground'>Lampiran:</span>{' '}
+                <span className='text-muted-foreground'>Nominal disetujui:</span>{' '}
+                {focused.approved_amount != null ? formatAmount(focused.approved_amount) : '-'}
+                {focused.amount_set_by_name ? ` (oleh ${focused.amount_set_by_name})` : ''}
+              </p>
+              <p>
+                <span className='text-muted-foreground'>Rekening:</span>{' '}
+                {focused.bank_name
+                  ? `${focused.bank_name} ${focused.bank_account_number} a.n. ${focused.bank_account_name}`
+                  : '-'}
+              </p>
+              <p>
+                <span className='text-muted-foreground'>Email:</span> {focused.contact_email || '-'}
+              </p>
+              <p>
+                <span className='text-muted-foreground'>Bukti Payment/Invoice:</span>{' '}
                 {focused.attachment_url ? (
                   <a href={focused.attachment_url} target='_blank' rel='noreferrer' className='text-primary underline'>
                     {focused.attachment_name}
@@ -291,11 +326,17 @@ export function ReimbursementPage() {
               </p>
             </div>
             {focused.description && <p className='text-muted-foreground'>{focused.description}</p>}
-            {canAct && focused.status === 'PENDING' && (
+            {canAct && canRejectStatus(focused.status) && (
               <div className='flex gap-2'>
-                <Button variant='success' size='sm' onClick={() => approve(focused)}>
-                  Setujui
-                </Button>
+                {focused.status === 'PENDING' ? (
+                  <Button variant='success' size='sm' onClick={() => approve(focused)}>
+                    Review Nominal
+                  </Button>
+                ) : (
+                  <Button variant='success' size='sm' onClick={() => finalApprove(focused)}>
+                    Setujui Pembayaran
+                  </Button>
+                )}
                 <Button variant='destructive' size='sm' onClick={() => setRejecting(focused)}>
                   Tolak
                 </Button>
@@ -324,7 +365,8 @@ export function ReimbursementPage() {
                     <TableHead className='text-right'>Nominal Diajukan</TableHead>
                     <TableHead className='text-right'>Nominal Disetujui</TableHead>
                     <TableHead>Status</TableHead>
-                    <TableHead>Lampiran</TableHead>
+                    <TableHead>Rekening</TableHead>
+                    <TableHead>Bukti Payment/Invoice</TableHead>
                     <TableHead>Bukti Transfer</TableHead>
                     <TableHead className='sticky right-0 bg-background text-right shadow-[inset_1px_0_0_var(--color-border)]'>
                       Aksi
@@ -342,6 +384,23 @@ export function ReimbursementPage() {
                       <TableCell className='text-right'>{r.approved_amount != null ? formatAmount(r.approved_amount) : '-'}</TableCell>
                       <TableCell>
                         <StatusBadge status={r.status} />
+                      </TableCell>
+                      <TableCell className='text-xs'>
+                        {r.bank_name ? (
+                          <>
+                            {r.bank_name} {r.bank_account_number}
+                            <br />
+                            a.n. {r.bank_account_name}
+                            {r.contact_email && (
+                              <>
+                                <br />
+                                {r.contact_email}
+                              </>
+                            )}
+                          </>
+                        ) : (
+                          <span className='text-muted-foreground'>-</span>
+                        )}
                       </TableCell>
                       <TableCell>
                         {r.attachment_url ? (
@@ -363,11 +422,17 @@ export function ReimbursementPage() {
                       </TableCell>
                       <TableCell className='sticky right-0 bg-background text-right shadow-[inset_1px_0_0_var(--color-border)]'>
                         <div className='flex justify-end gap-1'>
-                          {canAct && r.status === 'PENDING' && (
+                          {canAct && canRejectStatus(r.status) && (
                             <>
-                              <Button variant='success' size='sm' onClick={() => approve(r)}>
-                                Setujui
-                              </Button>
+                              {r.status === 'PENDING' ? (
+                                <Button variant='success' size='sm' onClick={() => approve(r)}>
+                                  Review Nominal
+                                </Button>
+                              ) : (
+                                <Button variant='success' size='sm' onClick={() => finalApprove(r)}>
+                                  Setujui Pembayaran
+                                </Button>
+                              )}
                               <Button variant='destructive' size='sm' onClick={() => setRejecting(r)}>
                                 Tolak
                               </Button>
@@ -404,7 +469,7 @@ export function ReimbursementPage() {
         <div className='fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4'>
           <Card className='w-full max-w-md'>
             <CardHeader>
-              <CardTitle>Setujui Reimbursement</CardTitle>
+              <CardTitle>Review — Tetapkan Nominal Disetujui</CardTitle>
             </CardHeader>
             <CardContent>
               <div className='space-y-3'>
@@ -432,7 +497,7 @@ export function ReimbursementPage() {
                   >
                     Batal
                   </Button>
-                  <Button onClick={confirmApprove}>Setujui</Button>
+                  <Button onClick={confirmApprove}>Simpan &amp; Teruskan ke HR Lead</Button>
                 </div>
               </div>
             </CardContent>

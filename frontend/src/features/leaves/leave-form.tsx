@@ -10,9 +10,12 @@ import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
   createLeaveRequest,
+  formatDays,
+  getMyBalances,
   listLeaveTypes,
   uploadLeaveAttachment,
-  type LeaveType
+  type LeaveType,
+  type MyBalance
 } from '@/lib/leaves';
 import { getMyEmployee } from '@/lib/employee-self';
 import type { Employee } from '@/lib/employees';
@@ -28,17 +31,27 @@ export function LeaveForm({ redirectTo = '/dashboard/leave' }: { redirectTo?: st
     leave_type: '',
     reason: ''
   });
-  // Individually picked leave days (non-consecutive allowed); total = count.
+  // Individually picked leave days (non-consecutive allowed).
   const [dates, setDates] = useState<string[]>([]);
+  // Days taken as Half Day (0,5) — Cuti Tahunan only.
+  const [halfDays, setHalfDays] = useState<string[]>([]);
+  const [myBalances, setMyBalances] = useState<MyBalance[]>([]);
+  const now = new Date();
+  const todayIso = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
   const [file, setFile] = useState<File | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [me, setMe] = useState<Employee | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
-    const [t, emp] = await Promise.all([listLeaveTypes(), getMyEmployee().catch(() => null)]);
+    const [t, emp, b] = await Promise.all([
+      listLeaveTypes(),
+      getMyEmployee().catch(() => null),
+      getMyBalances().catch(() => [] as MyBalance[])
+    ]);
     setTypes(t);
     setMe(emp);
+    setMyBalances(b);
     setLoading(false);
   }, []);
 
@@ -53,12 +66,17 @@ export function LeaveForm({ redirectTo = '/dashboard/leave' }: { redirectTo?: st
       toast.error('Lengkapi kategori, tanggal (minimal 1 hari), dan alasan pengajuan.');
       return;
     }
+    if (dates.some((d) => d < todayIso)) {
+      toast.error('Tidak dapat mengajukan untuk tanggal sebelum hari ini.');
+      return;
+    }
     setSubmitting(true);
     try {
       const created = await createLeaveRequest({
         leave_type: Number(form.leave_type),
         kind,
         dates,
+        half_days: halfDayAllowed ? halfDays.filter((d) => dates.includes(d)) : [],
         reason: form.reason
       });
       if (file) await uploadLeaveAttachment(created.id, file);
@@ -68,6 +86,18 @@ export function LeaveForm({ redirectTo = '/dashboard/leave' }: { redirectTo?: st
       toast.error(err instanceof Error ? err.message : 'Gagal mengirim pengajuan.');
       setSubmitting(false); // re-enable so user can retry
     }
+  }
+
+  const selectedType = types.find((t) => t.id === Number(form.leave_type));
+  // Full Day / Half Day applies to Cuti Tahunan.
+  const halfDayAllowed = selectedType?.code === 'ANNUAL';
+  const effectiveHalf = halfDayAllowed ? halfDays.filter((d) => dates.includes(d)) : [];
+  const totalDays = dates.length - effectiveHalf.length * 0.5;
+  const quotaTypeId = selectedType ? (selectedType.deducts_from ?? selectedType.id) : null;
+  const quota = myBalances.find((b) => b.leave_type === quotaTypeId) ?? null;
+
+  function togglePortion(d: string) {
+    setHalfDays((prev) => (prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d]));
   }
 
   if (loading) {
@@ -139,11 +169,21 @@ export function LeaveForm({ redirectTo = '/dashboard/leave' }: { redirectTo?: st
                 <span className='text-muted-foreground'>(klik tanggal untuk memilih; boleh tidak berurutan)</span>
               </Label>
               <div className='mt-1 flex flex-col gap-3 md:flex-row'>
-                <MultiDateCalendar value={dates} onChange={setDates} />
+                <MultiDateCalendar value={dates} onChange={setDates} minDate={todayIso} />
                 <div className='flex-1 space-y-2'>
                   <p className='text-sm'>
-                    Total: <span className='font-semibold'>{dates.length} hari</span>
+                    Total: <span className='font-semibold'>{formatDays(totalDays)} hari</span>
                   </p>
+                  {quota && (
+                    <p className='text-muted-foreground text-xs'>
+                      Sisa kuota {quota.leave_type_name} per hari ini:{' '}
+                      <span className='text-foreground font-medium'>{formatDays(quota.remaining_days)} hari</span>
+                      {quota.pending_days > 0 && ` (${formatDays(quota.pending_days)} hari menunggu persetujuan)`}
+                    </p>
+                  )}
+                  {halfDayAllowed && dates.length > 0 && (
+                    <p className='text-muted-foreground text-xs'>Klik Full/Half pada tiap tanggal (Full Day = 1, Half Day = 0,5).</p>
+                  )}
                   {dates.length === 0 ? (
                     <p className='text-muted-foreground text-sm'>Belum ada tanggal dipilih.</p>
                   ) : (
@@ -154,6 +194,16 @@ export function LeaveForm({ redirectTo = '/dashboard/leave' }: { redirectTo?: st
                           className='bg-muted flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium'
                         >
                           {formatIsoShort(d)}
+                          {halfDayAllowed && (
+                            <button
+                              type='button'
+                              onClick={() => togglePortion(d)}
+                              className='bg-background rounded-full border px-1.5 text-[10px] font-semibold'
+                              aria-label={`Ubah Full/Half Day ${d}`}
+                            >
+                              {halfDays.includes(d) ? 'Half' : 'Full'}
+                            </button>
+                          )}
                           <button
                             type='button'
                             aria-label={`Hapus ${d}`}

@@ -41,6 +41,10 @@ CONFIG_KIND = {
     'LEAVE_APPROVED': 'LEAVE_APPROVED',
     'LEAVE_REJECTED': 'LEAVE_REJECTED',
     'REIMBURSEMENT_SUBMITTED': 'REIMBURSEMENT_SUBMITTED',
+    'REIMBURSEMENT_REVIEWED': 'REIMBURSEMENT_REVIEWED',
+    'REIMBURSEMENT_APPROVED': 'REIMBURSEMENT_APPROVED',
+    'REIMBURSEMENT_REJECTED': 'REIMBURSEMENT_REJECTED',
+    'REIMBURSEMENT_PAID': 'REIMBURSEMENT_PAID',
     'CONTRACT': 'CONTRACT',
     'BIRTHDAY_HR': 'BIRTHDAY',
     'BIRTHDAY_EMPLOYEE': 'BIRTHDAY',
@@ -58,9 +62,10 @@ HR_NOTIFY_ROLES = ('HR_STAFF', 'HR_LEAD')
 # Approval rights are unchanged (Admin informed only, cannot approve leave).
 LEAVE_NOTIFY_ROLES = ('ADMIN', 'HR_STAFF', 'HR_LEAD')
 
-# Reimbursement approvers (REIMBURSEMENT_ADMIN_ROLES) also get the bell:
-# ADMIN can approve reimbursements, so it must see new submissions too.
-REIMBURSEMENT_NOTIFY_ROLES = ('ADMIN', 'HR_STAFF', 'HR_LEAD')
+# Reimbursement bell follows the approval stage (Admin may act on both):
+#   submitted -> HR Staff review; reviewed -> HR Lead final approval.
+REIMBURSEMENT_REVIEW_ROLES = ('ADMIN', 'HR_STAFF')
+REIMBURSEMENT_FINAL_ROLES = ('ADMIN', 'HR_LEAD')
 
 
 def hr_notify_users(roles=HR_NOTIFY_ROLES, include_superusers=False):
@@ -231,11 +236,13 @@ def _approver_name(leave) -> str:
 
 
 def _leave_context(leave) -> dict:
-    from apps.leaves.services import format_leave_dates
+    from apps.leaves.services import format_days, format_leave_dates
 
     employee = leave.employee
     manager = _manager_employee(employee)
-    dates = leave.selected_dates() if hasattr(leave, 'selected_dates') else []
+    days = leave.selected_days() if hasattr(leave, 'selected_days') else []
+    dates = [d for d, _ in days]
+    half = [d for d, p in days if p == 'HALF']
     return {
         'employee_name': employee.full_name,
         'employee_email': _employee_email(employee),
@@ -244,8 +251,8 @@ def _leave_context(leave) -> dict:
         'leave_type': leave.leave_type.name,
         'leave_start': fmt_date(leave.start_date),
         'leave_end': fmt_date(leave.end_date),
-        'leave_dates': format_leave_dates(dates) if dates else fmt_date(leave.start_date),
-        'leave_days': str(leave.total_days or len(dates)),
+        'leave_dates': format_leave_dates(dates, half) if dates else fmt_date(leave.start_date),
+        'leave_days': format_days(leave.total_days or len(dates)),
         'leave_status': leave.get_status_display(),
         'approver_name': _approver_name(leave),
         'rejection_reason': getattr(leave, 'rejection_reason', '') or '-',
@@ -346,40 +353,105 @@ def _reimbursement_context(reimbursement) -> dict:
         'reimbursement_amount': _rupiah(reimbursement.amount),
         'reimbursement_date': fmt_date(reimbursement.transaction_date),
         'reimbursement_description': reimbursement.description or '-',
+        'reimbursement_approved_amount': (
+            _rupiah(reimbursement.approved_amount) if reimbursement.approved_amount is not None else '-'
+        ),
+        'reimbursement_bank': ' '.join(filter(None, [
+            reimbursement.bank_name, reimbursement.bank_account_number,
+            f'a.n. {reimbursement.bank_account_name}' if reimbursement.bank_account_name else '',
+        ])) or '-',
+        'payment_reference': reimbursement.payment_reference or '-',
+        'rejection_reason': reimbursement.rejection_reason or '-',
     }
 
 
-def notify_reimbursement_submitted(reimbursement) -> dict:
-    """Pengajuan reimbursement baru -> Admin / HR Staff / HR Lead (bell) + HR email list.
+def _own_reimbursement_link(user):
+    """Requester's own reimbursement page (management has its own route)."""
+    role = getattr(getattr(user, 'role', None), 'key', None)
+    if role in ('MANAGEMENT', 'GENERAL_MANAGER'):
+        return '/dashboard/management/reimbursement'
+    return '/dashboard/employee/reimbursement'
 
-    Idempotent via delivery-log keys `reimbursement-submitted:{id}` — a
-    re-fired hook never duplicates the bell item or the email.
-    """
+
+def _notify_reimbursement_hr(reimbursement, event, title, roles) -> dict:
+    """Bell for the HR layer that must act now + HR email list (submit only)."""
     result = {'inapp': 0, 'sent': 0, 'skipped': 0, 'failed': 0}
     try:
-        cfg, subject_tpl, body_tpl = _template('REIMBURSEMENT_SUBMITTED')
+        cfg, subject_tpl, body_tpl = _template(event)
         if not cfg.enabled:
             return result
         ctx = _reimbursement_context(reimbursement)
         subject, text_body, html_body, _ = render_email_parts(subject_tpl, body_tpl, ctx)
-        key = f'reimbursement-submitted:{reimbursement.pk}'
+        key = f'{event.lower().replace("_", "-")}:{reimbursement.pk}'
         link = f'{REIMBURSEMENT_LINK}?id={reimbursement.pk}'
         own_user_id = getattr(getattr(reimbursement.employee, 'user', None), 'pk', None)
-        for hr_user in hr_notify_users(REIMBURSEMENT_NOTIFY_ROLES, include_superusers=True):
+        for hr_user in hr_notify_users(roles, include_superusers=True):
             if hr_user.pk == own_user_id:
                 continue
-            if _deliver_inapp(
-                key, 'REIMBURSEMENT_SUBMITTED', hr_user,
-                'Pengajuan Reimbursement Baru', text_body, link=link, object_id=reimbursement.pk,
-            ):
+            if _deliver_inapp(key, event, hr_user, title, text_body, link=link, object_id=reimbursement.pk):
                 result['inapp'] += 1
-        for email in hr_recipients():
-            outcome = _send_email(key, 'REIMBURSEMENT_SUBMITTED', email, subject, text_body, html_body)
-            result[outcome] = result.get(outcome, 0) + 1
+        if event == 'REIMBURSEMENT_SUBMITTED':
+            for email in hr_recipients():
+                outcome = _send_email(key, event, email, subject, text_body, html_body)
+                result[outcome] = result.get(outcome, 0) + 1
     except Exception as exc:
         log_event(None, 'update', obj=None,
-                  description=f'notify_reimbursement_submitted error id={reimbursement.pk}: {exc}')
+                  description=f'{event} notification error id={reimbursement.pk}: {exc}')
     return result
+
+
+def _notify_reimbursement_employee(reimbursement, event, title) -> dict:
+    """Requester: bell + email to the contact email given on the request
+    (fallback: employee email). Idempotent per event."""
+    result = {'inapp': 0, 'sent': 0, 'skipped': 0, 'failed': 0}
+    try:
+        cfg, subject_tpl, body_tpl = _template(event)
+        if not cfg.enabled:
+            return result
+        ctx = _reimbursement_context(reimbursement)
+        subject, text_body, html_body, _ = render_email_parts(subject_tpl, body_tpl, ctx)
+        key = f'{event.lower().replace("_", "-")}:{reimbursement.pk}'
+        user = getattr(reimbursement.employee, 'user', None)
+        if _deliver_inapp(key, event, user, title, text_body,
+                          link=_own_reimbursement_link(user), object_id=reimbursement.pk):
+            result['inapp'] += 1
+        email = reimbursement.contact_email or _employee_email(reimbursement.employee)
+        outcome = _send_email(key, event, email, subject, text_body, html_body)
+        result[outcome] = result.get(outcome, 0) + 1
+    except Exception as exc:
+        log_event(None, 'update', obj=None,
+                  description=f'{event} notification error id={reimbursement.pk}: {exc}')
+    return result
+
+
+def notify_reimbursement_reviewed(reimbursement) -> dict:
+    """HR Staff set Nominal Disetujui -> HR Lead (+Admin) bell."""
+    return _notify_reimbursement_hr(
+        reimbursement, 'REIMBURSEMENT_REVIEWED', 'Reimbursement Menunggu Approval HR Lead',
+        REIMBURSEMENT_FINAL_ROLES,
+    )
+
+
+def notify_reimbursement_approved(reimbursement) -> dict:
+    return _notify_reimbursement_employee(reimbursement, 'REIMBURSEMENT_APPROVED', 'Reimbursement Disetujui')
+
+
+def notify_reimbursement_rejected(reimbursement) -> dict:
+    return _notify_reimbursement_employee(reimbursement, 'REIMBURSEMENT_REJECTED', 'Reimbursement Ditolak')
+
+
+def notify_reimbursement_paid(reimbursement) -> dict:
+    """Transfer confirmation to the requester (email from the request)."""
+    return _notify_reimbursement_employee(reimbursement, 'REIMBURSEMENT_PAID', 'Reimbursement Dibayar')
+
+
+def notify_reimbursement_submitted(reimbursement) -> dict:
+    """Pengajuan reimbursement baru -> HR Staff (+Admin) bell for review +
+    HR email list. Idempotent via key `reimbursement-submitted:{id}`."""
+    return _notify_reimbursement_hr(
+        reimbursement, 'REIMBURSEMENT_SUBMITTED', 'Pengajuan Reimbursement Baru',
+        REIMBURSEMENT_REVIEW_ROLES,
+    )
 
 
 # ---------------------------------------------------------------------------

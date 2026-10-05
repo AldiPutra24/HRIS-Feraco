@@ -1,7 +1,7 @@
 'use client';
 
 import { useAuth } from '@/lib/auth/auth-provider';
-import { readMode } from '@/lib/auth/dashboard-mode';
+import { hasDualMode, readMode } from '@/lib/auth/dashboard-mode';
 import { usePathname, useRouter } from 'next/navigation';
 import { useCallback, useEffect } from 'react';
 
@@ -27,8 +27,8 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
       router.replace('/dashboard/employee');
       return;
     }
-    // HR staff in employee mode may browse /dashboard/employee/*.
-    if (user?.role === 'hr_staff' && pathname.startsWith('/dashboard/employee')) {
+    // HR Staff / HR Lead in employee mode may browse their own /dashboard/employee/*.
+    if (hasDualMode(user?.role) && pathname.startsWith('/dashboard/employee')) {
       if (readMode() !== 'employee') router.replace('/dashboard/pilih');
       return;
     }

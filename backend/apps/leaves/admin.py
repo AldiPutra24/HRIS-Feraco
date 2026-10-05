@@ -11,7 +11,7 @@ class LeaveTypeAdmin(admin.ModelAdmin):
 
 @admin.register(LeaveBalance)
 class LeaveBalanceAdmin(admin.ModelAdmin):
-    list_display = ('employee', 'leave_type', 'year', 'allocated_days', 'used_days', 'remaining_days')
+    list_display = ('employee', 'leave_type', 'year', 'allocated_days', 'adjustment_days', 'used_days', 'remaining_days')
 
 
 @admin.register(LeaveRequest)

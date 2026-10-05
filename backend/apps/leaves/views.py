@@ -11,7 +11,7 @@ from apps.audit.services import log_event
 from apps.personnel.permissions import _role
 from apps.personnel.storage import is_configured, signed_url, upload_bytes
 
-from .models import LeaveBalance, LeaveNotification, LeaveRequest, LeaveType
+from .models import LeaveBalance, LeaveNotification, LeaveQuotaAdjustment, LeaveRequest, LeaveType
 from .permissions import (
     HR_APPROVER_ROLES,
     LEAVE_ADMIN_ROLES,
@@ -19,8 +19,13 @@ from .permissions import (
     LeaveRequestPermission,
     _employee_for,
 )
-from .serializers import LeaveBalanceSerializer, LeaveRequestSerializer, LeaveTypeSerializer
-from .services import apply_approval_deduction, get_balance, notify
+from .serializers import (
+    LeaveBalanceSerializer,
+    LeaveQuotaAdjustmentSerializer,
+    LeaveRequestSerializer,
+    LeaveTypeSerializer,
+)
+from .services import apply_approval_deduction, apply_quota_adjustment, balance_summary, get_balance, notify
 
 
 class LeaveTypeViewSet(viewsets.ModelViewSet):
@@ -71,6 +76,55 @@ class LeaveBalanceViewSet(viewsets.ModelViewSet):
     def perform_update(self, serializer):
         obj = serializer.save()
         log_event(self.request, 'update', obj=obj, description=f'Balance {obj.leave_type.code} for {obj.employee_id} corrected')
+
+    @action(detail=False, methods=['get'])
+    def me(self, request):
+        """Own remaining quota "per hari ini" (quota engine + carry forward +
+        HR adjustments - approved usage; pending shown separately)."""
+        employee = _employee_for(request.user)
+        if employee is None:
+            return Response({'detail': 'Akun tidak terhubung ke data karyawan.'}, status=status.HTTP_404_NOT_FOUND)
+        rows = balance_summary(employee)
+        for row in rows:
+            for key in ('allocated_days', 'adjustment_days', 'used_days', 'remaining_days', 'pending_days'):
+                row[key] = float(row[key])
+        return Response(rows)
+
+
+class LeaveQuotaAdjustmentViewSet(viewsets.ModelViewSet):
+    """HR manual quota adjustments (audit trail). Create + read only:
+    adjustments are immutable — corrections are new adjustments."""
+
+    queryset = LeaveQuotaAdjustment.objects.select_related('employee', 'leave_type', 'created_by').all()
+    serializer_class = LeaveQuotaAdjustmentSerializer
+    permission_classes = [IsLeaveAdmin]
+    http_method_names = ['get', 'post', 'head', 'options']
+    filterset_fields = ['employee', 'leave_type', 'year']
+    pagination_class = None
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        # Non-HR may only read their own adjustment history.
+        if _role(self.request.user) not in LEAVE_ADMIN_ROLES:
+            employee = _employee_for(self.request.user)
+            return qs.filter(employee_id=employee.id) if employee is not None else qs.none()
+        return qs
+
+    def perform_create(self, serializer):
+        data = serializer.validated_data
+        adjustment, balance = apply_quota_adjustment(
+            data['employee'], data['leave_type'], data['year'], data['amount'], data['reason'],
+            user=self.request.user,
+        )
+        serializer.instance = adjustment
+        log_event(
+            self.request, 'update', obj=adjustment,
+            description=(
+                f'Leave quota adjustment {adjustment.amount:+} {adjustment.leave_type.code} '
+                f'{adjustment.year} for {adjustment.employee.full_name}: {adjustment.reason}'
+            ),
+            changes_after={'adjustment': str(adjustment.amount), 'remaining_days': str(balance.remaining_days)},
+        )
 
 
 class LeaveRequestViewSet(viewsets.ModelViewSet):
@@ -188,7 +242,7 @@ class LeaveRequestViewSet(viewsets.ModelViewSet):
                 target_type = leave.leave_type.deducts_from or leave.leave_type
                 balance = get_balance(leave.employee, target_type, leave.start_date.year)
                 balance.used_days = max(0, balance.used_days - leave.total_days)
-                balance.remaining_days = balance.allocated_days - balance.used_days
+                balance.recompute()
                 balance.save(update_fields=['used_days', 'remaining_days'])
             leave_id = leave.id
             leave.delete()  # notifications cascade

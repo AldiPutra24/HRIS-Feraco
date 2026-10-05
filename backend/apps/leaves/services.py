@@ -1,10 +1,13 @@
 """Leave workflow helpers — balance accounting and in-app notifications."""
 from datetime import date
+from decimal import Decimal
 
 from django.db import transaction
 from django.utils import timezone
 
-from .models import LeaveBalance, LeaveNotification, LeaveType
+from .models import LeaveBalance, LeaveNotification, LeaveQuotaAdjustment, LeaveRequestDate, LeaveType
+
+HALF_DAY = Decimal('0.5')
 
 
 ANNUAL_CODE = 'ANNUAL'
@@ -25,26 +28,40 @@ def is_discontinued_leave_type(leave_type):
     )
 
 
-def format_leave_dates(dates):
+def supports_half_day(leave_type):
+    """Full Day / Half Day selection applies to Cuti Tahunan."""
+    return (leave_type.code or '').upper() == ANNUAL_CODE
+
+
+def format_days(value):
+    """Indonesian decimal label: 2.5 -> '2,5', 3.0 -> '3'."""
+    value = Decimal(str(value or 0))
+    text = f'{value.normalize():f}' if value != value.to_integral() else str(int(value))
+    return text.replace('.', ',')
+
+
+def format_leave_dates(dates, half_days=()):
     """Human label for actual leave dates, e.g. '01 Sep, 02 Sep, 05 Sep 2026'.
 
-    Runs of 3+ consecutive days are compressed ('01-05 Sep') so long legacy
-    ranges (maternity) stay readable; the year is printed once per year group.
+    Half days are marked '(½)' (e.g. '02 Sep (½)'). Runs of 3+ consecutive
+    FULL days are compressed ('01-05 Sep') so long legacy ranges (maternity)
+    stay readable; the year is printed once per year group.
     """
     from datetime import timedelta
 
+    half_days = set(half_days)
     dates = sorted(set(dates))
     if not dates:
         return '-'
     runs = []
     for d in dates:
-        if runs and d - runs[-1][-1] == timedelta(days=1):
+        if runs and d - runs[-1][-1] == timedelta(days=1) and d not in half_days and runs[-1][-1] not in half_days:
             runs[-1].append(d)
         else:
             runs.append([d])
 
     def day(d):
-        return f'{d.day:02d} {MONTHS_ID[d.month - 1]}'
+        return f'{d.day:02d} {MONTHS_ID[d.month - 1]}' + (' (½)' if d in half_days else '')
 
     parts = []
     for run in runs:
@@ -240,9 +257,69 @@ def get_balance(employee, leave_type, year):
         if prev and prev.remaining_days > 0:
             carry = min(prev.remaining_days, leave_type.carry_forward_max)
             balance.allocated_days += carry
-            balance.remaining_days += carry
+            balance.recompute()
             balance.save(update_fields=['allocated_days', 'remaining_days'])
     return balance
+
+
+def tracks_quota(leave_type):
+    """Types with a quota balance (Cuti Tahunan or a configured default quota)."""
+    return (leave_type.code or '').upper() == ANNUAL_CODE or leave_type.default_quota > 0
+
+
+@transaction.atomic
+def apply_quota_adjustment(employee, leave_type, year, amount, reason, user=None):
+    """Record an HR quota adjustment and mirror it on the balance row.
+
+    Base quota (allocated_days) is untouched; adjustment_days carries the
+    running sum so Balance = quota + adjustment - usage everywhere.
+    """
+    balance = get_balance(employee, leave_type, year)
+    balance = LeaveBalance.objects.select_for_update().get(pk=balance.pk)
+    adjustment = LeaveQuotaAdjustment.objects.create(
+        employee=employee, leave_type=leave_type, year=year,
+        amount=amount, reason=reason, created_by=user,
+    )
+    balance.adjustment_days += amount
+    balance.recompute()
+    balance.save(update_fields=['adjustment_days', 'remaining_days'])
+    return adjustment, balance
+
+
+def balance_summary(employee, today=None):
+    """Remaining quota "per hari ini" for each quota-tracked type.
+
+    Uses the quota engine (get_balance -> compute_annual_quota + carry
+    forward), HR adjustments and approved usage; pending requests are
+    reported separately (not yet deducted).
+    """
+    from .models import LeaveRequest
+
+    today = today or timezone.localdate()
+    rows = []
+    for leave_type in LeaveType.objects.filter(is_active=True).order_by('name'):
+        if not tracks_quota(leave_type):
+            continue
+        balance = get_balance(employee, leave_type, today.year)
+        pending = Decimal('0')
+        for lr in LeaveRequest.objects.filter(
+            employee=employee, status='PENDING', start_date__year=today.year,
+        ).select_related('leave_type'):
+            if (lr.leave_type.deducts_from_id or lr.leave_type_id) == leave_type.id:
+                pending += lr.total_days
+        rows.append({
+            'leave_type': leave_type.id,
+            'leave_type_name': leave_type.name,
+            'leave_type_code': leave_type.code,
+            'year': today.year,
+            'as_of': today.isoformat(),
+            'allocated_days': balance.allocated_days,
+            'adjustment_days': balance.adjustment_days,
+            'used_days': balance.used_days,
+            'remaining_days': balance.remaining_days,
+            'pending_days': pending,
+        })
+    return rows
 
 
 @transaction.atomic
@@ -258,13 +335,13 @@ def apply_approval_deduction(leave_request):
     target_type = leave_request.leave_type.deducts_from or leave_request.leave_type
     balance = get_balance(leave_request.employee, target_type, leave_request.start_date.year)
     balance.refresh_from_db()
-    if balance.allocated_days == 0:
+    if not balance.is_limited:
         # Unlimited quota types skip deduction entirely.
         leave_request.balance_deducted = True
         leave_request.save(update_fields=['balance_deducted', 'updated_at'])
         return balance
     balance.used_days += leave_request.total_days
-    balance.remaining_days = balance.allocated_days - balance.used_days
+    balance.recompute()
     balance.save(update_fields=['used_days', 'remaining_days'])
     leave_request.balance_deducted = True
     leave_request.save(update_fields=['balance_deducted', 'updated_at'])

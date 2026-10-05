@@ -63,9 +63,46 @@ export type LeaveBalance = {
   leave_type_name: string;
   year: number;
   allocated_days: number;
+  /** Sum of HR quota adjustments (base quota is never edited). */
+  adjustment_days: number;
   used_days: number;
   remaining_days: number;
 };
+
+/** Own remaining quota "per hari ini" (GET /balances/me/). */
+export type MyBalance = {
+  leave_type: number;
+  leave_type_name: string;
+  leave_type_code: string;
+  year: number;
+  as_of: string;
+  allocated_days: number;
+  adjustment_days: number;
+  used_days: number;
+  remaining_days: number;
+  pending_days: number;
+};
+
+export type LeaveQuotaAdjustment = {
+  id: number;
+  employee: number;
+  employee_name: string;
+  leave_type: number;
+  leave_type_name: string;
+  year: number;
+  amount: number;
+  reason: string;
+  created_by_name: string | null;
+  created_at: string;
+};
+
+export type LeaveDayPortion = 'FULL' | 'HALF';
+
+/** Indonesian decimal label for leave days: 2.5 -> "2,5", 3 -> "3". */
+export function formatDays(value: number | null | undefined): string {
+  const n = Number(value ?? 0);
+  return Number.isInteger(n) ? String(n) : String(n).replace('.', ',');
+}
 
 export type LeaveRequest = {
   id: number;
@@ -79,7 +116,9 @@ export type LeaveRequest = {
   end_date: string;
   /** Actual leave days (explicit picks, or expanded start..end for legacy rows). */
   leave_dates: string[];
-  /** e.g. "01 Sep, 02 Sep, 05 Sep 2026". */
+  /** Per-day portion: Full Day = 1, Half Day = 0,5. */
+  leave_days: { date: string; portion: LeaveDayPortion }[];
+  /** e.g. "01 Sep, 02 Sep (½), 05 Sep 2026". */
   leave_dates_display: string;
   total_days: number;
   reason: string;
@@ -116,6 +155,25 @@ function unwrapList<T>(data: T[] | { results?: T[] }): T[] {
 export function listBalances(params?: Record<string, string>): Promise<LeaveBalance[]> {
   const qs = params ? `?${new URLSearchParams(params)}` : '';
   return request<LeaveBalance[]>(`/balances/${qs}`).then(unwrapList);
+}
+
+export function getMyBalances(): Promise<MyBalance[]> {
+  return request<MyBalance[]>('/balances/me/', { cache: 'no-store' });
+}
+
+export function listQuotaAdjustments(params?: Record<string, string>): Promise<LeaveQuotaAdjustment[]> {
+  const qs = params ? `?${new URLSearchParams(params)}` : '';
+  return request<LeaveQuotaAdjustment[] | { results?: LeaveQuotaAdjustment[] }>(`/adjustments/${qs}`).then(unwrapList);
+}
+
+export function createQuotaAdjustment(data: {
+  employee: number;
+  leave_type: number;
+  year: number;
+  amount: number;
+  reason: string;
+}): Promise<LeaveQuotaAdjustment> {
+  return request<LeaveQuotaAdjustment>('/adjustments/', { method: 'POST', body: JSON.stringify(data) });
 }
 
 export function listLeaveRequests(params?: Record<string, string>): Promise<LeaveRequest[]> {

@@ -1,3 +1,5 @@
+import re
+
 from rest_framework import serializers
 
 from .models import Reimbursement, ReimbursementCategory
@@ -13,6 +15,9 @@ class ReimbursementSerializer(serializers.ModelSerializer):
     employee_name = serializers.CharField(source='employee.full_name', read_only=True)
     category_name = serializers.CharField(source='category.name', read_only=True)
     reviewer_name = serializers.CharField(source='reviewer.username', read_only=True)
+    amount_set_by_name = serializers.CharField(source='amount_set_by.username', read_only=True)
+    status_display = serializers.CharField(source='get_status_display', read_only=True)
+    contact_email = serializers.EmailField(required=False, allow_blank=True)
     attachment_url = serializers.SerializerMethodField()
     payment_proof_url = serializers.SerializerMethodField()
 
@@ -22,15 +27,18 @@ class ReimbursementSerializer(serializers.ModelSerializer):
             'id', 'employee', 'employee_name', 'category', 'category_name',
             'transaction_date', 'amount', 'approved_amount',
             'project_category', 'project_category_other',
-            'description', 'attachment_name',
-            'attachment_url', 'status', 'submitted_at', 'approved_at',
-            'rejected_at', 'paid_at', 'reviewer', 'reviewer_name',
+            'description', 'bank_name', 'bank_account_name', 'bank_account_number', 'contact_email',
+            'attachment_name',
+            'attachment_url', 'status', 'status_display', 'submitted_at', 'approved_at',
+            'rejected_at', 'paid_at', 'amount_set_by', 'amount_set_by_name', 'amount_set_at',
+            'reviewer', 'reviewer_name',
             'rejection_reason', 'payment_reference', 'created_at', 'updated_at',
             'payment_proof_name', 'payment_proof_url',
         )
         read_only_fields = (
-            'id', 'employee', 'status', 'submitted_at', 'approved_at',
+            'id', 'employee', 'status', 'status_display', 'submitted_at', 'approved_at',
             'rejected_at', 'paid_at', 'reviewer', 'created_at', 'updated_at',
+            'approved_amount', 'amount_set_by', 'amount_set_by_name', 'amount_set_at', 'attachment_name',
             'employee_name', 'category_name', 'reviewer_name', 'attachment_url',
             'payment_proof_name', 'payment_proof_url',
         )
@@ -68,6 +76,19 @@ class ReimbursementSerializer(serializers.ModelSerializer):
         from .permissions import REIMBURSEMENT_ADMIN_ROLES
         return _role(request.user) in REIMBURSEMENT_ADMIN_ROLES
 
+    REQUIRED_PAYMENT_FIELDS = (
+        ('bank_name', 'Nama Bank'),
+        ('bank_account_name', 'Nama Pemilik Rekening'),
+        ('bank_account_number', 'Nomor Rekening'),
+        ('contact_email', 'Email'),
+    )
+
+    def validate_bank_account_number(self, value):
+        digits = re.sub(r'[\s-]', '', value or '')
+        if digits and not re.fullmatch(r'\d{5,30}', digits):
+            raise serializers.ValidationError('Nomor rekening hanya angka (5-30 digit).')
+        return digits
+
     def validate_project_category(self, value):
         if not value:
             return value
@@ -89,9 +110,26 @@ class ReimbursementSerializer(serializers.ModelSerializer):
             if employee.employment_status != 'ACTIVE':
                 raise serializers.ValidationError({'employee': 'Karyawan tidak aktif tidak dapat mengajukan.'})
 
-        # Only HR/admin may set approved_amount (backend is source of truth).
-        if 'approved_amount' in attrs and not self._is_admin(request):
-            raise serializers.ValidationError({'approved_amount': 'Hanya HR yang dapat mengisi nominal disetujui.'})
+        # Nominal Disetujui is set ONLY by HR Staff through the review action
+        # (never by PATCH/create — also not by HR Lead).
+        if 'approved_amount' in getattr(self, 'initial_data', {}):
+            raise serializers.ValidationError(
+                {'approved_amount': 'Nominal disetujui hanya ditetapkan HR Staff melalui proses review.'}
+            )
+
+        # Bank account + contact email: required for new requests; on edit,
+        # provided values may not be blanked.
+        for field, label in self.REQUIRED_PAYMENT_FIELDS:
+            if self.instance is None:
+                value = (attrs.get(field) or '').strip()
+                if not value:
+                    raise serializers.ValidationError({field: f'{label} wajib diisi.'})
+                attrs[field] = value
+            elif field in attrs:
+                value = (attrs.get(field) or '').strip()
+                if not value:
+                    raise serializers.ValidationError({field: f'{label} wajib diisi.'})
+                attrs[field] = value
 
         approved = attrs.get('approved_amount', getattr(self.instance, 'approved_amount', None) if self.instance else None)
         amount = attrs.get('amount', getattr(self.instance, 'amount', None) if self.instance else None)

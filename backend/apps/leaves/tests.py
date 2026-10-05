@@ -1,5 +1,6 @@
 import os
 from datetime import date
+from decimal import Decimal
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
@@ -18,6 +19,25 @@ from .services import (
 )
 
 User = get_user_model()
+
+
+# The no-backdate rule rejects leave days before "today". Existing tests use
+# fixed 2026 dates, so pin today for this module; tests of the rule itself
+# patch `_today` explicitly.
+_TODAY_PATCH = None
+
+
+def setUpModule():
+    global _TODAY_PATCH
+    from unittest import mock
+
+    _TODAY_PATCH = mock.patch('apps.leaves.serializers._today', return_value=date(2026, 1, 1))
+    _TODAY_PATCH.start()
+
+
+def tearDownModule():
+    _TODAY_PATCH.stop()
+
 
 
 def make_user(key='ADMIN', username='admin@test.com'):
@@ -966,3 +986,208 @@ class LeaveRevisionTests(TestCase):
         res = self.api.get(f'/api/leaves/requests/{old.id}/')
         self.assertEqual(res.status_code, 200)
         self.assertEqual(self.api.post(f'/api/leaves/requests/{old.id}/approve/').status_code, 200)
+
+
+class LeaveQuotaHalfDayAdjustmentTests(TestCase):
+    """Remaining quota per today, Full/Half Day, HR quota adjustment, no backdate."""
+
+    def setUp(self):
+        from rest_framework.test import APIClient
+
+        self.api = APIClient()
+        self.hr = make_user('HR_STAFF', 'hr@test.com')
+        self.lead = make_user('HR_LEAD', 'lead@test.com')
+        self.manager = make_user('MANAGEMENT', 'manager@test.com')
+        self.emp_user = make_user('EMPLOYEE', 'emp@test.com')
+        self.manager_emp = Employee.objects.create(
+            employee_id='M001', full_name='Manager', employment_status='ACTIVE', user=self.manager,
+        )
+        # No join_date -> basic quota 12 (quota engine legacy rule).
+        self.emp = Employee.objects.create(
+            employee_id='E001', full_name='John', employment_status='ACTIVE',
+            manager=self.manager_emp, user=self.emp_user,
+        )
+        self.annual = LeaveType.objects.create(name='Cuti Tahunan', code='ANNUAL', default_quota=12)
+        self.special = LeaveType.objects.create(name='Special', code='SPECIAL', default_quota=0)
+
+    def _submit(self, **payload):
+        self.api.force_authenticate(self.emp_user)
+        data = {'leave_type': self.annual.id, 'kind': 'LEAVE', 'reason': 'Keperluan'}
+        data.update(payload)
+        return self.api.post('/api/leaves/requests/', data, format='json')
+
+    def _approve(self, leave_id):
+        self.api.force_authenticate(self.manager)
+        res = self.api.post(f'/api/leaves/requests/{leave_id}/approve/')
+        self.assertEqual(res.status_code, 200, res.data)
+
+    # --- full / half day ---
+    def test_full_day_counts_one(self):
+        res = self._submit(dates=['2026-09-01'])
+        self.assertEqual(res.status_code, 201, res.data)
+        self.assertEqual(res.data['total_days'], 1)
+        self.assertEqual(res.data['leave_days'], [{'date': '2026-09-01', 'portion': 'FULL'}])
+
+    def test_half_day_counts_half(self):
+        res = self._submit(dates=['2026-09-01'], half_days=['2026-09-01'])
+        self.assertEqual(res.status_code, 201, res.data)
+        self.assertEqual(res.data['total_days'], 0.5)
+        self.assertEqual(res.data['leave_days'][0]['portion'], 'HALF')
+        self.assertIn('(½)', res.data['leave_dates_display'])
+
+    def test_multi_date_full_half_combination(self):
+        res = self._submit(
+            dates=['2026-09-01', '2026-09-02', '2026-09-05'], half_days=['2026-09-02'],
+        )
+        self.assertEqual(res.status_code, 201, res.data)
+        self.assertEqual(res.data['total_days'], 2.5)
+        self.assertEqual(res.data['leave_dates_display'], '01 Sep, 02 Sep (½), 05 Sep 2026')
+        self._approve(res.data['id'])
+        bal = get_balance(self.emp, self.annual, 2026)
+        self.assertEqual(float(bal.used_days), 2.5)
+        self.assertEqual(float(bal.remaining_days), 9.5)
+
+    def test_half_day_rules(self):
+        # Half day must be one of the picked dates.
+        self.assertEqual(self._submit(dates=['2026-09-01'], half_days=['2026-09-02']).status_code, 400)
+        # Half day only for Cuti Tahunan.
+        res = self._submit(leave_type=self.special.id, dates=['2026-09-01'], half_days=['2026-09-01'])
+        self.assertEqual(res.status_code, 400)
+        self.assertIn('Cuti Tahunan', str(res.data['half_days']))
+
+    def test_quota_check_accepts_half_day_within_remaining(self):
+        from .services import apply_quota_adjustment
+
+        apply_quota_adjustment(self.emp, self.annual, 2026, Decimal('-11.5'), 'koreksi', self.hr)
+        # Remaining 0.5: a Half Day fits, a Full Day does not.
+        self.assertEqual(self._submit(dates=['2026-09-01']).status_code, 400)
+        self.assertEqual(self._submit(dates=['2026-09-01'], half_days=['2026-09-01']).status_code, 201)
+
+    # --- remaining quota per today ---
+    def test_remaining_quota_per_today(self):
+        from unittest import mock
+
+        from .services import apply_quota_adjustment
+
+        apply_quota_adjustment(self.emp, self.annual, 2026, Decimal('2'), 'Bonus lembur', self.hr)
+        approved = self._submit(dates=['2026-09-01', '2026-09-02'], half_days=['2026-09-02'])
+        self._approve(approved.data['id'])
+        self._submit(dates=['2026-10-12'])  # pending, not yet deducted
+        self.api.force_authenticate(self.emp_user)
+        with mock.patch('apps.leaves.services.timezone.localdate', return_value=date(2026, 10, 5)):
+            res = self.api.get('/api/leaves/balances/me/')
+        self.assertEqual(res.status_code, 200, res.data)
+        row = next(r for r in res.data if r['leave_type_code'] == 'ANNUAL')
+        self.assertEqual(row['as_of'], '2026-10-05')
+        self.assertEqual(row['allocated_days'], 12)
+        self.assertEqual(row['adjustment_days'], 2)
+        self.assertEqual(row['used_days'], 1.5)
+        self.assertEqual(row['remaining_days'], 12.5)  # 12 + 2 - 1.5
+        self.assertEqual(row['pending_days'], 1)
+        # Non-quota types are not listed.
+        self.assertNotIn('SPECIAL', [r['leave_type_code'] for r in res.data])
+
+    def test_remaining_quota_requires_employee_record(self):
+        self.api.force_authenticate(self.hr)  # HR without employee record
+        self.assertEqual(self.api.get('/api/leaves/balances/me/').status_code, 404)
+
+    # --- HR quota adjustment ---
+    def _adjust(self, user, **payload):
+        self.api.force_authenticate(user)
+        data = {'employee': self.emp.id, 'leave_type': self.annual.id, 'year': 2026}
+        data.update(payload)
+        return self.api.post('/api/leaves/adjustments/', data, format='json')
+
+    def test_adjustment_plus_minus_decimal_and_history(self):
+        from apps.audit.models import AuditLog
+
+        self.assertEqual(self._adjust(self.hr, amount=2, reason='Bonus kuota karena lembur').status_code, 201)
+        self.assertEqual(self._adjust(self.lead, amount=-1, reason='Koreksi kesalahan').status_code, 201)
+        res = self._adjust(self.hr, amount=0.5, reason='Penyesuaian khusus')
+        self.assertEqual(res.status_code, 201, res.data)
+        bal = get_balance(self.emp, self.annual, 2026)
+        self.assertEqual(float(bal.allocated_days), 12)  # base quota untouched
+        self.assertEqual(float(bal.adjustment_days), 1.5)
+        self.assertEqual(float(bal.remaining_days), 13.5)
+        history = self.api.get('/api/leaves/adjustments/', {'employee': self.emp.id, 'year': 2026}).data
+        self.assertEqual([h['amount'] for h in history], [0.5, -1, 2])  # newest first
+        self.assertEqual(history[1]['reason'], 'Koreksi kesalahan')
+        self.assertEqual(history[1]['created_by_name'], 'lead@test.com')
+        self.assertTrue(history[0]['created_at'])
+        self.assertTrue(AuditLog.objects.filter(description__icontains='quota adjustment').exists())
+        # Balance list exposes the adjustment column.
+        bal_row = self.api.get('/api/leaves/balances/', {'employee': self.emp.id, 'year': 2026}).data[0]
+        self.assertEqual(bal_row['adjustment_days'], 1.5)
+        self.assertEqual(bal_row['remaining_days'], 13.5)
+
+    def test_adjustment_validation(self):
+        self.assertEqual(self._adjust(self.hr, amount=0, reason='x').status_code, 400)
+        self.assertEqual(self._adjust(self.hr, amount=0.3, reason='x').status_code, 400)
+        self.assertEqual(self._adjust(self.hr, amount=1, reason='  ').status_code, 400)
+        self.assertEqual(self._adjust(self.hr, amount=1, reason='x', leave_type=self.special.id).status_code, 400)
+
+    def test_adjustment_authorization_and_own_history(self):
+        self.assertEqual(self._adjust(self.emp_user, amount=5, reason='curang').status_code, 403)
+        self.assertEqual(self._adjust(self.manager, amount=5, reason='x').status_code, 403)
+        self._adjust(self.hr, amount=1, reason='Bonus')
+        other = Employee.objects.create(employee_id='E002', full_name='Jane', employment_status='ACTIVE')
+        self._adjust(self.hr, amount=1, reason='Bonus Jane', employee=other.id)
+        self.api.force_authenticate(self.emp_user)
+        rows = self.api.get('/api/leaves/adjustments/').data
+        self.assertEqual([r['employee'] for r in rows], [self.emp.id])
+        # Immutable audit trail: no update/delete.
+        self.api.force_authenticate(self.hr)
+        self.assertEqual(self.api.delete(f'/api/leaves/adjustments/{rows[0]["id"]}/').status_code, 405)
+
+    # --- no backdate ---
+    def test_no_backdate_today_allowed(self):
+        from unittest import mock
+
+        with mock.patch('apps.leaves.serializers._today', return_value=date(2026, 9, 10)):
+            res = self._submit(dates=['2026-09-09', '2026-09-11'])
+            self.assertEqual(res.status_code, 400)
+            self.assertIn('2026-09-09', str(res.data['dates']))
+            # Legacy start/end path is guarded too.
+            self.assertEqual(self._submit(start_date='2026-09-01', end_date='2026-09-12').status_code, 400)
+            self.assertEqual(self._submit(dates=['2026-09-10']).status_code, 201)  # today ok
+
+
+class HrLeadSelfServiceTests(TestCase):
+    """HR Lead: HRIS role + OWN employee self-service (never other employees)."""
+
+    def setUp(self):
+        from rest_framework.test import APIClient
+
+        self.api = APIClient()
+        self.lead = make_user('HR_LEAD', 'lead@test.com')
+        self.lead_emp = Employee.objects.create(
+            employee_id='L001', full_name='Atika', employment_status='ACTIVE', user=self.lead,
+        )
+        self.other = Employee.objects.create(employee_id='E009', full_name='Other', employment_status='ACTIVE')
+        self.annual = LeaveType.objects.create(name='Cuti Tahunan', code='ANNUAL', default_quota=12)
+
+    def test_hr_lead_self_service_scoped_to_own_record(self):
+        from apps.reimbursement.models import Reimbursement, ReimbursementCategory
+
+        self.api.force_authenticate(self.lead)
+        me = self.api.get('/api/auth/me/employee/')
+        self.assertEqual(me.status_code, 200)
+        self.assertEqual(me.data['full_name'], 'Atika')
+        rows = self.api.get('/api/leaves/balances/me/').data
+        self.assertEqual(rows[0]['leave_type_code'], 'ANNUAL')
+        self.assertEqual(LeaveBalance.objects.get(leave_type=self.annual).employee_id, self.lead_emp.id)
+        cat = ReimbursementCategory.objects.create(name='Meal', code='MEAL')
+        Reimbursement.objects.create(employee=self.other, category=cat, transaction_date=date(2026, 9, 1),
+                                     amount=1000, status='PENDING')
+        Reimbursement.objects.create(employee=self.lead_emp, category=cat, transaction_date=date(2026, 9, 1),
+                                     amount=1000, status='DRAFT')
+        mine = self.api.get('/api/reimbursements/summary/?mine=1').data
+        self.assertEqual(mine['total'], 1)
+        self.assertEqual(mine['counts']['PENDING'], 0)
+        # HR Lead submits leave for HIMSELF/HERSELF only.
+        res = self.api.post('/api/leaves/requests/', {
+            'leave_type': self.annual.id, 'kind': 'LEAVE', 'reason': 'x', 'dates': ['2026-09-01'],
+        }, format='json')
+        self.assertEqual(res.status_code, 201, res.data)
+        self.assertEqual(res.data['employee'], self.lead_emp.id)
+        self.assertEqual(self.api.get('/api/payroll/payrolls/my-payslips/').status_code, 200)
