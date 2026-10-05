@@ -824,6 +824,10 @@ class ReimbursementTwoLayerTests(TestCase):
         self.assertEqual(res.status_code, 400)
         res, _ = self._upload(rid, 'nota.pdf', PDF_BYTES, 'image/png')  # wrong type
         self.assertEqual(res.status_code, 400)
+        res, up = self._upload(rid, 'besar.pdf', PDF_BYTES + b'0' * (5 * 1024 * 1024))  # > 5 MB
+        self.assertEqual(res.status_code, 400)
+        self.assertIn('5 MB', res.json()['file'])
+        up.assert_not_called()
         res, up = self._upload(rid, 'nota.pdf', PDF_BYTES)
         self.assertEqual(res.status_code, 200, res.content)
         up.assert_called_once()

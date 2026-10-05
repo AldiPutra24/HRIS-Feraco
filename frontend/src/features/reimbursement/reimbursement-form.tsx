@@ -16,6 +16,12 @@ import {
   type ReimbursementCategory
 } from '@/lib/reimbursements';
 
+// Official template for the Bukti Payment/Tagihan/Invoice attachment.
+const REIMBURSEMENT_TEMPLATE_URL =
+  'https://docs.google.com/document/d/1Cgj5DKr-8xaqM7F_IVuJogO99R2zCxiUUJ9v4v_Gpuk/edit?usp=sharing';
+// Same limit as the backend (PDF only, max 5 MB).
+const ATTACHMENT_MAX_BYTES = 5 * 1024 * 1024;
+
 export function ReimbursementForm({ redirectTo = '/dashboard/employee/reimbursement' }: { redirectTo?: string }) {
   const router = useRouter();
   const [categories, setCategories] = useState<ReimbursementCategory[]>([]);
@@ -81,8 +87,12 @@ export function ReimbursementForm({ redirectTo = '/dashboard/employee/reimbursem
       toast.error('Bukti Payment/Tagihan/Invoice wajib diunggah.');
       return;
     }
-    if (!file.name.toLowerCase().endsWith('.pdf')) {
+    if (!file.name.toLowerCase().endsWith('.pdf') || (file.type && file.type !== 'application/pdf')) {
       toast.error('Bukti Payment/Tagihan/Invoice harus berupa file PDF.');
+      return;
+    }
+    if (file.size > ATTACHMENT_MAX_BYTES) {
+      toast.error('Ukuran Bukti Payment/Tagihan/Invoice maksimal 5 MB.');
       return;
     }
     setSaving(true);
@@ -256,12 +266,30 @@ export function ReimbursementForm({ redirectTo = '/dashboard/employee/reimbursem
                 required
                 accept='application/pdf,.pdf'
                 className='mt-1 block w-full text-sm text-muted-foreground file:mr-3 file:rounded-md file:border-0 file:bg-primary file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-primary-foreground hover:file:bg-primary/80'
-                onChange={(e) => setFile(e.target.files?.[0] || null)}
+                onChange={(e) => {
+                  const picked = e.target.files?.[0] || null;
+                  if (picked && picked.size > ATTACHMENT_MAX_BYTES) {
+                    toast.error('Ukuran Bukti Payment/Tagihan/Invoice maksimal 5 MB.');
+                    e.target.value = '';
+                    setFile(null);
+                    return;
+                  }
+                  setFile(picked);
+                }}
               />
+              <p className='text-muted-foreground mt-1 text-xs font-medium'>Format file: PDF · Ukuran maks. 5 MB</p>
               <p className='text-muted-foreground mt-1 text-xs'>
                 Lampirkan bukti transaksi untuk pengajuan reimburse. Jika terdapat lebih dari 1 bukti transaksi,
                 silakan duplicate/copy template sesuai jumlah item transaksi, kemudian upload dalam format PDF.
               </p>
+              <a
+                href={REIMBURSEMENT_TEMPLATE_URL}
+                target='_blank'
+                rel='noopener noreferrer'
+                className='text-primary mt-1 inline-block text-xs font-medium underline'
+              >
+                Download [TEMPLATE] Pengajuan Reimbursement
+              </a>
             </div>
             <div className='md:col-span-4'>
               <Label className='text-xs'>Deskripsi</Label>

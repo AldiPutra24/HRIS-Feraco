@@ -25,6 +25,8 @@ from .services import notify
 
 
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10MB — keep uploads under gunicorn timeout
+# Bukti Payment/Tagihan/Invoice: max 5 MB (payment proof keeps the 10 MB limit).
+ATTACHMENT_MAX_BYTES = 5 * 1024 * 1024
 # Bukti Payment/Tagihan/Invoice: PDF only (extension + content type + magic bytes).
 PDF_CONTENT_TYPES = {'application/pdf', 'application/x-pdf', 'application/octet-stream', ''}
 # Fields an employee must fill before a reimbursement can be submitted.
@@ -389,8 +391,13 @@ class ReimbursementViewSet(viewsets.ModelViewSet):
         upload = request.FILES.get(field)
         if upload is None:
             return Response({'file': 'Required.'}, status=status.HTTP_400_BAD_REQUEST)
-        if upload.size > MAX_UPLOAD_BYTES:
-            return Response({'file': f'File melebihi batas {MAX_UPLOAD_BYTES // (1024 * 1024)}MB.'}, status=status.HTTP_400_BAD_REQUEST)
+        limit = ATTACHMENT_MAX_BYTES if kind == 'attachment' else MAX_UPLOAD_BYTES
+        if upload.size > limit:
+            label = 'Bukti Payment/Tagihan/Invoice' if kind == 'attachment' else 'File'
+            return Response(
+                {'file': f'{label} melebihi batas {limit // (1024 * 1024)} MB.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         data = upload.read()
         if kind == 'attachment':
             # Bukti Payment/Tagihan/Invoice: PDF only (extension + type + content).
