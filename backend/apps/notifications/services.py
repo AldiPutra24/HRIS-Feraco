@@ -16,10 +16,12 @@ Delivery units, all guarded by NotificationDeliveryLog unique keys
 Errors on one email never abort the whole job; each failure is logged
 to the delivery log and audit.
 """
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date
 
 from django.conf import settings
 from django.core.mail import EmailMultiAlternatives, send_mail
+from django.db import close_old_connections, transaction
 from django.utils import timezone
 
 from apps.audit.services import log_event
@@ -222,6 +224,45 @@ def _send_email(event_key: str, event: str, email: str, subject: str, body: str,
         return 'failed'
 
 
+# Request-path emails (leave/reimbursement hooks) are sent in the background
+# so a slow SMTP server never blocks the submit/approve response (each SMTP
+# SSL connect + login takes seconds, x every recipient). Scheduled jobs
+# (cron commands) keep calling _send_email synchronously.
+_EMAIL_POOL = ThreadPoolExecutor(max_workers=2, thread_name_prefix='hris-mail')
+
+
+def _email_async() -> bool:
+    """Background sending only for real SMTP delivery (tests/dev backends
+    stay synchronous). Override with settings.NOTIFICATION_EMAIL_ASYNC."""
+    explicit = getattr(settings, 'NOTIFICATION_EMAIL_ASYNC', None)
+    if explicit is not None:
+        return bool(explicit)
+    return settings.EMAIL_BACKEND.endswith('smtp.EmailBackend')
+
+
+def _queue_email(event_key: str, event: str, email: str, subject: str, body: str,
+                 html_body: str = ''):
+    """Send after the DB transaction commits, off the request thread.
+
+    Returns 'queued' (or the synchronous outcome when async is disabled).
+    Delivery result is still recorded in NotificationDeliveryLog (idempotent
+    per key), so HR sees SENT/FAILED in the delivery log page.
+    """
+    if not _email_async():
+        return _send_email(event_key, event, email, subject, body, html_body)
+
+    def run():
+        try:
+            _send_email(event_key, event, email, subject, body, html_body)
+        except Exception:
+            pass  # delivery log already captures SMTP errors; never crash the pool
+        finally:
+            close_old_connections()  # thread-local DB connection
+
+    transaction.on_commit(lambda: _EMAIL_POOL.submit(run))
+    return 'queued'
+
+
 # ---------------------------------------------------------------------------
 # Leave workflow (called from leaves views; never raises into the request)
 # ---------------------------------------------------------------------------
@@ -280,7 +321,7 @@ def notify_leave_submitted(leave) -> dict:
             'Pengajuan Izin/Cuti Baru', text_body, link=_leave_link_for(manager_user), object_id=leave.pk,
         ):
             result['inapp'] += 1
-        outcome = _send_email(key, 'LEAVE_SUBMITTED', _employee_email(_manager_employee(leave.employee)),
+        outcome = _queue_email(key, 'LEAVE_SUBMITTED', _employee_email(_manager_employee(leave.employee)),
                               subject, text_body, html_body)
         result[outcome] = result.get(outcome, 0) + 1
         # Admin / HR Staff / HR Lead: bell notification + HR email list (Settings).
@@ -294,7 +335,7 @@ def notify_leave_submitted(leave) -> dict:
             ):
                 result['inapp'] += 1
         for email in hr_recipients():
-            outcome = _send_email(f'{key}:hr', 'LEAVE_SUBMITTED', email, subject, text_body, html_body)
+            outcome = _queue_email(f'{key}:hr', 'LEAVE_SUBMITTED', email, subject, text_body, html_body)
             result[outcome] = result.get(outcome, 0) + 1
     except Exception as exc:
         log_event(None, 'update', obj=None,
@@ -322,7 +363,7 @@ def notify_leave_status(leave, new_status: str) -> dict:
             text_body, link=_own_leave_link_for(user), object_id=leave.pk,
         ):
             result['inapp'] += 1
-        outcome = _send_email(key, event, _employee_email(leave.employee), subject, text_body, html_body)
+        outcome = _queue_email(key, event, _employee_email(leave.employee), subject, text_body, html_body)
         result[outcome] = result.get(outcome, 0) + 1
     except Exception as exc:
         log_event(None, 'update', obj=None,
@@ -392,7 +433,7 @@ def _notify_reimbursement_hr(reimbursement, event, title, roles) -> dict:
                 result['inapp'] += 1
         if event == 'REIMBURSEMENT_SUBMITTED':
             for email in hr_recipients():
-                outcome = _send_email(key, event, email, subject, text_body, html_body)
+                outcome = _queue_email(key, event, email, subject, text_body, html_body)
                 result[outcome] = result.get(outcome, 0) + 1
     except Exception as exc:
         log_event(None, 'update', obj=None,
@@ -416,7 +457,7 @@ def _notify_reimbursement_employee(reimbursement, event, title) -> dict:
                           link=_own_reimbursement_link(user), object_id=reimbursement.pk):
             result['inapp'] += 1
         email = reimbursement.contact_email or _employee_email(reimbursement.employee)
-        outcome = _send_email(key, event, email, subject, text_body, html_body)
+        outcome = _queue_email(key, event, email, subject, text_body, html_body)
         result[outcome] = result.get(outcome, 0) + 1
     except Exception as exc:
         log_event(None, 'update', obj=None,

@@ -204,6 +204,8 @@ EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
 EMAIL_USE_TLS = os.environ.get('EMAIL_USE_TLS', 'true').lower() == 'true'
 EMAIL_USE_SSL = os.environ.get('EMAIL_USE_SSL', 'false').lower() == 'true'
 DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'HRIS Feraco <hris.noreply@feraco.co.id>')
+# Never let a slow SMTP server hang a worker (seconds).
+EMAIL_TIMEOUT = int(os.environ.get('EMAIL_TIMEOUT', '15') or 15)
 
 SESSION_COOKIE_SAMESITE = 'Lax'
 CSRF_COOKIE_SAMESITE = 'Lax'

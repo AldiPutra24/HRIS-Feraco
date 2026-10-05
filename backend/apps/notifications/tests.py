@@ -66,6 +66,39 @@ class LeaveNotificationTests(TestCase):
             start_date=date(2026, 10, 5), end_date=date(2026, 10, 7), total_days=3,
         )
 
+    @override_settings(NOTIFICATION_EMAIL_ASYNC=True)
+    def test_request_path_email_sent_in_background_after_commit(self):
+        """Submit must not wait for SMTP: bell is immediate, email is queued
+        and sent after commit (off the request thread), still logged."""
+        from . import services
+
+        # Run the pool task inline so the test can observe it deterministically.
+        with mock.patch.object(services._EMAIL_POOL, 'submit', side_effect=lambda fn: fn()), \
+             mock.patch.object(services, 'close_old_connections'), \
+             self.captureOnCommitCallbacks(execute=False) as callbacks:
+            result = notify_leave_submitted(self.leave)
+            self.assertEqual(result['queued'], 2)  # manager + default HR email
+            self.assertEqual(result['inapp'], 1)   # bell is immediate
+            self.assertEqual(len(mail.outbox), 0)  # nothing sent inside the request
+        self.assertEqual(len(callbacks), 2)
+        with mock.patch.object(services._EMAIL_POOL, 'submit', side_effect=lambda fn: fn()), \
+             mock.patch.object(services, 'close_old_connections'):
+            for cb in callbacks:
+                cb()
+        self.assertEqual(len(mail.outbox), 2)
+        self.assertEqual(
+            NotificationDeliveryLog.objects.filter(channel='EMAIL', status='SENT').count(), 2,
+        )
+
+    def test_scheduled_jobs_stay_synchronous_even_when_async_enabled(self):
+        from . import services
+
+        with override_settings(NOTIFICATION_EMAIL_ASYNC=True), \
+             mock.patch.object(services._EMAIL_POOL, 'submit') as submit:
+            services._send_email('cron-test', 'CONTRACT', 'hr@test.com', 'S', 'B')
+        submit.assert_not_called()
+        self.assertEqual(len(mail.outbox), 1)
+
     def test_submitted_notifies_manager_inapp_and_email(self):
         result = notify_leave_submitted(self.leave)
         self.assertEqual(result['inapp'], 1)  # no HR accounts in this fixture
