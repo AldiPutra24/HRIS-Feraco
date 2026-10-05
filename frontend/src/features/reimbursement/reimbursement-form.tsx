@@ -19,8 +19,20 @@ import {
 // Official template for the Bukti Payment/Tagihan/Invoice attachment.
 const REIMBURSEMENT_TEMPLATE_URL =
   'https://docs.google.com/document/d/1Cgj5DKr-8xaqM7F_IVuJogO99R2zCxiUUJ9v4v_Gpuk/edit?usp=sharing';
-// Same limit as the backend (PDF only, max 5 MB).
+// Same rules as the backend: PDF or image (JPG/PNG/WEBP), max 5 MB.
 const ATTACHMENT_MAX_BYTES = 5 * 1024 * 1024;
+const ATTACHMENT_EXTENSIONS = ['.pdf', '.jpg', '.jpeg', '.png', '.webp'];
+const ATTACHMENT_TYPES = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp'];
+
+/** Error message for an invalid attachment, or null when it is acceptable. */
+function attachmentError(f: File): string | null {
+  const name = f.name.toLowerCase();
+  if (!ATTACHMENT_EXTENSIONS.some((ext) => name.endsWith(ext)) || (f.type && !ATTACHMENT_TYPES.includes(f.type))) {
+    return 'Bukti Payment/Tagihan/Invoice harus berupa file PDF atau gambar (JPG, PNG, WEBP).';
+  }
+  if (f.size > ATTACHMENT_MAX_BYTES) return 'Ukuran Bukti Payment/Tagihan/Invoice maksimal 5 MB.';
+  return null;
+}
 
 export function ReimbursementForm({ redirectTo = '/dashboard/employee/reimbursement' }: { redirectTo?: string }) {
   const router = useRouter();
@@ -87,12 +99,9 @@ export function ReimbursementForm({ redirectTo = '/dashboard/employee/reimbursem
       toast.error('Bukti Payment/Tagihan/Invoice wajib diunggah.');
       return;
     }
-    if (!file.name.toLowerCase().endsWith('.pdf') || (file.type && file.type !== 'application/pdf')) {
-      toast.error('Bukti Payment/Tagihan/Invoice harus berupa file PDF.');
-      return;
-    }
-    if (file.size > ATTACHMENT_MAX_BYTES) {
-      toast.error('Ukuran Bukti Payment/Tagihan/Invoice maksimal 5 MB.');
+    const fileError = attachmentError(file);
+    if (fileError) {
+      toast.error(fileError);
       return;
     }
     setSaving(true);
@@ -264,12 +273,13 @@ export function ReimbursementForm({ redirectTo = '/dashboard/employee/reimbursem
               <input
                 type='file'
                 required
-                accept='application/pdf,.pdf'
+                accept='application/pdf,.pdf,image/jpeg,.jpg,.jpeg,image/png,.png,image/webp,.webp'
                 className='mt-1 block w-full text-sm text-muted-foreground file:mr-3 file:rounded-md file:border-0 file:bg-primary file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-primary-foreground hover:file:bg-primary/80'
                 onChange={(e) => {
                   const picked = e.target.files?.[0] || null;
-                  if (picked && picked.size > ATTACHMENT_MAX_BYTES) {
-                    toast.error('Ukuran Bukti Payment/Tagihan/Invoice maksimal 5 MB.');
+                  const error = picked ? attachmentError(picked) : null;
+                  if (error) {
+                    toast.error(error);
                     e.target.value = '';
                     setFile(null);
                     return;
@@ -277,7 +287,9 @@ export function ReimbursementForm({ redirectTo = '/dashboard/employee/reimbursem
                   setFile(picked);
                 }}
               />
-              <p className='text-muted-foreground mt-1 text-xs font-medium'>Format file: PDF · Ukuran maks. 5 MB</p>
+              <p className='text-muted-foreground mt-1 text-xs font-medium'>
+                Format file: PDF, JPG, PNG, WEBP · Ukuran maks. 5 MB
+              </p>
               <p className='text-muted-foreground mt-1 text-xs'>
                 Lampirkan bukti transaksi untuk pengajuan reimburse. Jika terdapat lebih dari 1 bukti transaksi,
                 silakan duplicate/copy template sesuai jumlah item transaksi, kemudian upload dalam format PDF.

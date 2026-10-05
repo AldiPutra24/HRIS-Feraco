@@ -816,22 +816,36 @@ class ReimbursementTwoLayerTests(TestCase):
                                    {'file': SimpleUploadedFile(name, content, content_type=ctype)})
         return res, up
 
-    def test_evidence_must_be_pdf(self):
+    def test_evidence_pdf_or_image_max_5mb(self):
         rid = self._create().json()['id']
-        res, up = self._upload(rid, 'nota.jpg', b'\xff\xd8jpeg', 'image/jpeg')
-        self.assertEqual(res.status_code, 400)
-        res, _ = self._upload(rid, 'nota.pdf', b'not really a pdf')  # wrong content
-        self.assertEqual(res.status_code, 400)
-        res, _ = self._upload(rid, 'nota.pdf', PDF_BYTES, 'image/png')  # wrong type
-        self.assertEqual(res.status_code, 400)
-        res, up = self._upload(rid, 'besar.pdf', PDF_BYTES + b'0' * (5 * 1024 * 1024))  # > 5 MB
-        self.assertEqual(res.status_code, 400)
-        self.assertIn('5 MB', res.json()['file'])
-        up.assert_not_called()
-        res, up = self._upload(rid, 'nota.pdf', PDF_BYTES)
-        self.assertEqual(res.status_code, 200, res.content)
-        up.assert_called_once()
-        self.assertEqual(Reimbursement.objects.get(pk=rid).attachment_name, 'nota.pdf')
+        jpg = b'\xff\xd8\xff\xe0' + b'jpeg-data'
+        png = b'\x89PNG\r\n\x1a\n' + b'png-data'
+        webp = b'RIFF\x10\x00\x00\x00WEBPVP8 '
+        # Not allowed: other formats, mismatched content, mismatched type.
+        self.assertEqual(self._upload(rid, 'nota.gif', b'GIF89a...', 'image/gif')[0].status_code, 400)
+        self.assertEqual(self._upload(rid, 'nota.exe', b'MZ...', 'application/x-msdownload')[0].status_code, 400)
+        self.assertEqual(self._upload(rid, 'nota.pdf', b'not really a pdf')[0].status_code, 400)
+        self.assertEqual(self._upload(rid, 'nota.jpg', b'not really a jpeg', 'image/jpeg')[0].status_code, 400)
+        self.assertEqual(self._upload(rid, 'nota.png', jpg, 'image/png')[0].status_code, 400)  # jpeg bytes named .png
+        self.assertEqual(self._upload(rid, 'nota.pdf', PDF_BYTES, 'image/png')[0].status_code, 400)
+        # > 5 MB rejected before upload, for PDF and image alike.
+        for name, content, ctype in (('besar.pdf', PDF_BYTES, 'application/pdf'), ('besar.jpg', jpg, 'image/jpeg')):
+            res, up = self._upload(rid, name, content + b'0' * (5 * 1024 * 1024), ctype)
+            self.assertEqual(res.status_code, 400)
+            self.assertIn('5 MB', res.json()['file'])
+            up.assert_not_called()
+        # Allowed: PDF, JPG/JPEG, PNG, WEBP.
+        for name, content, ctype in (
+            ('nota.pdf', PDF_BYTES, 'application/pdf'),
+            ('nota.jpg', jpg, 'image/jpeg'),
+            ('nota.jpeg', jpg, 'image/jpeg'),
+            ('nota.png', png, 'image/png'),
+            ('nota.webp', webp, 'image/webp'),
+        ):
+            res, up = self._upload(rid, name, content, ctype)
+            self.assertEqual(res.status_code, 200, (name, res.content))
+            up.assert_called_once()
+            self.assertEqual(Reimbursement.objects.get(pk=rid).attachment_name, name)
 
     def test_submit_requires_pdf_evidence(self):
         rid = self._create().json()['id']

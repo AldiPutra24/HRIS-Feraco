@@ -27,8 +27,44 @@ from .services import notify
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10MB — keep uploads under gunicorn timeout
 # Bukti Payment/Tagihan/Invoice: max 5 MB (payment proof keeps the 10 MB limit).
 ATTACHMENT_MAX_BYTES = 5 * 1024 * 1024
-# Bukti Payment/Tagihan/Invoice: PDF only (extension + content type + magic bytes).
-PDF_CONTENT_TYPES = {'application/pdf', 'application/x-pdf', 'application/octet-stream', ''}
+# Bukti Payment/Tagihan/Invoice: PDF or image. Extension, content type and
+# file signature (magic bytes) must all match the same format.
+_GENERIC_TYPES = {'application/octet-stream', ''}
+ATTACHMENT_FORMATS = {
+    'pdf': {
+        'extensions': ('.pdf',),
+        'content_types': {'application/pdf', 'application/x-pdf'},
+        'magic': lambda b: b[:5] == b'%PDF-',
+    },
+    'jpeg': {
+        'extensions': ('.jpg', '.jpeg'),
+        'content_types': {'image/jpeg', 'image/pjpeg'},
+        'magic': lambda b: b[:3] == b'\xff\xd8\xff',
+    },
+    'png': {
+        'extensions': ('.png',),
+        'content_types': {'image/png'},
+        'magic': lambda b: b[:8] == b'\x89PNG\r\n\x1a\n',
+    },
+    'webp': {
+        'extensions': ('.webp',),
+        'content_types': {'image/webp'},
+        'magic': lambda b: b[:4] == b'RIFF' and b[8:12] == b'WEBP',
+    },
+}
+
+
+def _is_allowed_attachment(name, content_type, data):
+    name = (name or '').lower()
+    content_type = (content_type or '').lower()
+    for spec in ATTACHMENT_FORMATS.values():
+        if (
+            name.endswith(spec['extensions'])
+            and (content_type in spec['content_types'] or content_type in _GENERIC_TYPES)
+            and spec['magic'](data)
+        ):
+            return True
+    return False
 # Fields an employee must fill before a reimbursement can be submitted.
 SUBMIT_REQUIRED = (
     ('bank_name', 'Nama Bank'),
@@ -158,10 +194,10 @@ class ReimbursementViewSet(viewsets.ModelViewSet):
             return Response({'detail': 'Tidak berwenang.'}, status=status.HTTP_403_FORBIDDEN)
         if obj.status != 'DRAFT':
             return Response({'detail': 'Hanya pengajuan DRAFT yang dapat dikirim.'}, status=status.HTTP_400_BAD_REQUEST)
-        # Bukti Payment/Tagihan/Invoice (PDF) wajib untuk SEMUA pengajuan.
+        # Bukti Payment/Tagihan/Invoice (PDF/gambar) wajib untuk SEMUA pengajuan.
         if not obj.attachment_path:
             return Response(
-                {'attachment': 'Bukti Payment/Tagihan/Invoice (PDF) wajib diunggah sebelum pengajuan dikirim.'},
+                {'attachment': 'Bukti Payment/Tagihan/Invoice wajib diunggah sebelum pengajuan dikirim.'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
         missing = {f: f'{label} wajib diisi.' for f, label in SUBMIT_REQUIRED if not (getattr(obj, f) or '').strip()}
@@ -400,15 +436,10 @@ class ReimbursementViewSet(viewsets.ModelViewSet):
             )
         data = upload.read()
         if kind == 'attachment':
-            # Bukti Payment/Tagihan/Invoice: PDF only (extension + type + content).
-            is_pdf = (
-                upload.name.lower().endswith('.pdf')
-                and (upload.content_type or '').lower() in PDF_CONTENT_TYPES
-                and data[:5] == b'%PDF-'
-            )
-            if not is_pdf:
+            # Bukti Payment/Tagihan/Invoice: PDF or image (JPG/PNG/WEBP).
+            if not _is_allowed_attachment(upload.name, upload.content_type, data):
                 return Response(
-                    {'file': 'Bukti Payment/Tagihan/Invoice harus berupa file PDF.'},
+                    {'file': 'Bukti Payment/Tagihan/Invoice harus berupa file PDF atau gambar (JPG, PNG, WEBP).'},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
         path = _upload_path(obj, kind, upload.name)
