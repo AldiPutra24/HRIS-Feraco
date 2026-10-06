@@ -286,32 +286,39 @@ def apply_quota_adjustment(employee, leave_type, year, amount, reason, user=None
     return adjustment, balance
 
 
-def balance_summary(employee, today=None):
+def balance_summary(employee, today=None, year=None):
     """Remaining quota "per hari ini" for each quota-tracked type.
 
     Uses the quota engine (get_balance -> compute_annual_quota + carry
     forward), HR adjustments and approved usage; pending requests are
-    reported separately (not yet deducted).
+    reported separately (not yet deducted). Works for employees without
+    any leave history: the balance row is computed on first access.
+    `year` defaults to the current year (HR may look at another year).
     """
     from .models import LeaveRequest
 
     today = today or timezone.localdate()
+    year = year or today.year
+    pending_requests = list(
+        LeaveRequest.objects.filter(
+            employee=employee, status='PENDING', start_date__year=year,
+        ).select_related('leave_type')
+    )
     rows = []
     for leave_type in LeaveType.objects.filter(is_active=True).order_by('name'):
         if not tracks_quota(leave_type):
             continue
-        balance = get_balance(employee, leave_type, today.year)
-        pending = Decimal('0')
-        for lr in LeaveRequest.objects.filter(
-            employee=employee, status='PENDING', start_date__year=today.year,
-        ).select_related('leave_type'):
-            if (lr.leave_type.deducts_from_id or lr.leave_type_id) == leave_type.id:
-                pending += lr.total_days
+        balance = get_balance(employee, leave_type, year)
+        pending = sum(
+            (lr.total_days for lr in pending_requests
+             if (lr.leave_type.deducts_from_id or lr.leave_type_id) == leave_type.id),
+            Decimal('0'),
+        )
         rows.append({
             'leave_type': leave_type.id,
             'leave_type_name': leave_type.name,
             'leave_type_code': leave_type.code,
-            'year': today.year,
+            'year': year,
             'as_of': today.isoformat(),
             'allocated_days': balance.allocated_days,
             'adjustment_days': balance.adjustment_days,

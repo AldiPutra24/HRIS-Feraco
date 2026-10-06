@@ -1087,6 +1087,29 @@ class LeaveQuotaHalfDayAdjustmentTests(TestCase):
         # Non-quota types are not listed.
         self.assertNotIn('SPECIAL', [r['leave_type_code'] for r in res.data])
 
+    def test_hr_summary_shows_quota_without_any_history(self):
+        from .models import LeaveBalance
+
+        self.assertFalse(LeaveBalance.objects.filter(employee=self.emp).exists())  # no history
+        self.api.force_authenticate(self.hr)
+        res = self.api.get('/api/leaves/balances/summary/', {'employee': self.emp.id, 'year': 2026})
+        self.assertEqual(res.status_code, 200, res.data)
+        row = next(r for r in res.data if r['leave_type_code'] == 'ANNUAL')
+        self.assertEqual(row['year'], 2026)
+        self.assertEqual(row['allocated_days'], 12)
+        self.assertEqual(row['remaining_days'], 12)
+        self.assertEqual(row['pending_days'], 0)
+        self.assertNotIn('SPECIAL', [r['leave_type_code'] for r in res.data])  # no-quota type
+        # Another year works too.
+        res = self.api.get('/api/leaves/balances/summary/', {'employee': self.emp.id, 'year': 2027})
+        self.assertEqual(res.data[0]['year'], 2027)
+        # Validation + authorization.
+        self.assertEqual(self.api.get('/api/leaves/balances/summary/').status_code, 400)
+        for user in (self.emp_user, self.manager):
+            self.api.force_authenticate(user)
+            res = self.api.get('/api/leaves/balances/summary/', {'employee': self.emp.id})
+            self.assertEqual(res.status_code, 403)
+
     def test_remaining_quota_requires_employee_record(self):
         self.api.force_authenticate(self.hr)  # HR without employee record
         self.assertEqual(self.api.get('/api/leaves/balances/me/').status_code, 404)

@@ -84,11 +84,30 @@ class LeaveBalanceViewSet(viewsets.ModelViewSet):
         employee = _employee_for(request.user)
         if employee is None:
             return Response({'detail': 'Akun tidak terhubung ke data karyawan.'}, status=status.HTTP_404_NOT_FOUND)
-        rows = balance_summary(employee)
+        return Response(self._as_numbers(balance_summary(employee)))
+
+    @action(detail=False, methods=['get'])
+    def summary(self, request):
+        """HR: quota per employee/year from the quota engine — shown even when
+        the employee has no leave history yet (no stored balance rows)."""
+        if _role(request.user) not in LEAVE_ADMIN_ROLES:
+            return Response({'detail': 'Hanya HR yang dapat melihat kuota karyawan lain.'}, status=status.HTTP_403_FORBIDDEN)
+        from apps.personnel.models import Employee
+
+        employee_id = request.query_params.get('employee', '')
+        employee = Employee.objects.filter(pk=employee_id).first() if employee_id.isdigit() else None
+        if employee is None:
+            return Response({'employee': 'Karyawan wajib dipilih.'}, status=status.HTTP_400_BAD_REQUEST)
+        year_param = request.query_params.get('year', '')
+        year = int(year_param) if year_param.isdigit() and 2000 <= int(year_param) <= 2100 else None
+        return Response(self._as_numbers(balance_summary(employee, year=year)))
+
+    @staticmethod
+    def _as_numbers(rows):
         for row in rows:
             for key in ('allocated_days', 'adjustment_days', 'used_days', 'remaining_days', 'pending_days'):
                 row[key] = float(row[key])
-        return Response(rows)
+        return rows
 
 
 class LeaveQuotaAdjustmentViewSet(viewsets.ModelViewSet):

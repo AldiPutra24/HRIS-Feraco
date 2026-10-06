@@ -161,6 +161,12 @@ export function getMyBalances(): Promise<MyBalance[]> {
   return request<MyBalance[]>('/balances/me/', { cache: 'no-store' });
 }
 
+/** HR: an employee's quota for a year, computed by the quota engine (no history needed). */
+export function getBalanceSummary(employeeId: number, year: number): Promise<MyBalance[]> {
+  const qs = new URLSearchParams({ employee: String(employeeId), year: String(year) });
+  return request<MyBalance[]>(`/balances/summary/?${qs}`, { cache: 'no-store' });
+}
+
 export function listQuotaAdjustments(params?: Record<string, string>): Promise<LeaveQuotaAdjustment[]> {
   const qs = params ? `?${new URLSearchParams(params)}` : '';
   return request<LeaveQuotaAdjustment[] | { results?: LeaveQuotaAdjustment[] }>(`/adjustments/${qs}`).then(unwrapList);

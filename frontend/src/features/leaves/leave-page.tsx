@@ -17,13 +17,13 @@ import {
   cancelLeave,
   hardDeleteLeave,
   formatDays,
-  listBalances,
+  getBalanceSummary,
   listLeaveRequests,
   listLeaveTypes,
   rejectLeave,
-  type LeaveBalance,
   type LeaveRequest,
-  type LeaveType
+  type LeaveType,
+  type MyBalance
 } from '@/lib/leaves';
 import { listEmployees, type Employee } from '@/lib/employees';
 
@@ -67,7 +67,7 @@ export function LeavePage() {
   const canHardDelete = role === 'admin'; // backend: ADMIN/superadmin only
 
   const [types, setTypes] = useState<LeaveType[]>([]);
-  const [balances, setBalances] = useState<LeaveBalance[]>([]);
+  const [balances, setBalances] = useState<MyBalance[]>([]);
   const [requests, setRequests] = useState<LeaveRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [balanceLoading, setBalanceLoading] = useState(false);
@@ -96,7 +96,8 @@ export function LeavePage() {
       }
       setBalanceLoading(true);
       try {
-        setBalances(await listBalances({ employee: String(emp), year: String(yr) }));
+        // Computed by the quota engine — shown even without any leave history.
+        setBalances(await getBalanceSummary(emp, yr));
       } catch {
         /* non-fatal */
       } finally {
@@ -267,7 +268,7 @@ export function LeavePage() {
             {balanceLoading ? (
               <Skeleton className='h-32 w-full' />
             ) : balanceEmpId && balances.length === 0 ? (
-              <p className='text-muted-foreground text-sm'>Belum ada data kuota untuk karyawan ini.</p>
+              <p className='text-muted-foreground text-sm'>Tidak ada jenis cuti berkuota yang aktif.</p>
             ) : balanceEmpId ? (
               <>
                 <p className='text-sm font-medium text-slate-700'>{employees.find((e) => e.id === balanceEmpId)?.full_name}</p>
@@ -276,43 +277,46 @@ export function LeavePage() {
                     <TableRow>
                       <TableHead>Jenis</TableHead>
                       <TableHead>Tahun</TableHead>
-                      <TableHead>Dialokasikan</TableHead>
+                      <TableHead>Kuota</TableHead>
                       <TableHead>Adjustment</TableHead>
                       <TableHead>Terpakai</TableHead>
+                      <TableHead>Pending</TableHead>
                       <TableHead>Sisa</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {balances.map((b) => {
-                      const meta = types.find((t) => t.id === b.leave_type);
-                      const deductTarget = meta?.deducts_from != null ? types.find((t) => t.id === meta.deducts_from) : null;
-                      const hasQuota = b.allocated_days > 0 || b.adjustment_days !== 0;
+                      const deductedBy = types.filter((t) => t.deducts_from === b.leave_type).map((t) => t.name);
+                      const notEligible =
+                        b.leave_type_code === 'ANNUAL' && b.allocated_days === 0 && b.adjustment_days === 0;
                       return (
-                        <TableRow key={b.id}>
-                          <TableCell>{b.leave_type_name}</TableCell>
+                        <TableRow key={b.leave_type}>
+                          <TableCell>
+                            {b.leave_type_name}
+                            {deductedBy.length > 0 && (
+                              <p className='text-muted-foreground text-xs'>termasuk {deductedBy.join(', ')}</p>
+                            )}
+                            {notEligible && (
+                              <p className='text-muted-foreground text-xs'>belum berhak (masa kerja &lt; 3 bulan)</p>
+                            )}
+                          </TableCell>
                           <TableCell>{b.year}</TableCell>
-                          {hasQuota ? (
-                            <>
-                              <TableCell>{formatDays(b.allocated_days)}</TableCell>
-                              <TableCell>
-                                {b.adjustment_days > 0 ? '+' : ''}
-                                {formatDays(b.adjustment_days)}
-                              </TableCell>
-                              <TableCell>{formatDays(b.used_days)}</TableCell>
-                              <TableCell>{formatDays(b.remaining_days)}</TableCell>
-                            </>
-                          ) : (
-                            <TableCell colSpan={4}>
-                              <span className='text-muted-foreground text-sm'>
-                                {deductTarget ? `Mengurangi ${deductTarget.name}` : 'Tanpa kuota (hak khusus)'}
-                              </span>
-                            </TableCell>
-                          )}
+                          <TableCell>{formatDays(b.allocated_days)}</TableCell>
+                          <TableCell>
+                            {b.adjustment_days > 0 ? '+' : ''}
+                            {formatDays(b.adjustment_days)}
+                          </TableCell>
+                          <TableCell>{formatDays(b.used_days)}</TableCell>
+                          <TableCell>{formatDays(b.pending_days)}</TableCell>
+                          <TableCell className='font-medium'>{formatDays(b.remaining_days)}</TableCell>
                         </TableRow>
                       );
                     })}
                   </TableBody>
                 </Table>
+                <p className='text-muted-foreground text-xs'>
+                  Sisa = Kuota (termasuk carry-forward) + Adjustment − Terpakai. Pending belum memotong kuota.
+                </p>
               </>
             ) : null}
             {balanceEmpId && (
