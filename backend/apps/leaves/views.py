@@ -95,7 +95,10 @@ class LeaveQuotaAdjustmentViewSet(viewsets.ModelViewSet):
     """HR manual quota adjustments (audit trail). Create + read only:
     adjustments are immutable — corrections are new adjustments."""
 
-    queryset = LeaveQuotaAdjustment.objects.select_related('employee', 'leave_type', 'created_by').all()
+    # Newest first; id breaks ties when adjustments share a timestamp.
+    queryset = LeaveQuotaAdjustment.objects.select_related(
+        'employee', 'leave_type', 'created_by',
+    ).order_by('-created_at', '-id')
     serializer_class = LeaveQuotaAdjustmentSerializer
     permission_classes = [IsLeaveAdmin]
     http_method_names = ['get', 'post', 'head', 'options']
