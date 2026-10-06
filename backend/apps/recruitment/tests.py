@@ -721,9 +721,39 @@ class CvUploadValidationTests(TestCase):
 
     def test_rejects_oversized_file(self):
         c = Candidate.objects.create(job=self.job, full_name='Budi', email='budi@test.com')
-        big = self._cv('cv.pdf', b'x' * (10 * 1024 * 1024 + 1))
+        big = self._cv('cv.pdf', b'%PDF-1.4' + b'x' * (5 * 1024 * 1024))  # just over 5 MB
         resp = self.client.post(f'/api/recruitment/candidates/{c.id}/cv/', {'file': big}, format='multipart')
         self.assertEqual(resp.status_code, 400)
+        self.assertIn('5 MB', resp.json()['detail'])
+
+    def test_cv_pdf_or_word_only(self):
+        from unittest import mock
+
+        from apps.recruitment import views as rviews
+
+        docx_mime = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+        cases = [
+            # (name, content, mime, accepted)
+            ('cv.pdf', b'%PDF-1.4 x', 'application/pdf', True),
+            ('cv.doc', b'\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1 x', 'application/msword', True),
+            ('cv.docx', b'PK\x03\x04 x', docx_mime, True),
+            ('cv.pdf', b'not a pdf', 'application/pdf', False),        # wrong content
+            ('cv.doc', b'%PDF-1.4 x', 'application/msword', False),   # pdf bytes named .doc
+            ('cv.pdf', b'%PDF-1.4 x', 'image/png', False),            # wrong type
+            ('cv.jpg', b'\xff\xd8\xff x', 'image/jpeg', False),       # images not allowed
+            ('cv.txt', b'hello', 'text/plain', False),
+        ]
+        for name, content, mime, accepted in cases:
+            c = Candidate.objects.create(job=self.job, full_name='Budi', email='budi@test.com')
+            with self.subTest(name=name, mime=mime), \
+                 mock.patch.object(rviews, 'is_configured', return_value=True), \
+                 mock.patch.object(rviews, 'upload_bytes') as up:
+                resp = self.client.post(
+                    f'/api/recruitment/candidates/{c.id}/cv/',
+                    {'file': self._cv(name, content, mime)}, format='multipart',
+                )
+                self.assertEqual(resp.status_code == 400, not accepted, resp.content)
+                self.assertEqual(up.called, accepted)
 
     def test_storage_failure_is_502_not_500(self):
         from apps.personnel import storage
@@ -794,7 +824,7 @@ class FreelanceJobPublicApplyTests(TestCase):
         from django.core.files.uploadedfile import SimpleUploadedFile
 
         if cv:
-            data = {**data, 'cv': SimpleUploadedFile('cv.pdf', b'data', content_type='application/pdf')}
+            data = {**data, 'cv': SimpleUploadedFile('cv.pdf', b'%PDF-1.4 data', content_type='application/pdf')}
         with mock.patch('apps.recruitment.views.is_configured', return_value=True), \
              mock.patch('apps.recruitment.views.upload_bytes') as up:
             res = self.client.post(self.url, data)
@@ -872,6 +902,40 @@ class FreelanceJobPublicApplyTests(TestCase):
         self.client.force_login(make_user('ADMIN', 'hradmin@test.com'))
         res = self.client.get(f'/api/recruitment/candidates/?recruitment_type=FREELANCE&skill={self.s_mc.id}')
         self.assertEqual([c['email'] for c in res.json()['results']], ['a@example.com'])
+
+
+class PublicApplyCsrfTests(TestCase):
+    """/jobs/<slug> apply must work even when the browser carries an HRIS
+    login session (no 'CSRF token missing'); HR actions keep CSRF."""
+
+    def setUp(self):
+        from django.test import Client
+
+        dept = Department.objects.create(name='Engineering')
+        pos = Position.objects.create(name='Developer', department=dept)
+        self.job = Job.objects.create(
+            title='Backend Dev', slug='backend-dev', department=dept, position=pos,
+            description='d', requirements='r', employment_type='FULL_TIME', location='Jakarta',
+            open_date=date.today(), status='OPEN',
+        )
+        self.client = Client(enforce_csrf_checks=True)
+        self.client.force_login(make_user('ADMIN', 'hr@test.com'))  # logged-in session cookie
+
+    def test_apply_with_session_cookie_without_csrf_token(self):
+        res = self.client.post('/api/recruitment/candidates/', {
+            'job': self.job.id, 'full_name': 'Rina', 'email': 'rina@x.com', 'phone': '0812',
+        }, content_type='application/json')
+        self.assertEqual(res.status_code, 201, res.content)
+        self.assertTrue(Candidate.objects.filter(email='rina@x.com').exists())
+
+    def test_hr_actions_still_require_csrf(self):
+        cand = Candidate.objects.create(job=self.job, full_name='Rina', email='rina@x.com')
+        res = self.client.post(f'/api/recruitment/candidates/{cand.id}/transition/',
+                               {'status': 'SCREENING'}, content_type='application/json')
+        self.assertEqual(res.status_code, 403)
+        self.assertIn('CSRF', res.json()['detail'])
+        # HR list still requires an authenticated session.
+        self.assertEqual(self.client.get('/api/recruitment/candidates/').status_code, 200)
 
 
 class RetiredApplyFormTests(TestCase):

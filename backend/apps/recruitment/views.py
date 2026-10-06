@@ -26,14 +26,19 @@ from rest_framework.views import APIView
 from .services import _bucket, transition_candidate
 from .talent_pool import accept_candidate_to_talent_pool
 
-# CV upload validation: PDF/DOC/DOCX only, max 10 MB.
-CV_ALLOWED_EXTENSIONS = {'.pdf', '.doc', '.docx'}
-CV_ALLOWED_MIME = {
-    'application/pdf',
-    'application/msword',
-    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+# CV upload validation: PDF or Word (DOC/DOCX) only, max 5 MB. Extension,
+# content type and file signature (magic bytes) must match the same format.
+CV_FORMATS = {
+    '.pdf': ({'application/pdf', 'application/x-pdf'}, (b'%PDF-',)),
+    '.doc': ({'application/msword'}, (b'\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1',)),  # OLE2
+    '.docx': (
+        {'application/vnd.openxmlformats-officedocument.wordprocessingml.document'},
+        (b'PK\x03\x04',),  # Office Open XML (zip)
+    ),
 }
-CV_MAX_SIZE = 10 * 1024 * 1024
+CV_GENERIC_MIME = {'application/octet-stream', ''}
+CV_MAX_SIZE = 5 * 1024 * 1024
+CV_FORMAT_ERROR = 'Format CV harus PDF atau DOC (Word).'
 
 
 def _validate_cv(file):
@@ -41,10 +46,18 @@ def _validate_cv(file):
     import os
 
     ext = os.path.splitext(file.name or '')[1].lower()
-    if ext not in CV_ALLOWED_EXTENSIONS:
-        return 'Format CV harus PDF, DOC, atau DOCX.'
+    if ext not in CV_FORMATS:
+        return CV_FORMAT_ERROR
     if file.size and file.size > CV_MAX_SIZE:
-        return 'Ukuran CV maksimal 10MB.'
+        return 'Ukuran CV maksimal 5 MB.'
+    mimes, signatures = CV_FORMATS[ext]
+    content_type = (getattr(file, 'content_type', '') or '').lower()
+    if content_type not in mimes and content_type not in CV_GENERIC_MIME:
+        return CV_FORMAT_ERROR
+    head = file.read(8)
+    file.seek(0)
+    if not any(head.startswith(sig) for sig in signatures):
+        return CV_FORMAT_ERROR
     return None
 
 
@@ -193,6 +206,19 @@ class CandidateViewSet(viewsets.ModelViewSet):
                     status=status.HTTP_409_CONFLICT,
                 )
         return super().create(request, *args, **kwargs)
+
+    def _is_public_apply(self):
+        # POST on the list route (no pk) == create == public apply.
+        request = getattr(self, 'request', None)
+        return request is not None and request.method == 'POST' and 'pk' not in self.kwargs
+
+    def get_authenticators(self):
+        # Public apply is anonymous: skip SessionAuthentication so a visitor
+        # who happens to be logged in to the HRIS in the same browser is not
+        # hit by DRF's session CSRF check ("CSRF token missing") on /jobs/<slug>.
+        if self._is_public_apply():
+            return []
+        return super().get_authenticators()
 
     def get_permissions(self):
         if self.action == 'create':

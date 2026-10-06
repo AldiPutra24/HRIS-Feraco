@@ -9,6 +9,18 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { applyJob, getPublicJob, type PublicJob } from '@/lib/recruitment';
 
+// Same rules as the backend: PDF or Word (DOC/DOCX), max 5 MB.
+const CV_MAX_BYTES = 5 * 1024 * 1024;
+const CV_EXTENSIONS = ['.pdf', '.doc', '.docx'];
+
+/** Error message for an invalid CV, or null when it is acceptable. */
+function cvError(f: File): string | null {
+  const name = f.name.toLowerCase();
+  if (!CV_EXTENSIONS.some((ext) => name.endsWith(ext))) return 'Format CV harus PDF atau DOC (Word).';
+  if (f.size > CV_MAX_BYTES) return 'Ukuran CV maksimal 5 MB.';
+  return null;
+}
+
 function employmentLabel(v: string): string {
   return v.replace('_', ' ').toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
 }
@@ -62,6 +74,11 @@ export function PublicJobPage({ slug }: { slug: string }) {
     }
     if (isFreelance && !cv && !form.portfolio_url.trim()) {
       toast.error('Upload CV atau isi URL portfolio.');
+      return;
+    }
+    const cvProblem = cv ? cvError(cv) : null;
+    if (cvProblem) {
+      toast.error(cvProblem);
       return;
     }
     setApplying(true);
@@ -243,9 +260,20 @@ export function PublicJobPage({ slug }: { slug: string }) {
                     </Label>
                     <Input
                       type='file'
-                      accept='.pdf,.doc,.docx'
-                      onChange={(e) => setCv(e.target.files?.[0] || null)}
+                      accept='.pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+                      onChange={(e) => {
+                        const picked = e.target.files?.[0] || null;
+                        const problem = picked ? cvError(picked) : null;
+                        if (problem) {
+                          toast.error(problem);
+                          e.target.value = '';
+                          setCv(null);
+                          return;
+                        }
+                        setCv(picked);
+                      }}
                     />
+                    <p className='text-muted-foreground mt-1 text-xs'>Format file: PDF atau DOC (Word) · Ukuran maks. 5 MB</p>
                   </div>
                   <Button type='submit' disabled={applying}>
                     {applying ? 'Mengirim...' : 'Kirim Lamaran'}
