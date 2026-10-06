@@ -161,6 +161,21 @@ export function getMyBalances(): Promise<MyBalance[]> {
   return request<MyBalance[]>('/balances/me/', { cache: 'no-store' });
 }
 
+export type EmployeeQuotaPage = {
+  count: number;
+  page: number;
+  page_size: number;
+  total_pages: number;
+  results: { employee: number; employee_name: string; rows: MyBalance[] }[];
+};
+
+/** HR: every ACTIVE employee's quota for a year, 10 employees per page. */
+export function getAllBalanceSummary(year: number, page = 1, search = ''): Promise<EmployeeQuotaPage> {
+  const qs = new URLSearchParams({ year: String(year), page: String(page) });
+  if (search) qs.set('search', search);
+  return request<EmployeeQuotaPage>(`/balances/summary/?${qs}`, { cache: 'no-store' });
+}
+
 /** HR: an employee's quota for a year, computed by the quota engine (no history needed). */
 export function getBalanceSummary(employeeId: number, year: number): Promise<MyBalance[]> {
   const qs = new URLSearchParams({ employee: String(employeeId), year: String(year) });

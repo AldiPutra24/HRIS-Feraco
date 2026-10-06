@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { AllQuotaTable } from './all-quota-table';
 import { QuotaAdjustmentPanel } from './quota-adjustment-panel';
 import { useAuth } from '@/lib/auth/auth-provider';
 import {
@@ -128,9 +129,8 @@ export function LeavePage() {
     if (!isAdmin) return;
     listEmployees({ employment_status: 'ACTIVE', page_size: '1000' })
       .then((d) => {
+        // Default view is "Semua Karyawan" (paginated); pick one to drill in.
         setEmployees(d.results);
-        // Default to first employee; show their balances.
-        if (d.results.length > 0) setBalanceEmpId((prev) => prev ?? d.results[0].id);
       })
       .catch(() => {});
   }, [isAdmin]);
@@ -245,7 +245,7 @@ export function LeavePage() {
                 value={balanceEmpId ?? ''}
                 onChange={(e) => setBalanceEmpId(e.target.value ? Number(e.target.value) : null)}
               >
-                <option value=''>Pilih Karyawan</option>
+                <option value=''>Semua Karyawan</option>
                 {employees.map((e) => (
                   <option key={e.id} value={e.id}>
                     {e.full_name}
@@ -265,7 +265,9 @@ export function LeavePage() {
                 ))}
               </select>
             </div>
-            {balanceLoading ? (
+            {!balanceEmpId ? (
+              <AllQuotaTable year={balanceYear} onSelect={setBalanceEmpId} />
+            ) : balanceLoading ? (
               <Skeleton className='h-32 w-full' />
             ) : balanceEmpId && balances.length === 0 ? (
               <p className='text-muted-foreground text-sm'>Tidak ada jenis cuti berkuota yang aktif.</p>

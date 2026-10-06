@@ -1103,12 +1103,36 @@ class LeaveQuotaHalfDayAdjustmentTests(TestCase):
         # Another year works too.
         res = self.api.get('/api/leaves/balances/summary/', {'employee': self.emp.id, 'year': 2027})
         self.assertEqual(res.data[0]['year'], 2027)
-        # Validation + authorization.
-        self.assertEqual(self.api.get('/api/leaves/balances/summary/').status_code, 400)
+        # Unknown employee + authorization.
+        self.assertEqual(self.api.get('/api/leaves/balances/summary/', {'employee': 99999}).status_code, 404)
         for user in (self.emp_user, self.manager):
             self.api.force_authenticate(user)
             res = self.api.get('/api/leaves/balances/summary/', {'employee': self.emp.id})
             self.assertEqual(res.status_code, 403)
+
+    def test_hr_summary_all_employees_paginated_by_10(self):
+        for i in range(10):  # 2 existing ACTIVE (Manager, John) + 10 = 12
+            Employee.objects.create(employee_id=f'X{i:02d}', full_name=f'Zed {i:02d}', employment_status='ACTIVE')
+        Employee.objects.create(employee_id='OFF', full_name='Gone', employment_status='INACTIVE')
+        self.api.force_authenticate(self.hr)
+        url = '/api/leaves/balances/summary/'
+        page1 = self.api.get(url, {'year': 2026}).data
+        self.assertEqual(page1['count'], 12)  # INACTIVE excluded
+        self.assertEqual(page1['page_size'], 10)
+        self.assertEqual(page1['total_pages'], 2)
+        self.assertEqual(len(page1['results']), 10)
+        first = page1['results'][0]
+        self.assertEqual(first['employee_name'], 'John')  # ordered by name
+        self.assertEqual(first['rows'][0]['leave_type_code'], 'ANNUAL')
+        self.assertEqual(first['rows'][0]['remaining_days'], 12)  # no history needed
+        page2 = self.api.get(url, {'year': 2026, 'page': 2}).data
+        self.assertEqual(len(page2['results']), 2)
+        names = {r['employee_name'] for r in page1['results'] + page2['results']}
+        self.assertNotIn('Gone', names)
+        searched = self.api.get(url, {'year': 2026, 'search': 'zed 0'}).data
+        self.assertEqual(searched['count'], 10)
+        self.api.force_authenticate(self.emp_user)
+        self.assertEqual(self.api.get(url).status_code, 403)
 
     def test_remaining_quota_requires_employee_record(self):
         self.api.force_authenticate(self.hr)  # HR without employee record

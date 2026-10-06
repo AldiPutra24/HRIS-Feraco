@@ -86,21 +86,55 @@ class LeaveBalanceViewSet(viewsets.ModelViewSet):
             return Response({'detail': 'Akun tidak terhubung ke data karyawan.'}, status=status.HTTP_404_NOT_FOUND)
         return Response(self._as_numbers(balance_summary(employee)))
 
+    SUMMARY_PAGE_SIZE = 10
+
     @action(detail=False, methods=['get'])
     def summary(self, request):
         """HR: quota per employee/year from the quota engine — shown even when
-        the employee has no leave history yet (no stored balance rows)."""
+        the employee has no leave history yet (no stored balance rows).
+
+        ?employee=<id> -> that employee's rows (list).
+        No employee   -> all ACTIVE employees, 10 per page (?page=, ?search=):
+                         {count, page, page_size, total_pages, results:[
+                          {employee, employee_name, rows:[...]}]}.
+        """
         if _role(request.user) not in LEAVE_ADMIN_ROLES:
             return Response({'detail': 'Hanya HR yang dapat melihat kuota karyawan lain.'}, status=status.HTTP_403_FORBIDDEN)
+        from django.core.paginator import Paginator
+
         from apps.personnel.models import Employee
 
-        employee_id = request.query_params.get('employee', '')
-        employee = Employee.objects.filter(pk=employee_id).first() if employee_id.isdigit() else None
-        if employee is None:
-            return Response({'employee': 'Karyawan wajib dipilih.'}, status=status.HTTP_400_BAD_REQUEST)
         year_param = request.query_params.get('year', '')
         year = int(year_param) if year_param.isdigit() and 2000 <= int(year_param) <= 2100 else None
-        return Response(self._as_numbers(balance_summary(employee, year=year)))
+        employee_id = request.query_params.get('employee', '')
+        if employee_id:
+            employee = Employee.objects.filter(pk=employee_id).first() if employee_id.isdigit() else None
+            if employee is None:
+                return Response({'employee': 'Karyawan tidak ditemukan.'}, status=status.HTTP_404_NOT_FOUND)
+            return Response(self._as_numbers(balance_summary(employee, year=year)))
+
+        employees = Employee.objects.filter(employment_status='ACTIVE').order_by('full_name', 'id')
+        search = (request.query_params.get('search') or '').strip()
+        if search:
+            employees = employees.filter(full_name__icontains=search)
+        paginator = Paginator(employees, self.SUMMARY_PAGE_SIZE)
+        page_param = request.query_params.get('page', '1')
+        page = paginator.get_page(int(page_param) if page_param.isdigit() else 1)
+        results = [
+            {
+                'employee': emp.id,
+                'employee_name': emp.full_name,
+                'rows': self._as_numbers(balance_summary(emp, year=year)),
+            }
+            for emp in page.object_list
+        ]
+        return Response({
+            'count': paginator.count,
+            'page': page.number,
+            'page_size': self.SUMMARY_PAGE_SIZE,
+            'total_pages': paginator.num_pages,
+            'results': results,
+        })
 
     @staticmethod
     def _as_numbers(rows):
