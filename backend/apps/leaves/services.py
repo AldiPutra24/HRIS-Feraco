@@ -224,42 +224,75 @@ def compute_total_days(start_date, end_date):
     return (end_date - start_date).days + 1
 
 
+def base_quota(employee, leave_type, year):
+    """Quota for the year before carry-forward (policy 3.2 / 3.3)."""
+    if leave_type.code == ANNUAL_CODE:
+        return Decimal(compute_annual_quota(employee, year))
+    return Decimal(leave_type.default_quota)
+
+
+def carry_forward(employee, leave_type, year):
+    """Days carried from year-1 (policy 3.4): MIN(unused, carry_forward_max).
+
+    Transition: when the system holds no balance for year-1 (HRIS started in
+    2026, so 2025 usage was never recorded), the previous year's quota is
+    assumed unused -> MIN(previous quota, cap). Employees with no previous
+    quota (e.g. hired Oct-Dec 2025, first eligible in 2026) carry nothing.
+    """
+    cap = Decimal(leave_type.carry_forward_max or 0)
+    if not cap:
+        return Decimal('0')
+    prev = LeaveBalance.objects.filter(employee=employee, leave_type=leave_type, year=year - 1).first()
+    if prev is not None:
+        return min(max(prev.remaining_days, Decimal('0')), cap)
+    if leave_type.code == ANNUAL_CODE:
+        return min(Decimal(compute_annual_quota(employee, year - 1)), cap)
+    return Decimal('0')
+
+
+def computed_allocation(employee, leave_type, year):
+    """Allocation the policy gives today: base quota + carry-forward."""
+    return base_quota(employee, leave_type, year) + carry_forward(employee, leave_type, year)
+
+
 def get_balance(employee, leave_type, year):
     """Fetch or lazily create the balance row for an employee/type/year.
 
     For Cuti Tahunan the allocation follows the centralized quota policy
     (`compute_annual_quota`): eligibility after 3 months, first-year proration
     to December/contract end, contract-duration quota later, basic 12 once
-    cumulative service >= 12 months.
+    cumulative service >= 12 months; plus carry-forward (`carry_forward`).
 
-    On first creation, carries forward up to `carry_forward_max` unused days
-    from the previous year's balance (e.g. Cuti Tahunan carry-forward).
+    The allocation is computed on first creation only; an existing row is
+    never silently overwritten (see `recompute_allocation` / the
+    `recompute_leave_quota` command to re-sync after data changes).
     """
-    if leave_type.code == ANNUAL_CODE:
-        allocated = compute_annual_quota(employee, year)
-    else:
-        allocated = leave_type.default_quota
-    defaults = {
-        'allocated_days': allocated,
-        'used_days': 0,
-        'remaining_days': allocated,
-    }
-    balance, created = LeaveBalance.objects.get_or_create(
+    allocated = computed_allocation(employee, leave_type, year)
+    balance, _ = LeaveBalance.objects.get_or_create(
         employee=employee,
         leave_type=leave_type,
         year=year,
-        defaults=defaults,
+        defaults={'allocated_days': allocated, 'used_days': 0, 'remaining_days': allocated},
     )
-    if created and leave_type.carry_forward_max:
-        prev = LeaveBalance.objects.filter(
-            employee=employee, leave_type=leave_type, year=year - 1,
-        ).first()
-        if prev and prev.remaining_days > 0:
-            carry = min(prev.remaining_days, leave_type.carry_forward_max)
-            balance.allocated_days += carry
-            balance.recompute()
-            balance.save(update_fields=['allocated_days', 'remaining_days'])
     return balance
+
+
+@transaction.atomic
+def recompute_allocation(employee, leave_type, year, dry_run=False):
+    """Re-sync a balance's allocation with the current policy/data.
+
+    Only `allocated_days` changes; usage and HR adjustments are kept, so
+    remaining = new allocation + adjustment - used. Returns (before, after).
+    """
+    balance = get_balance(employee, leave_type, year)
+    balance = LeaveBalance.objects.select_for_update().get(pk=balance.pk)
+    before = balance.allocated_days
+    after = computed_allocation(employee, leave_type, year)
+    if not dry_run and after != before:
+        balance.allocated_days = after
+        balance.recompute()
+        balance.save(update_fields=['allocated_days', 'remaining_days'])
+    return before, after
 
 
 def tracks_quota(leave_type):

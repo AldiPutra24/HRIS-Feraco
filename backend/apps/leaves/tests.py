@@ -597,6 +597,85 @@ class BusinessRuleTests(TestCase):
         self.assertTrue(s.is_valid(), s.errors)
 
 
+class CarryForwardTransitionTests(TestCase):
+    """Policy 3.4 + 2026 transition: no 2025 data in the system -> previous
+    quota assumed unused -> carry MIN(previous quota, 3). Recompute re-syncs
+    existing rows without touching usage/adjustments."""
+
+    def setUp(self):
+        self.annual = LeaveType.objects.create(
+            name='Cuti Tahunan', code='ANNUAL', kind='LEAVE',
+            default_quota=12, min_tenure_months=3, carry_forward_max=3,
+        )
+
+    def _emp(self, eid, join, contracts=()):
+        from apps.personnel.models import EmployeeContract
+
+        emp = Employee.objects.create(employee_id=eid, full_name=eid, employment_status='ACTIVE', join_date=join)
+        for start, end in contracts:
+            EmployeeContract.objects.create(employee=emp, contract_type='PKWT', start_date=start,
+                                            end_date=end, status='ACTIVE')
+        return emp
+
+    def test_long_standing_employee_gets_12_plus_3(self):
+        emp = self._emp('LAMA', date(2019, 1, 1))
+        self.assertEqual(get_balance(emp, self.annual, 2026).allocated_days, 15)
+
+    def test_nana_first_quota_2_carried(self):
+        emp = self._emp('NANA', date(2025, 8, 1), [(date(2025, 8, 1), date(2025, 12, 31)),
+                                                   (date(2026, 1, 1), date(2026, 6, 30))])
+        self.assertEqual(get_balance(emp, self.annual, 2026).allocated_days, 8)  # 6 + 2
+
+    def test_hired_oct_dec_2025_no_carry(self):
+        # Cases D-F: first quota only in 2026 -> nothing to carry from 2025.
+        for eid, join, expected in (('D', date(2025, 10, 1), 12), ('E', date(2025, 11, 1), 11),
+                                    ('F', date(2025, 12, 1), 10)):
+            emp = self._emp(eid, join)
+            self.assertEqual(get_balance(emp, self.annual, 2026).allocated_days, expected, eid)
+
+    def test_existing_previous_balance_uses_real_remaining(self):
+        emp = self._emp('REAL', date(2019, 1, 1))
+        b25 = get_balance(emp, self.annual, 2025)
+        b25.used_days = 11
+        b25.recompute()
+        b25.save()  # 15 - 11 = 4 remaining -> capped 3
+        self.assertEqual(get_balance(emp, self.annual, 2026).allocated_days, 15)
+        b25.used_days = 14
+        b25.recompute()
+        b25.save()  # 1 remaining
+        from .services import recompute_allocation
+
+        self.assertEqual(recompute_allocation(emp, self.annual, 2026), (15, 13))
+
+    def test_recompute_command_resyncs_stale_rows_keeping_usage(self):
+        from io import StringIO
+
+        from django.core.management import call_command
+
+        from .services import apply_quota_adjustment
+
+        emp = self._emp('STALE', None)  # no join date yet -> 12 + 3
+        bal = get_balance(emp, self.annual, 2026)
+        self.assertEqual(bal.allocated_days, 15)
+        bal.used_days = 2
+        bal.recompute()
+        bal.save()
+        apply_quota_adjustment(emp, self.annual, 2026, Decimal('1'), 'bonus')
+        emp.join_date = date(2026, 1, 1)  # join date filled in later -> eligible Apr -> 9
+        emp.save()
+        out = StringIO()
+        call_command('recompute_leave_quota', '--year', '2026', '--dry-run', stdout=out)
+        self.assertIn('15 -> 9', out.getvalue())
+        bal.refresh_from_db()
+        self.assertEqual(bal.allocated_days, 15)  # dry run: unchanged
+        call_command('recompute_leave_quota', '--year', '2026', stdout=StringIO())
+        bal.refresh_from_db()
+        self.assertEqual(bal.allocated_days, 9)
+        self.assertEqual(bal.used_days, 2)
+        self.assertEqual(bal.adjustment_days, 1)
+        self.assertEqual(bal.remaining_days, 8)  # 9 + 1 - 2
+
+
 class AnnualQuotaPolicyTests(TestCase):
     """Regression tests for the 2026 Cuti Tahunan quota policy.
 
