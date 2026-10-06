@@ -257,37 +257,57 @@ class EmployeeContract(models.Model):
         return self.end_date is None or self.end_date >= timezone.localdate()
 
     @property
+    def effective_end_date(self):
+        """Real end of the contract: a TERMINATED contract ends on its
+        termination_date (not the planned end_date)."""
+        if self.status == 'TERMINATED' and self.termination_date:
+            if self.end_date is None or self.termination_date < self.end_date:
+                return self.termination_date
+        return self.end_date
+
+    @property
     def duration_months(self):
         """Total contract length in whole months, computed from start→end.
 
         A contract with a defined end_date uses its full planned length, even if
-        it is still active (end_date in the future). Only an open-ended contract
-        (PKWTT / end_date is None) resolves its end to today. Never stored; derived only.
+        it is still active (end_date in the future). A TERMINATED contract ends
+        at its termination_date. Only an open-ended contract (PKWTT / end_date is
+        None) resolves its end to today. Never stored; derived only.
         """
         start = self.start_date
         if start is None:
             return 0
-        end = self.end_date
+        end = self.effective_end_date
         if end is None:
             end = timezone.localdate()
-        if end < start:
-            return 0
-        months = (end.year - start.year) * 12 + (end.month - start.month)
-        if end.day > start.day:
-            months += 1
-        return months
+        return months_between(start, end)
 
     @property
     def duration_display(self):
         """Human-readable duration: '6 bulan', '1 tahun 2 bulan', '2 tahun 10 bulan'."""
-        months = self.duration_months
-        years, rem = divmod(months, 12)
-        parts = []
-        if years:
-            parts.append(f'{years} tahun' if years > 1 else '1 tahun')
-        if rem:
-            parts.append(f'{rem} bulan')
-        return ' '.join(parts) if parts else '0 bulan'
+        return months_display(self.duration_months)
+
+
+def months_between(start, end):
+    """Whole months covered by the inclusive period start..end; a partial
+    month rounds up (1 Jan-30 Jun = 6, 1 Sep 2026-28 Feb 2027 = 6)."""
+    if start is None or end is None or end < start:
+        return 0
+    months = (end.year - start.year) * 12 + (end.month - start.month)
+    if end.day > start.day:
+        months += 1
+    return months
+
+
+def months_display(months):
+    """'6 bulan', '1 tahun', '1 tahun 2 bulan', '0 bulan'."""
+    years, rem = divmod(months, 12)
+    parts = []
+    if years:
+        parts.append(f'{years} tahun' if years > 1 else '1 tahun')
+    if rem:
+        parts.append(f'{rem} bulan')
+    return ' '.join(parts) if parts else '0 bulan'
 
 
 class EmploymentHistory(models.Model):

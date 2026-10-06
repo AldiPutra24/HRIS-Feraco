@@ -448,7 +448,8 @@ export function EmployeeDetail({ id }: { id: number }) {
               <CardContent className='space-y-2'>
                 <Field label='Total Akumulasi' value={employee.contract_accumulation.display} />
                 <div className='text-muted-foreground text-xs'>
-                  {employee.contract_accumulation.contracts.length} kontrak
+                  {employee.contract_accumulation.contracts.filter((c) => c.counted !== false).length} kontrak
+                  {' · dihitung sampai hari ini'}
                   {employee.contract_accumulation.contracts.some((c) => c.overlap)
                     ? ' · periode overlap tidak dihitung ganda'
                     : ''}

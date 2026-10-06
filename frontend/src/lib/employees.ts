@@ -114,7 +114,8 @@ export type ContractAccumulation = {
   months: number;
   display: string;
   current_id: number | null;
-  contracts: Array<{ id: number; duration_months: number; duration_display: string; overlap: boolean }>;
+  /** `counted` is false for DRAFT / not-yet-started contracts (excluded from the total). */
+  contracts: Array<{ id: number; duration_months: number; duration_display: string; overlap: boolean; counted: boolean }>;
 };
 
 export type History = {

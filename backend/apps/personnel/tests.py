@@ -201,7 +201,11 @@ class ContractAccumulationTests(TestCase):
         self.emp = Employee.objects.create(employee_id='E001', full_name='John')
 
     def _contract(self, start, end=None, **over):
-        data = {'employee': self.emp, 'contract_type': 'PKWT', 'start_date': start, 'end_date': end}
+        # Real (activated) contracts by default: DRAFT is excluded from the
+        # accumulation, so history defaults to EXPIRED and a running one to ACTIVE.
+        status = 'ACTIVE' if end is None or end >= date.today() else 'EXPIRED'
+        data = {'employee': self.emp, 'contract_type': 'PKWT', 'start_date': start, 'end_date': end,
+                'status': status}
         data.update(over)
         return EmployeeContract.objects.create(**data)
 
@@ -235,13 +239,52 @@ class ContractAccumulationTests(TestCase):
         self.assertGreater(acc['months'], 6)
 
     def test_accumulation_cross_year(self):
-        # 01-09-2026 -> 28-02-2027 (6m) + 01-03-2027 -> 31-12-2027 (10m) = 16m.
-        self._contract(date(2026, 9, 1), date(2027, 2, 28))   # 6 months
-        self._contract(date(2027, 3, 1), date(2027, 12, 31))  # 10 months
+        # 01-09-2024 -> 28-02-2025 (6m) + 01-03-2025 -> 31-12-2025 (10m) = 16m.
+        self._contract(date(2024, 9, 1), date(2025, 2, 28))   # 6 months
+        self._contract(date(2025, 3, 1), date(2025, 12, 31))  # 10 months
         acc = contract_accumulation(self.emp)
         self.assertEqual(acc['months'], 16)
         self.assertEqual(acc['display'], '1 tahun 4 bulan')
         self.assertFalse(any(c['overlap'] for c in acc['contracts']))
+
+    # --- fixes: real period only, up to today ---
+    def _acc_at(self, today):
+        from unittest import mock
+
+        with mock.patch('django.utils.timezone.localdate', return_value=today):
+            return contract_accumulation(self.emp)
+
+    def test_terminated_contract_counts_until_termination(self):
+        c = self._contract(date(2025, 1, 1), date(2025, 12, 31), status='TERMINATED',
+                           termination_date=date(2025, 3, 31))
+        self.assertEqual(c.duration_months, 3)
+        self.assertEqual(c.duration_display, '3 bulan')
+        self.assertEqual(self._acc_at(date(2026, 10, 6))['months'], 3)
+
+    def test_running_contract_counts_until_today(self):
+        c = self._contract(date(2026, 1, 1), date(2026, 12, 31), status='ACTIVE')
+        acc = self._acc_at(date(2026, 10, 6))
+        self.assertEqual(acc['months'], 10)  # 1 Jan .. 6 Oct
+        self.assertEqual(acc['current_id'], c.id)
+        self.assertEqual(c.duration_months, 12)  # contract's own length stays planned
+
+    def test_draft_and_not_started_contracts_excluded(self):
+        self._contract(date(2026, 1, 1), date(2026, 12, 31), status='ACTIVE')
+        self._contract(date(2027, 1, 1), date(2027, 12, 31), status='RENEWED')  # prepared renewal
+        self._contract(date(2025, 1, 1), date(2025, 6, 30), status='DRAFT')     # never activated
+        acc = self._acc_at(date(2026, 10, 6))
+        self.assertEqual(acc['months'], 10)
+        self.assertEqual([c['counted'] for c in acc['contracts']], [False, True, False])
+
+    def test_short_back_to_back_contracts_merge_before_rounding(self):
+        self._contract(date(2026, 1, 1), date(2026, 1, 15), status='EXPIRED')
+        self._contract(date(2026, 1, 16), date(2026, 1, 31), status='EXPIRED')
+        self.assertEqual(self._acc_at(date(2026, 10, 6))['months'], 1)
+
+    def test_gap_between_contracts_not_counted(self):
+        self._contract(date(2025, 1, 1), date(2025, 3, 31), status='EXPIRED')
+        self._contract(date(2025, 7, 1), date(2025, 9, 30), status='EXPIRED')
+        self.assertEqual(self._acc_at(date(2026, 10, 6))['months'], 6)
 
     def test_accumulation_multiple_contracts(self):
         # 6m + 8m + 14m = 28m (2 tahun 4 bulan), no overlap.

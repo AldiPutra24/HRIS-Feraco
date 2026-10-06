@@ -87,7 +87,7 @@ export function EmployeeContractPage() {
               <span className='font-medium'>{accumulation.display}</span>
             </div>
             <div className='text-muted-foreground text-xs'>
-              {accumulation.contracts.length} kontrak
+              {accumulation.contracts.filter((c) => c.counted !== false).length} kontrak · dihitung sampai hari ini
               {accumulation.contracts.some((c) => c.overlap) ? ' · periode overlap tidak dihitung ganda' : ''}
             </div>
           </CardContent>

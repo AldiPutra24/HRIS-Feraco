@@ -1,9 +1,11 @@
 ﻿"""Contract status lifecycle — the single source of truth for status transitions."""
+from datetime import timedelta
+
 from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
 
-from .models import EmployeeContract
+from .models import EmployeeContract, months_between, months_display
 
 
 def sync_contract_status():
@@ -77,11 +79,22 @@ def set_current_contract(contract):
 
 
 def contract_accumulation(employee):
-    """Sum contract durations from the first contract up to (and including) the
-    current one, merging overlapping periods so they are not double-counted.
+    """Accumulated contract period (masa kontrak) up to today.
 
-    Returns a dict: {months, display, current_id, contracts:[{id, duration_months, duration_display, overlap}]}.
-    `overlap` flags contracts whose period is fully inside an already-counted span.
+    Rules:
+    - Only real periods count: DRAFT contracts and contracts that have not
+      started yet (start_date > today, e.g. a prepared renewal) are excluded.
+    - A TERMINATED contract ends at its termination_date.
+    - The running contract counts up to today (not its planned future end).
+    - Periods are merged first (overlapping or back-to-back contracts form one
+      span) and each span is converted to months once — no double counting
+      and no extra month from rounding each short contract separately. Gaps
+      between contracts are not counted.
+
+    Returns {months, display, current_id, contracts:[{id, duration_months,
+    duration_display, overlap, counted}]}. Per-contract duration is the
+    contract's own length; `overlap` flags a counted contract fully inside an
+    earlier span; `counted` is False for DRAFT / not-yet-started contracts.
     """
     contracts = list(
         employee.contracts.filter(deleted_at__isnull=True)
@@ -89,69 +102,39 @@ def contract_accumulation(employee):
         .order_by('start_date', 'id')
     )
     today = timezone.localdate()
-    counted_end = None  # end of the running merged span
-    total = 0
+    spans = []  # merged [start, end] periods
     current_id = None
     result = []
     for c in contracts:
-        end = c.end_date
-        if end is None:
-            end = today
-        # Running contract = the latest one whose span reaches today.
-        if c.end_date is None or c.end_date >= today:
-            current_id = c.id
-        # Skip zero/negative spans.
-        if end < c.start_date:
-            result.append({
-                'id': c.id,
-                'duration_months': 0,
-                'duration_display': '0 bulan',
-                'overlap': False,
-            })
+        row = {
+            'id': c.id,
+            'duration_months': c.duration_months,
+            'duration_display': c.duration_display,
+            'overlap': False,
+            'counted': True,
+        }
+        result.append(row)
+        if c.status == 'DRAFT' or c.start_date > today:
+            row['counted'] = False
             continue
-        if counted_end is None:
-            # First span: count full length.
-            counted_end = end
-            total += c.duration_months
-            result.append({
-                'id': c.id,
-                'duration_months': c.duration_months,
-                'duration_display': c.duration_display,
-                'overlap': False,
-            })
-        elif end <= counted_end:
-            # Fully inside the already-counted span → no double count.
-            result.append({
-                'id': c.id,
-                'duration_months': c.duration_months,
-                'duration_display': c.duration_display,
-                'overlap': True,
-            })
+        real_end = c.effective_end_date
+        if real_end is None or real_end >= today:
+            current_id = c.id  # running contract
+        end = min(real_end or today, today)
+        if end < c.start_date:
+            row['counted'] = False
+            continue
+        if spans and c.start_date <= spans[-1][1] + timedelta(days=1):
+            # Overlapping or back-to-back with the previous span: merge.
+            if end <= spans[-1][1]:
+                row['overlap'] = c.start_date <= spans[-1][1]
+            spans[-1][1] = max(spans[-1][1], end)
         else:
-            # Extends beyond counted span: count only the new portion, measured
-            # from the later of the previous span end or this contract's start
-            # (so gaps between sequential contracts are not double-counted).
-            tail_start = counted_end if counted_end >= c.start_date else c.start_date
-            added = (end.year - tail_start.year) * 12 + (end.month - tail_start.month)
-            if end.day > tail_start.day:
-                added += 1
-            counted_end = end
-            total += max(added, 0)
-            result.append({
-                'id': c.id,
-                'duration_months': c.duration_months,
-                'duration_display': c.duration_display,
-                'overlap': False,
-            })
-    years, rem = divmod(total, 12)
-    parts = []
-    if years:
-        parts.append(f'{years} tahun' if years > 1 else '1 tahun')
-    if rem:
-        parts.append(f'{rem} bulan')
+            spans.append([c.start_date, end])
+    total = sum(months_between(start, end) for start, end in spans)
     return {
         'months': total,
-        'display': ' '.join(parts) if parts else '0 bulan',
+        'display': months_display(total),
         'current_id': current_id,
         'contracts': result,
     }

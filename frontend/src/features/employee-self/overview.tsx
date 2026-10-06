@@ -174,7 +174,9 @@ export function EmployeeOverview() {
           <CardContent>
             <p className='text-3xl font-semibold'>{accumulation?.display ?? '-'}</p>
             {accumulation && (
-              <p className='text-muted-foreground text-xs'>{accumulation.contracts.length} kontrak</p>
+              <p className='text-muted-foreground text-xs'>
+                {accumulation.contracts.filter((c) => c.counted !== false).length} kontrak
+              </p>
             )}
           </CardContent>
         </Card>
