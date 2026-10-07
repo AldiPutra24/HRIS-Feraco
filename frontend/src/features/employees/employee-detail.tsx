@@ -635,6 +635,7 @@ export function EmployeeDetail({ id }: { id: number }) {
                     <TableHead>Status</TableHead>
                     <TableHead>Probation</TableHead>
                     <TableHead>Dokumen</TableHead>
+                    <TableHead>Catatan</TableHead>
                     {!isManagement && <TableHead className='text-right'>Aksi</TableHead>}
                   </TableRow>
                 </TableHeader>
@@ -663,6 +664,9 @@ export function EmployeeDetail({ id }: { id: number }) {
                         ) : (
                           '-'
                         )}
+                      </TableCell>
+                      <TableCell className='max-w-64 whitespace-pre-line break-words text-sm'>
+                        {c.notes?.trim() || '-'}
                       </TableCell>
                       {isManagement ? (
                         <TableCell className='text-right'>-</TableCell>

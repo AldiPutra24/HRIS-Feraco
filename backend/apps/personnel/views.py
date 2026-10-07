@@ -456,7 +456,14 @@ class EmployeeViewSet(SoftHardDeleteMixin, viewsets.ModelViewSet):
 
         path = f'employees/{employee.pk}/{version}-{upload.name}'
         raw = upload.read()
-        upload_bytes('employee-documents', path, raw, content_type=upload.content_type or 'application/octet-stream')
+        try:
+            upload_bytes('employee-documents', path, raw, content_type=upload.content_type or 'application/octet-stream')
+        except Exception as exc:
+            # Storage/network failure must not surface as a bare 500.
+            return Response(
+                {'detail': f'Gagal mengunggah dokumen ke storage: {str(exc)[:150]}'},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
 
         doc = EmployeeDocument.objects.create(
             employee=employee,

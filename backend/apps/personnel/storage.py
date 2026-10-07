@@ -4,6 +4,8 @@ Uses the service-role key server-side only. Binary files live in a private
 bucket; the DB stores only metadata (path, content_type, size, version).
 """
 import os
+import string
+import unicodedata
 from urllib.parse import quote
 
 import requests
@@ -11,17 +13,38 @@ from django.conf import settings
 
 _UPLOAD_CHUNK = 1024 * 1024  # 1 MiB
 
+# Characters Supabase Storage accepts in an object key. Anything else (e.g.
+# '[', ']', '%', '#', '~', non-ASCII like 'é' or the '–' dash Word puts in
+# filenames) is rejected with 400 "Invalid key" -> was an unhandled 500.
+_KEY_ALLOWED = frozenset(string.ascii_letters + string.digits + "_/!-.*'() &$@=;:+,?")
+
+
+def object_key(path):
+    """Storage-safe object key for a (user-supplied) path.
+
+    Deterministic and idempotent: valid keys are returned unchanged, so paths
+    already stored in the DB keep resolving to the same object. Accented
+    letters are transliterated ('é' -> 'e'); other invalid chars become '_'.
+    The original filename is kept in the DB for display — only the key changes.
+    """
+    out = []
+    for ch in path:
+        if ch in _KEY_ALLOWED:
+            out.append(ch)
+            continue
+        ascii_ch = unicodedata.normalize('NFKD', ch).encode('ascii', 'ignore').decode()
+        out.append(ascii_ch if ascii_ch and all(c in _KEY_ALLOWED for c in ascii_ch) else '_')
+    return ''.join(out)
+
 
 def _quoted_path(path):
-    """Percent-encode a bucket object path for use in the storage URL.
+    """Storage-safe key, percent-encoded for use in the storage URL.
 
-    Spaces alone are auto-encoded by `requests`, but characters like '%', '#',
-    '&' and '?' in user-supplied filenames are NOT — they corrupt the URL
-    ('%' is read as a percent-escape, '#'/'&' truncate the path) and Supabase
-    then rejects the request with 400, surfacing as an unhandled 500 upstream.
-    Slash separators must survive, hence safe='/'.
+    Characters like '&', '?' and spaces are valid in a key but must be encoded
+    in the URL ('&'/'?' would truncate the path). Slash separators must
+    survive, hence safe='/'.
     """
-    return quote(path, safe='/')
+    return quote(object_key(path), safe='/')
 
 
 def _headers():

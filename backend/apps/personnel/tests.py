@@ -297,6 +297,66 @@ class ContractAccumulationTests(TestCase):
         self.assertFalse(any(c['overlap'] for c in acc['contracts']))
 
 
+class StorageKeyTests(TestCase):
+    """Supabase rejects keys with e.g. '[', ']', '%', non-ASCII -> was a 500."""
+
+    def test_object_key_sanitizes_invalid_chars(self):
+        from .storage import object_key
+
+        name = 'employees/5/1-Kontrak PKWTT [pembaruan]-MT Support-FERACO.docx (1).pdf'
+        self.assertEqual(object_key(name), 'employees/5/1-Kontrak PKWTT _pembaruan_-MT Support-FERACO.docx (1).pdf')
+        self.assertEqual(object_key('employees/5/1-Résumé – final.pdf'), 'employees/5/1-Resume _ final.pdf')
+        self.assertEqual(object_key('employees/5/1-a%b#c~d.pdf'), 'employees/5/1-a_b_c_d.pdf')
+
+    def test_object_key_keeps_valid_keys_unchanged(self):
+        from .storage import object_key
+
+        for key in ('employees/5/1-kontrak.pdf', "cvs/1/CV & Portfolio (final) v2+edit's.pdf"):
+            self.assertEqual(object_key(key), key)
+            self.assertEqual(object_key(object_key(key)), key)  # idempotent
+
+    def test_upload_url_uses_sanitized_key(self):
+        from unittest import mock
+
+        from . import storage
+
+        with self.settings(SUPABASE_URL='https://x.supabase.co', SUPABASE_SECRET_KEY='k'), \
+             mock.patch.object(storage.requests, 'post') as post:
+            post.return_value.status_code = 200
+            storage.upload_bytes('employee-documents', 'employees/5/1-Kontrak [v2].pdf', b'%PDF-1.4')
+        url = post.call_args[0][0]
+        self.assertTrue(url.endswith('/employee-documents/employees/5/1-Kontrak%20_v2_.pdf'), url)
+
+
+class ContractDocumentUploadTests(TestCase):
+    def setUp(self):
+        self.emp = Employee.objects.create(employee_id='E001', full_name='John', employment_status='ACTIVE')
+        self.client.force_login(make_user('ADMIN'))
+
+    def _post(self, name, side_effect=None):
+        from unittest import mock
+
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        with mock.patch('apps.personnel.views.is_configured', return_value=True), \
+             mock.patch('apps.personnel.views.upload_bytes', side_effect=side_effect) as up:
+            res = self.client.post(f'/api/employees/{self.emp.id}/documents/',
+                                   {'file': SimpleUploadedFile(name, b'%PDF-1.4 x', content_type='application/pdf')})
+        return res, up
+
+    def test_original_name_kept_for_display(self):
+        name = 'Kontrak PKWTT [pembaruan]-MT Support-FERACO.docx (1).pdf'
+        res, up = self._post(name)
+        self.assertEqual(res.status_code, 201, res.content)
+        self.assertEqual(res.json()['name'], name)
+
+    def test_storage_failure_is_502_not_500(self):
+        res, _ = self._post('kontrak.pdf', side_effect=RuntimeError('Storage upload failed (400): Invalid key'))
+        self.assertEqual(res.status_code, 502)
+        self.assertIn('storage', res.json()['detail'].lower())
+        self.assertFalse(self.emp.documents.exists())
+
+
 class ContractSummaryTests(TestCase):
     """Employee list: current contract (type, end date) + warning when the
     contract ended without renewal or there is no contract."""

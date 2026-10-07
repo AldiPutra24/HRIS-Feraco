@@ -773,10 +773,12 @@ class CvUploadValidationTests(TestCase):
     def test_special_char_filename_encoded_for_storage(self):
         from apps.personnel.storage import _quoted_path
 
-        # '%', '#', '&' must be percent-encoded so the Supabase URL is valid.
-        self.assertEqual(_quoted_path('cvs/1/CV 100%.pdf'), 'cvs/1/CV%20100%25.pdf')
-        self.assertEqual(_quoted_path('cvs/1/CV & Portfolio#1.pdf'), 'cvs/1/CV%20%26%20Portfolio%231.pdf')
+        # Valid key chars ('&', '+', space) are kept but percent-encoded in the URL.
+        self.assertEqual(_quoted_path('cvs/1/CV & Portfolio.pdf'), 'cvs/1/CV%20%26%20Portfolio.pdf')
         self.assertEqual(_quoted_path('cvs/1/CV+Sari.pdf'), 'cvs/1/CV%2BSari.pdf')
+        # '%' and '#' are invalid Supabase keys -> replaced, never sent raw.
+        self.assertEqual(_quoted_path('cvs/1/CV 100%.pdf'), 'cvs/1/CV%20100_.pdf')
+        self.assertEqual(_quoted_path('cvs/1/CV#1.pdf'), 'cvs/1/CV_1.pdf')
         # slashes survive as separators
         self.assertTrue(_quoted_path('cvs/1/x.pdf').startswith('cvs/1/'))
 
