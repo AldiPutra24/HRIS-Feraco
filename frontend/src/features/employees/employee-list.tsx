@@ -23,10 +23,41 @@ import {
   listDepartments,
   listEmployees,
   listPositions,
+  type ContractSummary,
   type Department,
   type Employee,
   type Position
 } from '@/lib/employees';
+
+function fmtContractDate(iso: string | null | undefined): string {
+  if (!iso) return '-';
+  const d = new Date(`${iso}T00:00:00`);
+  return isNaN(d.getTime()) ? iso : d.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+
+/** "PKWT 2" / "PKWTT" / "-" */
+function contractLabel(s: ContractSummary | undefined): string {
+  if (!s?.contract_type) return '-';
+  return s.contract_type === 'PKWT' && s.pkwt_sequence ? `PKWT ${s.pkwt_sequence}` : s.contract_type;
+}
+
+/** Warning next to the name: contract ended without renewal, or no contract. */
+function ContractWarning({ summary }: { summary: ContractSummary | undefined }) {
+  if (!summary?.warning) return null;
+  const text =
+    summary.warning === 'NO_CONTRACT'
+      ? 'Belum ada kontrak'
+      : `Kontrak berakhir ${fmtContractDate(summary.end_date)}, belum diperbarui`;
+  return (
+    <span
+      title={text}
+      className='bg-destructive/10 text-destructive inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap'
+    >
+      <Icons.warning className='size-3.5' />
+      {summary.warning === 'NO_CONTRACT' ? 'Belum ada kontrak' : 'Kontrak habis'}
+    </span>
+  );
+}
 import { EmployeeForm } from './employee-form';
 import { ImportDialog } from './import-dialog';
 
@@ -240,6 +271,9 @@ export function EmployeeList() {
                   <TableHead>Nama</TableHead>
                   <TableHead>Departemen</TableHead>
                   <TableHead>Posisi</TableHead>
+                  <TableHead>Kontrak</TableHead>
+                  <TableHead>End Date Kontrak</TableHead>
+                  <TableHead>Akumulasi Kontrak</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead className='text-right'>Aksi</TableHead>
                 </TableRow>
@@ -260,10 +294,20 @@ export function EmployeeList() {
                         </AvatarFallback>
                       </Avatar>
                       <span>{e.full_name}</span>
+                      <ContractWarning summary={e.contract_summary} />
                     </div>
                   </TableCell>
                     <TableCell>{e.department_name || '-'}</TableCell>
                     <TableCell>{e.position_name || '-'}</TableCell>
+                    <TableCell>{contractLabel(e.contract_summary)}</TableCell>
+                    <TableCell className='whitespace-nowrap'>
+                      {e.contract_summary?.contract_type === 'PKWTT' ? (
+                        <span className='text-muted-foreground'>Tidak terbatas</span>
+                      ) : (
+                        fmtContractDate(e.contract_summary?.end_date)
+                      )}
+                    </TableCell>
+                    <TableCell className='whitespace-nowrap'>{e.contract_accumulation?.display ?? '-'}</TableCell>
                     <TableCell>
                       <StatusBadge status={e.employment_status} />
                     </TableCell>
@@ -308,7 +352,7 @@ export function EmployeeList() {
                 ))}
                 {employees.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={6} className='text-muted-foreground py-8 text-center'>
+                    <TableCell colSpan={8} className='text-muted-foreground py-8 text-center'>
                       Tidak ada data.
                     </TableCell>
                   </TableRow>

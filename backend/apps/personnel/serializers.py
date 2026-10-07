@@ -217,6 +217,7 @@ class EmployeeReadSerializer(EmployeeSerializer):
     bpjs_kesehatan = serializers.SerializerMethodField()
     bpjs_ketenagakerjaan = serializers.SerializerMethodField()
     contract_accumulation = serializers.SerializerMethodField()
+    contract_summary = serializers.SerializerMethodField()
     photo_url = serializers.SerializerMethodField()
 
     def get_photo_url(self, obj):
@@ -235,6 +236,11 @@ class EmployeeReadSerializer(EmployeeSerializer):
         from .services import contract_accumulation
 
         return contract_accumulation(obj)
+
+    def get_contract_summary(self, obj):
+        from .services import contract_summary
+
+        return contract_summary(obj)
 
     def _privileged(self):
         request = self.context.get('request')
@@ -257,7 +263,7 @@ class EmployeeReadSerializer(EmployeeSerializer):
         return _mask(obj.bpjs_ketenagakerjaan, self._privileged())
 
     class Meta(EmployeeSerializer.Meta):
-        fields = EmployeeSerializer.Meta.fields + ('photo_url', 'contract_accumulation')
+        fields = EmployeeSerializer.Meta.fields + ('photo_url', 'contract_accumulation', 'contract_summary')
 
 
 class EmployeeContractSerializer(serializers.ModelSerializer):

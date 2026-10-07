@@ -73,7 +73,8 @@ def _resolve_position(name):
 
 
 class EmployeeViewSet(SoftHardDeleteMixin, viewsets.ModelViewSet):
-    queryset = Employee.objects.select_related('department', 'position', 'manager').all()
+    # contracts prefetched once: list rows show contract summary + accumulation.
+    queryset = Employee.objects.select_related('department', 'position', 'manager').prefetch_related('contracts').all()
     serializer_class = EmployeeSerializer
     permission_classes = [IsHRStaff]
     search_fields = ['full_name', 'employee_id', 'nik', 'personal_email', 'company_email']

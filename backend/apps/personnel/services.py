@@ -78,6 +78,59 @@ def set_current_contract(contract):
         contract.save(update_fields=['status', 'updated_at'])
 
 
+def _live_contracts(employee):
+    """Non-deleted contracts with a start date, ordered by start. Uses the
+    prefetched `contracts` (employee list) instead of one query per employee."""
+    return sorted(
+        (c for c in employee.contracts.all() if c.deleted_at is None and c.start_date is not None),
+        key=lambda c: (c.start_date, c.id),
+    )
+
+
+def contract_summary(employee):
+    """Contract snapshot for the employee list.
+
+    Real contracts only (not deleted, not DRAFT). Picks the running contract
+    (started, real end in the future or open-ended); else a prepared renewal
+    (starts later); else the last ended one. Warning (ACTIVE employees only):
+    - NO_CONTRACT: no real contract at all.
+    - EXPIRED: last contract ended and no renewal prepared.
+    """
+    today = timezone.localdate()
+    contracts = [c for c in _live_contracts(employee) if c.status != 'DRAFT']
+
+    def real_end(c):
+        return c.effective_end_date
+
+    running = [c for c in contracts if c.start_date <= today and (real_end(c) is None or real_end(c) >= today)]
+    upcoming = [c for c in contracts if c.start_date > today]
+    if running:
+        shown = running[-1]
+    elif upcoming:
+        shown = upcoming[0]
+    else:
+        shown = contracts[-1] if contracts else None
+
+    warning = None
+    if employee.employment_status == 'ACTIVE':
+        if shown is None:
+            warning = 'NO_CONTRACT'
+        elif not running and not upcoming:
+            warning = 'EXPIRED'
+    if shown is None:
+        return {'contract_id': None, 'contract_type': None, 'pkwt_sequence': None,
+                'end_date': None, 'status': None, 'warning': warning}
+    end = real_end(shown)
+    return {
+        'contract_id': shown.id,
+        'contract_type': shown.contract_type,
+        'pkwt_sequence': shown.pkwt_sequence,
+        'end_date': end.isoformat() if end else None,
+        'status': shown.status,
+        'warning': warning,
+    }
+
+
 def contract_accumulation(employee):
     """Accumulated contract period (masa kontrak) up to today.
 
@@ -96,11 +149,7 @@ def contract_accumulation(employee):
     contract's own length; `overlap` flags a counted contract fully inside an
     earlier span; `counted` is False for DRAFT / not-yet-started contracts.
     """
-    contracts = list(
-        employee.contracts.filter(deleted_at__isnull=True)
-        .exclude(start_date__isnull=True)
-        .order_by('start_date', 'id')
-    )
+    contracts = _live_contracts(employee)
     today = timezone.localdate()
     spans = []  # merged [start, end] periods
     current_id = None

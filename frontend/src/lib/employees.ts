@@ -78,6 +78,7 @@ export type Employee = {
   photo: string;
   photo_url: string | null;
   contract_accumulation: ContractAccumulation;
+  contract_summary?: ContractSummary;
 };
 
 export type PhotoDownload = { url: string; filename: string };
@@ -108,6 +109,18 @@ export type Contract = {
   activate?: boolean;
   created_at: string;
   updated_at: string;
+};
+
+/** Current/last real contract for the employee list (+ warning for ACTIVE employees). */
+export type ContractSummary = {
+  contract_id: number | null;
+  contract_type: 'PKWT' | 'PKWTT' | null;
+  pkwt_sequence: number | null;
+  /** Real end (termination date for TERMINATED); null for PKWTT. */
+  end_date: string | null;
+  status: string | null;
+  /** NO_CONTRACT: no contract at all. EXPIRED: last contract ended, no renewal prepared. */
+  warning: 'NO_CONTRACT' | 'EXPIRED' | null;
 };
 
 export type ContractAccumulation = {

@@ -297,6 +297,78 @@ class ContractAccumulationTests(TestCase):
         self.assertFalse(any(c['overlap'] for c in acc['contracts']))
 
 
+class ContractSummaryTests(TestCase):
+    """Employee list: current contract (type, end date) + warning when the
+    contract ended without renewal or there is no contract."""
+
+    TODAY = date(2026, 10, 7)
+
+    def setUp(self):
+        self.emp = Employee.objects.create(employee_id='E001', full_name='John', employment_status='ACTIVE')
+
+    def _c(self, start, end, status, **over):
+        return EmployeeContract.objects.create(employee=self.emp, contract_type=over.pop('ctype', 'PKWT'),
+                                               start_date=start, end_date=end, status=status, **over)
+
+    def _summary(self):
+        from unittest import mock
+
+        from .services import contract_summary
+
+        with mock.patch('django.utils.timezone.localdate', return_value=self.TODAY):
+            return contract_summary(Employee.objects.get(pk=self.emp.pk))
+
+    def test_no_contract(self):
+        self.assertEqual(self._summary()['warning'], 'NO_CONTRACT')
+
+    def test_draft_only_counts_as_no_contract(self):
+        self._c(date(2026, 1, 1), date(2026, 12, 31), 'DRAFT')
+        self.assertEqual(self._summary()['warning'], 'NO_CONTRACT')
+
+    def test_running_pkwt(self):
+        self._c(date(2025, 1, 1), date(2025, 12, 31), 'RENEWED', pkwt_sequence=1)
+        c = self._c(date(2026, 1, 1), date(2026, 12, 31), 'ACTIVE', pkwt_sequence=2)
+        s = self._summary()
+        self.assertEqual((s['contract_id'], s['contract_type'], s['pkwt_sequence']), (c.id, 'PKWT', 2))
+        self.assertEqual(s['end_date'], '2026-12-31')
+        self.assertIsNone(s['warning'])
+
+    def test_expired_without_renewal_warns(self):
+        self._c(date(2026, 1, 1), date(2026, 9, 30), 'EXPIRED')
+        s = self._summary()
+        self.assertEqual(s['warning'], 'EXPIRED')
+        self.assertEqual(s['end_date'], '2026-09-30')
+
+    def test_expired_with_prepared_renewal_no_warning(self):
+        self._c(date(2026, 1, 1), date(2026, 9, 30), 'EXPIRED')
+        nxt = self._c(date(2026, 11, 1), date(2027, 10, 31), 'RENEWED')
+        s = self._summary()
+        self.assertIsNone(s['warning'])
+        self.assertEqual(s['contract_id'], nxt.id)
+
+    def test_terminated_uses_termination_date(self):
+        self._c(date(2026, 1, 1), date(2026, 12, 31), 'TERMINATED', termination_date=date(2026, 8, 15))
+        s = self._summary()
+        self.assertEqual((s['warning'], s['end_date']), ('EXPIRED', '2026-08-15'))
+
+    def test_pkwtt_open_ended(self):
+        self._c(date(2020, 1, 1), None, 'ACTIVE', ctype='PKWTT')
+        s = self._summary()
+        self.assertEqual((s['contract_type'], s['end_date'], s['warning']), ('PKWTT', None, None))
+
+    def test_inactive_employee_no_warning(self):
+        self.emp.employment_status = 'INACTIVE'
+        self.emp.save()
+        self.assertIsNone(self._summary()['warning'])
+
+    def test_list_api_exposes_summary_and_accumulation(self):
+        self._c(date(2026, 1, 1), date(2026, 9, 30), 'EXPIRED')
+        self.client.force_login(make_user('ADMIN'))
+        row = next(r for r in self.client.get('/api/employees/').json()['results'] if r['id'] == self.emp.id)
+        self.assertEqual(row['contract_summary']['contract_type'], 'PKWT')
+        self.assertIn('display', row['contract_accumulation'])
+
+
 class EmployeeApiTests(TestCase):
     def setUp(self):
         self.user = make_user('ADMIN')
