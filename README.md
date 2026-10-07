@@ -111,6 +111,21 @@ Catatan: filtering menu di frontend (`use-nav.ts`) hanya UI; otorisasi di backen
 
 ## Last Progress
 
+### Kontrak karyawan, upload dokumen, kuota cuti HR (2026-10-07)
+- **List Karyawan** (`/dashboard/karyawan`): kolom baru **Kontrak** (PKWT ke-n / PKWTT), **End Date Kontrak** (tanggal terminasi untuk kontrak TERMINATED; PKWTT "Tidak terbatas"), **Akumulasi Kontrak**. Warning merah di samping nama untuk karyawan ACTIVE: **"Kontrak habis"** (kontrak terakhir berakhir dan belum ada perpanjangan) atau **"Belum ada kontrak"**. Field API `contract_summary`; kontrak di-prefetch sekali (tidak ada query per karyawan).
+- **Contract History** (detail karyawan): kolom **Catatan** dari input catatan kontrak.
+- **Upload dokumen kontrak sering error 500**: penyebabnya nama file dengan karakter yang ditolak Supabase Storage (`[ ]`, `%`, `#`, huruf/tanda non-ASCII seperti `é`, `–`). Kini path storage disanitasi di satu tempat (`personnel/storage.py`, berlaku untuk semua upload: kontrak, CV, reimbursement, cuti, KMS); nama file asli tetap tersimpan & ditampilkan. Kegagalan storage dikembalikan sebagai pesan jelas (502), bukan 500.
+
+### Akumulasi masa kontrak & kuota cuti (2026-10-06)
+- **Akumulasi Masa Kontrak** diperbaiki: kontrak TERMINATED dihitung sampai `termination_date`; kontrak DRAFT dan kontrak yang belum mulai (perpanjangan yang sudah disiapkan) tidak dihitung; kontrak berjalan dihitung sampai hari ini; periode digabung dulu baru dikonversi ke bulan (tidak double count / pembulatan ganda). Durasi per kontrak tetap durasi rencana.
+- **Kuota Karyawan** (`/dashboard/leave`): default **"Semua Karyawan"** — semua karyawan aktif, 10 per halaman + cari nama; kuota tampil walau karyawan belum punya riwayat cuti (`GET /api/leaves/balances/summary/`). Kolom Pending ditambahkan; klik nama untuk detail & adjustment. Riwayat adjustment terurut stabil.
+- **Carry-forward transisi 2026**: bila tidak ada data saldo tahun lalu di sistem, kuota tahun lalu dianggap tidak terpakai -> carry MIN(kuota tahun lalu, 3) (karyawan lama 12 + 3 = 15). Command baru `python manage.py recompute_leave_quota --year 2026 [--dry-run]` untuk sinkron ulang kuota dengan aturan/data terkini (usage & adjustment tetap).
+- **Notifikasi email** cuti & reimbursement dikirim di background setelah commit — submit tidak lagi menunggu SMTP; ditambah `EMAIL_TIMEOUT` (default 15 detik). Notifikasi lonceng tetap langsung.
+- **Apply lowongan publik** (`/jobs/<slug>`): perbaikan "CSRF token missing" saat browser masih login HRIS; upload **CV hanya PDF/DOC/DOCX, maks 5 MB** (ekstensi + tipe + isi file divalidasi).
+
+### Reimbursement lampiran (2026-10-05)
+- **Bukti Payment/Tagihan/Invoice**: PDF atau gambar (JPG, PNG, WEBP), maks **5 MB**, divalidasi ekstensi + tipe + isi file; catatan format/ukuran + link **Download [TEMPLATE] Pengajuan Reimbursement** di form.
+
 ### Leave, Reimbursement 2 layer, HR Lead self-service (2026-10-05)
 - **Sisa kuota cuti "per hari ini"** (`GET /api/leaves/balances/me/`) dari engine kuota existing + carry-forward + adjustment HR - pemakaian; pending ditampilkan terpisah. Dipakai di Employee Overview, Pengajuan Saya, dan form cuti.
 - **Cuti Tahunan Full Day (1) / Half Day (0,5)** per tanggal pada pengajuan multi-tanggal (mis. 2,5 hari). Semua angka hari kini desimal (request, balance, approval, history, dashboard).
@@ -118,7 +133,7 @@ Catatan: filtering menu di frontend (`use-nav.ts`) hanya UI; otorisasi di backen
 - **No backdate**: pengajuan izin/cuti untuk tanggal sebelum hari ini ditolak (backend + kalender).
 - **HR Lead** kini punya mode HRIS + Employee self-service (data milik sendiri), memakai mekanisme mode HR Staff.
 - **Reimbursement semi-hierarchical**: Pending HR Staff -> HR Staff tetapkan Nominal Disetujui (`review`) -> Waiting HR Lead -> HR Lead approve/reject pembayaran -> Paid. Otorisasi per layer di backend, audit siapa menetapkan nominal & siapa approve, notifikasi per tahap (email konfirmasi transfer ke email pada pengajuan).
-- **Form reimbursement**: Nama Bank, Nama Pemilik Rekening, Nomor Rekening, Email (wajib) + "Bukti Payment/Tagihan/Invoice" wajib PDF.
+- **Form reimbursement**: Nama Bank, Nama Pemilik Rekening, Nomor Rekening, Email (wajib) + "Bukti Payment/Tagihan/Invoice" wajib (kini PDF atau gambar, maks 5 MB — lihat entri 2026-10-05 di atas).
 - **Task & Progress** disembunyikan dari sidebar (backend & data tetap).
 - Migration: leaves 0007, reimbursement 0004, notifications 0003. Test: leaves 86 OK, reimbursement + notifications 115 OK.
 
