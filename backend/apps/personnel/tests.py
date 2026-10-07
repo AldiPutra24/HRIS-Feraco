@@ -328,6 +328,124 @@ class StorageKeyTests(TestCase):
         self.assertTrue(url.endswith('/employee-documents/employees/5/1-Kontrak%20_v2_.pdf'), url)
 
 
+class DocumentDownloadTests(TestCase):
+    """Contract document "View" is served through the backend (signed URLs
+    fail with InvalidSignature for names with ',' or '&') — safely: only real
+    PDF/images inline, everything else downloads; scope + soft-delete enforced."""
+
+    NAME = 'Kontrak PKWT 5_Fitri Handayani_Admin Finance, Accounting, and Tax_FERACO.docx (1).pdf'
+
+    def setUp(self):
+        from .models import EmployeeDocument
+
+        self.manager_emp = Employee.objects.create(employee_id='M001', full_name='Mgr', employment_status='ACTIVE')
+        self.emp = Employee.objects.create(employee_id='E014', full_name='Fitri', employment_status='ACTIVE',
+                                           manager=self.manager_emp)
+        self.other = Employee.objects.create(employee_id='E099', full_name='Other', employment_status='ACTIVE')
+        self.doc = EmployeeDocument.objects.create(
+            employee=self.emp, name=self.NAME, storage_path=f'employees/14/1-{self.NAME}',
+            content_type='application/pdf', size=10, version=1,
+        )
+
+    def _stream(self, data):
+        from unittest import mock
+
+        upstream = mock.Mock()
+        upstream.iter_content.return_value = iter([data[:4], data[4:]] if len(data) > 4 else [data])
+        return upstream
+
+    def _get(self, doc=None, user=None, data=b'%PDF-1.4 data', side_effect=None):
+        from unittest import mock
+
+        self.client.force_login(user or make_user('ADMIN'))
+        upstream = self._stream(data)
+        with mock.patch('apps.personnel.views.is_configured', return_value=True), \
+             mock.patch('apps.personnel.storage.open_object', return_value=upstream, side_effect=side_effect) as op:
+            res = self.client.get(f'/api/documents/{(doc or self.doc).id}/download/')
+            body = b''.join(res.streaming_content) if getattr(res, 'streaming', False) else res.content
+        return res, body, op, upstream
+
+    def test_pdf_streams_inline_with_original_name(self):
+        res, body, op, upstream = self._get()
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(body, b'%PDF-1.4 data')
+        self.assertEqual(res['Content-Type'], 'application/pdf')
+        self.assertTrue(res['Content-Disposition'].startswith('inline;'))
+        self.assertIn("filename*=UTF-8''Kontrak%20PKWT%205_Fitri%20Handayani_Admin%20Finance%2C", res['Content-Disposition'])
+        self.assertEqual(res['X-Content-Type-Options'], 'nosniff')
+        op.assert_called_once_with('employee-documents', self.doc.storage_path)
+        upstream.close.assert_called_once()
+
+    def test_html_or_svg_never_rendered_inline(self):
+        # Even if named .pdf / declared PDF: real bytes decide -> forced download.
+        admin = make_user('ADMIN')
+        for payload in (b'<html><script>alert(1)</script></html>', b'<svg onload="alert(1)"/>'):
+            res, _, _, _ = self._get(data=payload, user=admin)
+            self.assertEqual(res.status_code, 200)
+            self.assertEqual(res['Content-Type'], 'application/octet-stream')
+            self.assertTrue(res['Content-Disposition'].startswith('attachment;'))
+            self.assertEqual(res['X-Content-Type-Options'], 'nosniff')
+
+    def test_image_inline(self):
+        res, _, _, _ = self._get(data=b'\x89PNG\r\n\x1a\n rest')
+        self.assertEqual(res['Content-Type'], 'image/png')
+        self.assertTrue(res['Content-Disposition'].startswith('inline;'))
+
+    def test_header_safe_filename(self):
+        self.doc.name = 'bad\r\nSet-Cookie: x=1"\\.pdf'
+        self.doc.save()
+        res, _, _, _ = self._get()
+        self.assertEqual(res.status_code, 200)
+        self.assertNotIn('\n', res['Content-Disposition'])
+        self.assertNotIn('\r', res['Content-Disposition'])
+
+    def test_storage_failure_is_502(self):
+        res, _, _, _ = self._get(side_effect=RuntimeError('Storage download failed (404)'))
+        self.assertEqual(res.status_code, 502)
+        self.assertIn('storage', res.json()['detail'].lower())
+
+    def test_soft_deleted_document_not_downloadable(self):
+        from django.utils import timezone
+
+        self.doc.deleted_at = timezone.now()
+        self.doc.save()
+        res, _, op, _ = self._get()
+        self.assertEqual(res.status_code, 404)
+        op.assert_not_called()
+
+    def test_management_limited_to_team(self):
+        from .models import EmployeeDocument
+
+        mgmt = make_user('MANAGEMENT')
+        self.manager_emp.user = mgmt
+        self.manager_emp.save()
+        self.assertEqual(self._get(user=mgmt)[0].status_code, 200)  # direct report
+        outside = EmployeeDocument.objects.create(employee=self.other, name='x.pdf', storage_path='employees/99/x.pdf',
+                                                  content_type='application/pdf', size=1, version=1)
+        res, _, op, _ = self._get(doc=outside, user=mgmt)
+        self.assertEqual(res.status_code, 404)
+        op.assert_not_called()
+
+    def test_employee_role_forbidden(self):
+        res, _, op, _ = self._get(user=make_user('EMPLOYEE'))
+        self.assertEqual(res.status_code, 403)
+        op.assert_not_called()
+
+    def test_download_uses_same_route_and_encoding_as_upload(self):
+        from unittest import mock
+
+        from . import storage
+
+        with self.settings(SUPABASE_URL='https://x.supabase.co', SUPABASE_SECRET_KEY='k'), \
+             mock.patch.object(storage.requests, 'post') as post, \
+             mock.patch.object(storage.requests, 'get') as get:
+            post.return_value.status_code = 200
+            get.return_value.status_code = 200
+            storage.upload_bytes('employee-documents', self.doc.storage_path, b'x')
+            storage.open_object('employee-documents', self.doc.storage_path)
+        self.assertEqual(post.call_args[0][0], get.call_args[0][0])
+
+
 class ContractDocumentUploadTests(TestCase):
     def setUp(self):
         self.emp = Employee.objects.create(employee_id='E001', full_name='John', employment_status='ACTIVE')

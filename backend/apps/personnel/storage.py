@@ -100,5 +100,45 @@ def signed_url(bucket, path, expires_in=3600, download=None):
     return signed
 
 
+def open_object(bucket, path):
+    """Stream an object server-side with the service key.
+
+    Same `/object/<bucket>/<key>` route and key encoding as `upload_bytes`, so
+    it reaches exactly the stored object. Unlike signed URLs there is no
+    signature check, which Supabase fails for keys with reserved characters
+    such as ',' or '&' (the sign endpoint signs '%2C' literally while the
+    visited link decodes it to ',' -> 400 InvalidSignature).
+    Returns a streaming `requests.Response` (caller must close it); raises
+    RuntimeError on failure.
+    """
+    url = f'{_storage_base()}/{bucket}/{_quoted_path(path)}'
+    res = requests.get(url, headers=_headers(), timeout=120, stream=True)
+    if res.status_code != 200:
+        detail = res.text[:200]
+        res.close()
+        raise RuntimeError(f'Storage download failed ({res.status_code}): {detail}')
+    return res
+
+
+# Types safe to render INLINE on our own origin, detected from the file's
+# real content (never from the client-supplied content type). Anything else
+# (HTML, SVG, scripts, Office files, ...) is forced to download, so an uploaded
+# file can never execute in the HRIS origin (stored XSS).
+_INLINE_SIGNATURES = (
+    ('application/pdf', lambda b: b[:5] == b'%PDF-'),
+    ('image/png', lambda b: b[:8] == b'\x89PNG\r\n\x1a\n'),
+    ('image/jpeg', lambda b: b[:3] == b'\xff\xd8\xff'),
+    ('image/webp', lambda b: b[:4] == b'RIFF' and b[8:12] == b'WEBP'),
+)
+
+
+def inline_content_type(head: bytes):
+    """Content type to render inline for these leading bytes, or None."""
+    for content_type, matches in _INLINE_SIGNATURES:
+        if matches(head):
+            return content_type
+    return None
+
+
 def is_configured():
     return bool(settings.SUPABASE_URL and settings.SUPABASE_SECRET_KEY)
