@@ -62,7 +62,9 @@ class NotificationSettingSerializer(serializers.ModelSerializer):
         model = NotificationSetting
         fields = (
             'id', 'default_hr_emails', 'additional_hr_users', 'additional_hr_details',
-            'birthday_h1_enabled', 'birthday_h0_enabled', 'contract_offsets', 'updated_at',
+            'birthday_hr_h1_enabled', 'birthday_hr_h0_enabled',
+            'birthday_employee_h1_enabled', 'birthday_employee_h0_enabled',
+            'contract_offsets', 'updated_at',
         )
         read_only_fields = ('id', 'additional_hr_details', 'updated_at')
 

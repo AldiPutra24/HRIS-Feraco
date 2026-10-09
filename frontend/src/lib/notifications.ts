@@ -91,11 +91,19 @@ export type NotificationSetting = {
   default_hr_emails: string;
   additional_hr_users: number[];
   additional_hr_details: HrCandidate[];
-  birthday_h1_enabled: boolean;
-  birthday_h0_enabled: boolean;
+  birthday_hr_h1_enabled: boolean;
+  birthday_hr_h0_enabled: boolean;
+  birthday_employee_h1_enabled: boolean;
+  birthday_employee_h0_enabled: boolean;
   contract_offsets: string;
   updated_at: string;
 };
+
+export type BirthdayToggleField =
+  | 'birthday_hr_h1_enabled'
+  | 'birthday_hr_h0_enabled'
+  | 'birthday_employee_h1_enabled'
+  | 'birthday_employee_h0_enabled';
 
 export function getNotificationSettings(): Promise<NotificationSetting> {
   return request<NotificationSetting>('/notification-settings/');

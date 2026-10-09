@@ -23,7 +23,10 @@ class NotificationEventConfigAdmin(admin.ModelAdmin):
 
 @admin.register(NotificationSetting)
 class NotificationSettingAdmin(admin.ModelAdmin):
-    list_display = ('default_hr_emails', 'birthday_h1_enabled', 'birthday_h0_enabled', 'updated_at')
+    list_display = (
+        'default_hr_emails', 'birthday_hr_h1_enabled', 'birthday_hr_h0_enabled',
+        'birthday_employee_h1_enabled', 'birthday_employee_h0_enabled', 'updated_at',
+    )
     filter_horizontal = ('additional_hr_users',)
 
 

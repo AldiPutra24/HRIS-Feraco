@@ -281,25 +281,49 @@ class BirthdayNotificationTests(TestCase):
         self.assertEqual(result['birthday']['inapp'], 1)
         self.assertEqual(len(mail.outbox), 2)  # HR info + employee greeting
 
-    def test_h1_tomorrow(self):
+    def _set(self, **flags):
+        setting = NotificationSetting.get_solo()
+        for key, value in flags.items():
+            setattr(setting, key, value)
+        setting.save()
+
+    def test_h1_tomorrow_default_hr_only(self):
+        # Default: HR info H-1 ON, employee greeting H-1 OFF (no early "selamat").
         result = run_all(today=self.h0 - timedelta(days=1))
         self.assertEqual(result['birthday']['due'], 1)
+        self.assertEqual([m.to[0] for m in mail.outbox], [HR_DEFAULT_EMAIL])
+        self.assertEqual(result['birthday']['inapp'], 0)
 
-    def test_h1_toggle_off(self):
-        setting = NotificationSetting.get_solo()
-        setting.birthday_h1_enabled = False
-        setting.save()
+    def test_h1_all_off(self):
+        self._set(birthday_hr_h1_enabled=False, birthday_employee_h1_enabled=False)
         result = run_all(today=self.h0 - timedelta(days=1))
         self.assertEqual(result['birthday']['due'], 0)
         self.assertEqual(len(mail.outbox), 0)
 
-    def test_h0_toggle_off(self):
-        setting = NotificationSetting.get_solo()
-        setting.birthday_h0_enabled = False
-        setting.save()
+    def test_h0_all_off(self):
+        self._set(birthday_hr_h0_enabled=False, birthday_employee_h0_enabled=False)
         result = run_all(today=self.h0)
         self.assertEqual(result['birthday']['due'], 0)
         self.assertEqual(len(mail.outbox), 0)
+
+    def test_h0_hr_off_employee_still_greeted(self):
+        self._set(birthday_hr_h0_enabled=False)
+        result = run_all(today=self.h0)
+        self.assertEqual(result['birthday']['due'], 1)
+        self.assertEqual([m.to[0] for m in mail.outbox], ['budi@gmail.com'])
+        self.assertEqual(result['birthday']['inapp'], 1)
+
+    def test_h0_employee_off_hr_still_informed(self):
+        self._set(birthday_employee_h0_enabled=False)
+        result = run_all(today=self.h0)
+        self.assertEqual([m.to[0] for m in mail.outbox], [HR_DEFAULT_EMAIL])
+        self.assertEqual(result['birthday']['inapp'], 0)
+
+    def test_h1_employee_only(self):
+        self._set(birthday_hr_h1_enabled=False, birthday_employee_h1_enabled=True)
+        result = run_all(today=self.h0 - timedelta(days=1))
+        self.assertEqual(result['birthday']['due'], 1)
+        self.assertEqual([m.to[0] for m in mail.outbox], ['budi@gmail.com'])
 
     def test_inactive_employee_skipped(self):
         self.emp.employment_status = 'INACTIVE'
@@ -378,8 +402,10 @@ class NotificationSettingsApiTests(TestCase):
         res = self.client.get(SETTINGS_URL)
         self.assertEqual(res.status_code, 200)
         self.assertIn(HR_DEFAULT_EMAIL, res.data['default_hr_emails'])
-        self.assertTrue(res.data['birthday_h1_enabled'])
-        self.assertTrue(res.data['birthday_h0_enabled'])
+        self.assertTrue(res.data['birthday_hr_h1_enabled'])
+        self.assertTrue(res.data['birthday_hr_h0_enabled'])
+        self.assertFalse(res.data['birthday_employee_h1_enabled'])
+        self.assertTrue(res.data['birthday_employee_h0_enabled'])
 
     def test_role_matrix_allowed_admin_hr_staff_hr_lead(self):
         """ADMIN/HR_STAFF/HR_LEAD boleh akses notification settings API."""
@@ -410,12 +436,17 @@ class NotificationSettingsApiTests(TestCase):
         self.login_hr()
         res = self.client.patch(
             f'{SETTINGS_URL}1/',
-            data=json.dumps({'birthday_h1_enabled': False, 'contract_offsets': '60,30,7'}),
+            data=json.dumps({
+                'birthday_hr_h1_enabled': False,
+                'birthday_employee_h1_enabled': True,
+                'contract_offsets': '60,30,7',
+            }),
             content_type='application/json',
         )
         self.assertEqual(res.status_code, 200)
         s = NotificationSetting.get_solo()
-        self.assertFalse(s.birthday_h1_enabled)
+        self.assertFalse(s.birthday_hr_h1_enabled)
+        self.assertTrue(s.birthday_employee_h1_enabled)
         self.assertEqual(s.contract_offset_list(), [60, 30, 7])
 
     def test_patch_invalid_offsets_400(self):

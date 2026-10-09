@@ -138,8 +138,10 @@ Baris untuk ke-11 event dibuat otomatis saat endpoint `GET /api/notifications/no
 | --- | --- | --- |
 | `default_hr_emails` | `hrgaferaco@gmail.com` | Daftar email HR, dipisah koma |
 | `additional_hr_users` | — | M2M User (hanya role `HR_STAFF`/`HR_LEAD`); email mereka ditambahkan ke daftar email HR |
-| `birthday_h1_enabled` | `True` | Kirim reminder ulang tahun H-1 |
-| `birthday_h0_enabled` | `True` | Kirim notifikasi ulang tahun H-0 (hari-H) |
+| `birthday_hr_h1_enabled` | `True` | Email info ulang tahun ke HR pada H-1 |
+| `birthday_hr_h0_enabled` | `True` | Email info ulang tahun ke HR pada H-0 (hari-H) |
+| `birthday_employee_h1_enabled` | `False` | Ucapan (email + bell) ke karyawan pada H-1 |
+| `birthday_employee_h0_enabled` | `True` | Ucapan (email + bell) ke karyawan pada H-0 |
 | `contract_offsets` | `30,14,7,3,1,0` | Hari sebelum `end_date` kontrak untuk mengirim reminder |
 | `updated_by` | — | User yang terakhir mengubah |
 
@@ -356,7 +358,7 @@ Command memanggil `services.run_all()` yang menjalankan:
 **Birthday**
 
 - Karyawan `ACTIVE` dengan `birth_date` terisi.
-- H-1 (jika `birthday_h1_enabled`) dan H-0 (jika `birthday_h0_enabled`).
+- Trigger H-1/H-0 diatur **terpisah** untuk HR (`birthday_hr_h1/h0_enabled`) dan karyawan (`birthday_employee_h1/h0_enabled`). Hari itu dianggap due bila minimal satu audiens aktif; tiap audiens hanya dikirimi bila toggle-nya aktif.
 - `BIRTHDAY_HR`: email ke daftar email HR.
 - `BIRTHDAY_EMPLOYEE`: email + bell ucapan ke karyawan pada hari-H.
 
@@ -441,7 +443,7 @@ Semua endpoint di bawah `/api/notifications/`, autentikasi session cookie + `X-C
 | Method | Path | Keterangan |
 | --- | --- | --- |
 | GET | `/api/notifications/notification-settings/` | Singleton setting |
-| PATCH | `/api/notifications/notification-settings/` | Update; dicatat ke audit log |
+| PATCH | `/api/notifications/notification-settings/1/` | Update (singleton, selalu pk=1); dicatat ke audit log |
 | GET | `/api/notifications/notification-settings/hr_candidates/` | User `HR_STAFF`/`HR_LEAD` untuk dipilih sebagai `additional_hr_users` |
 
 Validasi:
@@ -515,7 +517,7 @@ docker compose exec backend python manage.py shell -c "from django.core.mail imp
 1. Buka **Settings → Notification**.
 2. Isi **Email HR default** (pisahkan dengan koma) dan/atau pilih **HR tambahan** dari daftar user HR.
 3. Atur **offset kontrak** (contoh `30,14,7,3,1,0` = H-30, H-14, H-7, H-3, H-1, hari-H).
-4. Nyalakan/matikan **Birthday H-1** dan **H-0**.
+4. Pada kartu **Birthday — Email ke HR** dan **Birthday — Email Ucapan ke Employee**, centang **H-1** / **H-0** masing-masing (trigger HR dan karyawan terpisah).
 5. Pada tiap kartu event: aktif/nonaktifkan email, ubah subject/body, klik chip placeholder untuk menyisipkan data, lalu **Preview** sebelum menyimpan. Kosongkan subject/body untuk kembali ke template default.
 6. Pantau pengiriman di **Settings → Delivery Logs**; filter `FAILED` untuk melihat email yang gagal beserta alasannya.
 

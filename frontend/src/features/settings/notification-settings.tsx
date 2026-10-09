@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { type ReactNode, useCallback, useEffect, useState } from 'react';
 import { toast } from 'react-toastify';
 import { Icons } from '@/components/icons';
 import { Button } from '@/components/ui/button';
@@ -19,6 +19,7 @@ import {
   updateEventConfig,
   updateNotificationSettings,
   type EventConfig,
+  type BirthdayToggleField,
   type EventPreview,
   type HrCandidate,
   type NotificationSetting,
@@ -78,10 +79,12 @@ function EventCard({
   config,
   onSaved,
   showEnabled,
+  trigger
 }: {
   config: EventConfig;
   onSaved: () => void;
   showEnabled: boolean;
+  trigger?: ReactNode;
 }) {
   const [enabled, setEnabled] = useState(config.enabled);
   const [subject, setSubject] = useState(config.subject);
@@ -142,6 +145,7 @@ function EventCard({
         </CardTitle>
       </CardHeader>
       <CardContent className='space-y-3'>
+        {trigger}
         <div>
           <Label className='mb-1 block text-xs' htmlFor={`subj-${config.id}`}>
             Email Subject
@@ -225,12 +229,33 @@ export function NotificationSettings() {
     await saveSettings({ additional_hr_users: next });
   }
 
-  async function toggleBirthday(kind: 'h1' | 'h0') {
+  async function toggleBirthday(field: BirthdayToggleField) {
     if (!setting) return;
-    await saveSettings(
-      kind === 'h1'
-        ? { birthday_h1_enabled: !setting.birthday_h1_enabled }
-        : { birthday_h0_enabled: !setting.birthday_h0_enabled },
+    await saveSettings({ [field]: !setting[field] });
+  }
+
+  function birthdayTrigger(audience: 'hr' | 'employee') {
+    const options: { field: BirthdayToggleField; label: string }[] = [
+      { field: `birthday_${audience}_h1_enabled`, label: 'H-1 (besok)' },
+      { field: `birthday_${audience}_h0_enabled`, label: 'H-0 (hari ini)' }
+    ];
+    return (
+      <div>
+        <Label className='mb-1 block text-xs'>Kirim pada</Label>
+        <div className='flex flex-wrap gap-4'>
+          {options.map((o) => (
+            <label key={o.field} className='flex items-center gap-2 text-sm'>
+              <input
+                type='checkbox'
+                checked={setting?.[o.field] ?? false}
+                onChange={() => toggleBirthday(o.field)}
+                disabled={savingSetting}
+              />
+              {o.label}
+            </label>
+          ))}
+        </div>
+      </div>
     );
   }
 
@@ -374,28 +399,14 @@ export function NotificationSettings() {
           <CardTitle className='text-base'>Birthday</CardTitle>
         </CardHeader>
         <CardContent className='space-y-3'>
-          <div className='flex flex-wrap gap-4'>
-            <label className='flex items-center gap-2 text-sm'>
-              <input
-                type='checkbox'
-                checked={setting?.birthday_h1_enabled ?? false}
-                onChange={() => toggleBirthday('h1')}
-                disabled={savingSetting}
-              />
-              H-1 (besok)
-            </label>
-            <label className='flex items-center gap-2 text-sm'>
-              <input
-                type='checkbox'
-                checked={setting?.birthday_h0_enabled ?? false}
-                onChange={() => toggleBirthday('h0')}
-                disabled={savingSetting}
-              />
-              H-0 (hari ini)
-            </label>
-          </div>
           {birthdayEvents.map((c) => (
-            <EventCard key={c.id} config={c} onSaved={load} showEnabled={false} />
+            <EventCard
+              key={c.id}
+              config={c}
+              onSaved={load}
+              showEnabled={false}
+              trigger={birthdayTrigger(c.event === 'BIRTHDAY_HR' ? 'hr' : 'employee')}
+            />
           ))}
         </CardContent>
       </Card>

@@ -47,9 +47,10 @@ class NotificationEventConfig(models.Model):
 
     Rows: LEAVE_SUBMITTED, LEAVE_APPROVED, LEAVE_REJECTED, CONTRACT,
     BIRTHDAY_HR (info email to HR), BIRTHDAY_EMPLOYEE (greeting email).
-    For birthday rows the ON/OFF is the master `birthday_h1_enabled` /
-    `birthday_h0_enabled` on NotificationSetting — the row only carries
-    templates (row.enabled stays True and is not exposed for birthday).
+    For birthday rows the ON/OFF is per audience on NotificationSetting
+    (`birthday_hr_h1/h0_enabled`, `birthday_employee_h1/h0_enabled`) — the
+    row only carries templates (row.enabled stays True and is not exposed
+    for birthday).
     """
 
     event = models.CharField(max_length=32, unique=True)
@@ -72,7 +73,9 @@ class NotificationSetting(models.Model):
       default (hrgaferaco@gmail.com) is a DB default only — never hardcoded
       in business logic. Additional HR recipients come from User accounts
       with role HR_STAFF/HR_LEAD (their account email), selected in Settings.
-    - birthday_h1_enabled / birthday_h0_enabled: independent ON/OFF.
+    - birthday_hr_h1/h0_enabled: H-1/H-0 info email to HR.
+    - birthday_employee_h1/h0_enabled: H-1/H-0 greeting (email + in-app) to
+      the employee. Each of the four switches is independent.
     - contract_offsets: comma-separated days-before-end_date values.
     """
 
@@ -84,8 +87,10 @@ class NotificationSetting(models.Model):
         blank=True,
         related_name='notification_hr_recipient_of',
     )
-    birthday_h1_enabled = models.BooleanField(default=True)
-    birthday_h0_enabled = models.BooleanField(default=True)
+    birthday_hr_h1_enabled = models.BooleanField(default=True)
+    birthday_hr_h0_enabled = models.BooleanField(default=True)
+    birthday_employee_h1_enabled = models.BooleanField(default=False)
+    birthday_employee_h0_enabled = models.BooleanField(default=True)
     contract_offsets = models.CharField(max_length=255, default='30,14,7,3,1,0')
     updated_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,

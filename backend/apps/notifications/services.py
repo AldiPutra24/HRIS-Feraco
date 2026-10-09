@@ -540,27 +540,35 @@ def gather_contract(today: date = None):
     return due
 
 
-def gather_birthdays(today: date = None):
-    """Birthday notifications due today: list of (employee, offset).
+def birthday_audiences(setting, offset: int) -> dict:
+    """Which audiences get a birthday notification at this offset (0=H-0, 1=H-1)."""
+    if offset == 0:
+        return {'hr': setting.birthday_hr_h0_enabled, 'employee': setting.birthday_employee_h0_enabled}
+    return {'hr': setting.birthday_hr_h1_enabled, 'employee': setting.birthday_employee_h1_enabled}
 
-    offset 0 = today (H-0), 1 = tomorrow (H-1). Toggle-independent checks
-    happen at send time so each of H-1/H-0 can be switched off separately.
+
+def gather_birthdays(today: date = None):
+    """Birthday notifications due today: list of (employee, offset, audiences).
+
+    offset 0 = today (H-0), 1 = tomorrow (H-1). HR and employee have their
+    own H-1/H-0 switches; an offset is due when at least one audience is on.
     """
+    from datetime import timedelta
+
     today = today or timezone.localdate()
     setting = NotificationSetting.get_solo()
     due = []
     targets = []
-    if setting.birthday_h0_enabled:
-        targets.append((today, 0))
-    if setting.birthday_h1_enabled:
-        from datetime import timedelta
-        targets.append((today + timedelta(days=1), 1))
+    for offset in (0, 1):
+        audiences = birthday_audiences(setting, offset)
+        if any(audiences.values()):
+            targets.append((today + timedelta(days=offset), offset, audiences))
     if not targets:
         return due
     for employee in _birthday_employees(today):
-        for target, offset in targets:
+        for target, offset, audiences in targets:
             if employee.birth_date.month == target.month and employee.birth_date.day == target.day:
-                due.append((employee, offset))
+                due.append((employee, offset, audiences))
                 break  # one birthday notification per employee per run
     return due
 
@@ -651,17 +659,18 @@ def send_birthday_notifications(today: date = None, dry_run: bool = False, reque
     due = gather_birthdays(today)
     summary = {'due': len(due), 'sent': 0, 'skipped': 0, 'failed': 0, 'inapp': 0, 'details': []}
     if dry_run:
-        for employee, offset in due:
+        for employee, offset, audiences in due:
+            targets = '+'.join(k.upper() for k, on in audiences.items() if on)
             summary['details'].append(
-                f'[BIRTHDAY H-{offset}] {employee.full_name} ({employee.birth_date})'
+                f'[BIRTHDAY H-{offset}] {employee.full_name} ({employee.birth_date}) -> {targets}'
             )
         return summary
     year = today.year
-    for employee, offset in due:
+    for employee, offset, audiences in due:
         ctx = _birthday_context(employee)
         # HR info email (BIRTHDAY_HR row): recipients = HR emails, no in-app.
         cfg_hr, subj_hr_tpl, body_hr_tpl = _template('BIRTHDAY_HR')
-        if cfg_hr.enabled:
+        if audiences['hr'] and cfg_hr.enabled:
             hr_ctx = {**ctx, 'birthday_today': ' HARI INI' if offset == 0 else ' besok (H-1)'}
             subject_hr, text_hr, html_hr, _ = render_email_parts(subj_hr_tpl, body_hr_tpl, hr_ctx)
             event_key = f'birthday:{employee.pk}:{year}:{offset}:hr'
@@ -670,7 +679,7 @@ def send_birthday_notifications(today: date = None, dry_run: bool = False, reque
                 summary[outcome] = summary.get(outcome, 0) + 1
         # Employee greeting email (BIRTHDAY_EMPLOYEE row).
         cfg_emp, subj_emp_tpl, body_emp_tpl = _template('BIRTHDAY_EMPLOYEE')
-        if cfg_emp.enabled:
+        if audiences['employee'] and cfg_emp.enabled:
             subject_emp, text_emp, html_emp, _ = render_email_parts(subj_emp_tpl, body_emp_tpl, ctx)
             event_key = f'birthday:{employee.pk}:{year}:{offset}:employee'
             outcome = _send_email(event_key, 'BIRTHDAY_EMPLOYEE',

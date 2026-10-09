@@ -31,6 +31,8 @@ frontend/dev_run2.txt
 !**/.env.example
 !**/.env.development.example
 !**/.env.production.example
+!**/.env.test.example
+docs/API/
 
 # vercel
 .vercel
