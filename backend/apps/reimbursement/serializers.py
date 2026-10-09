@@ -81,6 +81,7 @@ class ReimbursementSerializer(serializers.ModelSerializer):
         ('bank_account_name', 'Nama Pemilik Rekening'),
         ('bank_account_number', 'Nomor Rekening'),
         ('contact_email', 'Email'),
+        ('description', 'Deskripsi'),
     )
 
     def validate_bank_account_number(self, value):

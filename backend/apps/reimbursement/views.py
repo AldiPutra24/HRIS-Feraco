@@ -71,6 +71,7 @@ SUBMIT_REQUIRED = (
     ('bank_account_name', 'Nama Pemilik Rekening'),
     ('bank_account_number', 'Nomor Rekening'),
     ('contact_email', 'Email'),
+    ('description', 'Deskripsi'),
 )
 EDITABLE_STATUSES = ('DRAFT', 'PENDING')
 

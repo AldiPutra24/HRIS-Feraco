@@ -95,6 +95,10 @@ export function ReimbursementForm({ redirectTo = '/dashboard/employee/reimbursem
       toast.error('Email aktif wajib diisi dengan format yang benar.');
       return;
     }
+    if (!form.description.trim()) {
+      toast.error('Deskripsi wajib diisi.');
+      return;
+    }
     if (!file) {
       toast.error('Bukti Payment/Tagihan/Invoice wajib diunggah.');
       return;
@@ -112,7 +116,7 @@ export function ReimbursementForm({ redirectTo = '/dashboard/employee/reimbursem
         project_category_other: form.project_category_other,
         transaction_date: form.transaction_date,
         amount,
-        description: form.description,
+        description: form.description.trim(),
         bank_name: form.bank_name.trim(),
         bank_account_name: form.bank_account_name.trim(),
         bank_account_number: form.bank_account_number.trim(),
@@ -304,8 +308,11 @@ export function ReimbursementForm({ redirectTo = '/dashboard/employee/reimbursem
               </a>
             </div>
             <div className='md:col-span-4'>
-              <Label className='text-xs'>Deskripsi</Label>
+              <Label className='text-xs'>
+                Deskripsi <span className='text-destructive'>*</span>
+              </Label>
               <Input
+                required
                 placeholder='Deskripsi klaim'
                 value={form.description}
                 onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}

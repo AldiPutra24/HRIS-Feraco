@@ -580,6 +580,7 @@ class ManagementScopeTests(TestCase):
             'transaction_date': '2026-09-01',
             'amount': 10000,
             'project_category': 'GPFE',
+            'description': 'Transport meeting',
         }, content_type='application/json')
         self.assertEqual(resp.status_code, 201)
         data = resp.json()
@@ -594,6 +595,7 @@ class ManagementScopeTests(TestCase):
             'amount': 10000,
             'employee': self.rep.id,
             'project_category': 'GPFE',
+            'description': 'Transport meeting',
         }, content_type='application/json')
         self.assertEqual(resp.status_code, 201)
         self.assertEqual(resp.json()['employee'], self.mgr.id)
@@ -607,6 +609,7 @@ class ManagementScopeTests(TestCase):
             'transaction_date': '2026-09-01',
             'amount': 10000,
             'project_category': 'GPFE',
+            'description': 'Transport meeting',
         }, content_type='application/json')
         rid = resp.json()['id']
         resp = self.client.patch(f'/api/reimbursements/{rid}/',
@@ -785,7 +788,7 @@ class ReimbursementTwoLayerTests(TestCase):
 
     # --- required fields ---
     def test_bank_fields_and_email_required(self):
-        for field in ('bank_name', 'bank_account_name', 'bank_account_number', 'contact_email'):
+        for field in ('bank_name', 'bank_account_name', 'bank_account_number', 'contact_email', 'description'):
             res = self._create(**{field: ''})
             self.assertEqual(res.status_code, 400, field)
             self.assertIn(field, res.json())
@@ -794,6 +797,19 @@ class ReimbursementTwoLayerTests(TestCase):
         res = self._create(bank_account_number='1234-5678 90')
         self.assertEqual(res.status_code, 201, res.content)
         self.assertEqual(res.json()['bank_account_number'], '1234567890')
+
+    def test_description_whitespace_only_rejected(self):
+        res = self._create(description='   ')
+        self.assertEqual(res.status_code, 400)
+        self.assertIn('description', res.json())
+
+    def test_submit_blocks_legacy_draft_without_description(self):
+        r = Reimbursement.objects.create(employee=self.emp, category=self.cat, transaction_date=date(2026, 9, 1),
+                                         amount=1000, status='DRAFT', attachment_path='x.pdf', **BANK)
+        self.client.force_login(self.emp_user)
+        res = self.client.post(f'/api/reimbursements/{r.id}/submit/')
+        self.assertEqual(res.status_code, 400)
+        self.assertIn('description', res.json())
 
     def test_submit_blocks_legacy_draft_without_bank_data(self):
         r = Reimbursement.objects.create(employee=self.emp, category=self.cat, transaction_date=date(2026, 9, 1),
