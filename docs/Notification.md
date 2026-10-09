@@ -312,6 +312,7 @@ Format tanggal: `fmt_date` → `%d %b %Y` (contoh `08 Oct 2026`).
 | `{reimbursement_bank}` | Info rekening tujuan | Reimbursement paid |
 | `{payment_reference}` | Referensi pembayaran | Reimbursement paid |
 | `{birthday_today}` | Penanda ulang tahun hari ini (H-0) vs besok (H-1) | `BIRTHDAY_HR` |
+| `{birthday_date}` | Tanggal ulang tahun tahun ini, mis. `18 Sep 2026` (H-0 = hari ini, H-1 = besok) | `BIRTHDAY_HR`, `BIRTHDAY_EMPLOYEE` |
 
 ### 8.3 Preview
 

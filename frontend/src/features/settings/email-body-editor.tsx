@@ -46,6 +46,7 @@ const PLACEHOLDER_LABELS: Record<string, string> = {
   '{{leave_end}}': 'Leave End',
   '{{leave_status}}': 'Leave Status',
   '{{rejection_reason}}': 'Rejection Reason',
+  '{{birthday_date}}': 'Birthday Date',
 };
 
 function placeholderLabel(token: string): string {

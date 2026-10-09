@@ -325,6 +325,20 @@ class BirthdayNotificationTests(TestCase):
         self.assertEqual(result['birthday']['due'], 1)
         self.assertEqual([m.to[0] for m in mail.outbox], ['budi@gmail.com'])
 
+    def test_birthday_date_placeholder(self):
+        NotificationEventConfig.objects.create(
+            event='BIRTHDAY_HR', subject='Ultah {{employee_name}} {{birthday_date}}', body='Tanggal: {{birthday_date}}',
+        )
+        # H-1: placeholder = tanggal ulang tahun tahun ini (besok), bukan tanggal lahir.
+        run_all(today=self.h0 - timedelta(days=1))
+        hr_mail = [m for m in mail.outbox if m.to == [HR_DEFAULT_EMAIL]][0]
+        self.assertEqual(hr_mail.subject, 'Ultah Budi 18 Sep 2026')
+        self.assertIn('Tanggal: 18 Sep 2026', hr_mail.body)
+
+    def test_birthday_date_in_available_placeholders(self):
+        from .emails import AVAILABLE_PLACEHOLDERS
+        self.assertIn('{{birthday_date}}', AVAILABLE_PLACEHOLDERS)
+
     def test_inactive_employee_skipped(self):
         self.emp.employment_status = 'INACTIVE'
         self.emp.save()

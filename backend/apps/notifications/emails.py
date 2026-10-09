@@ -39,6 +39,7 @@ AVAILABLE_PLACEHOLDERS = [
     '{{reimbursement_approved_amount}}',
     '{{reimbursement_bank}}',
     '{{payment_reference}}',
+    '{{birthday_date}}',
 ]
 
 DEFAULT_TEMPLATES = {
@@ -197,6 +198,7 @@ PREVIEW_CONTEXT = {
     'payment_reference': 'TRF/2026/10/001',
     'rejection_reason': 'Kuota cuti tidak mencukupi',
     'birthday_today': ' HARI INI',
+    'birthday_date': '18 Sep 2026',
 }
 
 

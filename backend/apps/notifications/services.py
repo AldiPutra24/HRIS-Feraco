@@ -17,7 +17,7 @@ Errors on one email never abort the whole job; each failure is logged
 to the delivery log and audit.
 """
 from concurrent.futures import ThreadPoolExecutor
-from datetime import date
+from datetime import date, timedelta
 
 from django.conf import settings
 from django.core.mail import EmailMultiAlternatives, send_mail
@@ -553,8 +553,6 @@ def gather_birthdays(today: date = None):
     offset 0 = today (H-0), 1 = tomorrow (H-1). HR and employee have their
     own H-1/H-0 switches; an offset is due when at least one audience is on.
     """
-    from datetime import timedelta
-
     today = today or timezone.localdate()
     setting = NotificationSetting.get_solo()
     due = []
@@ -644,9 +642,11 @@ def send_contract_reminders(today: date = None, dry_run: bool = False, request=N
     return summary
 
 
-def _birthday_context(employee) -> dict:
+def _birthday_context(employee, birthday: date = None) -> dict:
+    """`birthday` = this year's birthday (today for H-0, tomorrow for H-1)."""
     manager = _manager_employee(employee)
     return {
+        'birthday_date': fmt_date(birthday),
         'employee_name': employee.full_name,
         'employee_email': _employee_email(employee),
         'manager_name': getattr(manager, 'full_name', '') or '-',
@@ -667,7 +667,7 @@ def send_birthday_notifications(today: date = None, dry_run: bool = False, reque
         return summary
     year = today.year
     for employee, offset, audiences in due:
-        ctx = _birthday_context(employee)
+        ctx = _birthday_context(employee, today + timedelta(days=offset))
         # HR info email (BIRTHDAY_HR row): recipients = HR emails, no in-app.
         cfg_hr, subj_hr_tpl, body_hr_tpl = _template('BIRTHDAY_HR')
         if audiences['hr'] and cfg_hr.enabled:
