@@ -59,6 +59,15 @@ export async function logout(): Promise<void> {
   await authFetch(AUTH_ENDPOINTS.logout, { method: 'POST' }).catch(() => undefined);
 }
 
+/**
+ * Session presence ping (Settings -> Users "Online / Terakhir aktif").
+ * Best-effort: never throws and never triggers session-expired handling —
+ * the regular auth flow stays the single source of truth for logout.
+ */
+export async function sendHeartbeat(): Promise<void> {
+  await authFetch(AUTH_ENDPOINTS.heartbeat, { method: 'POST' }).catch(() => undefined);
+}
+
 export async function getCurrentUser(): Promise<AuthUser | null> {
   try {
     const res = await authFetch(AUTH_ENDPOINTS.me);

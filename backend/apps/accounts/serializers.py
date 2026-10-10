@@ -48,11 +48,28 @@ class UserAdminSerializer(serializers.ModelSerializer):
     employee = serializers.PrimaryKeyRelatedField(queryset=Employee.objects.all(), required=False, allow_null=True, write_only=True)
     employee_id = serializers.IntegerField(source='personnel.employee.id', read_only=True, allow_null=True)
     employee_name = serializers.CharField(source='personnel.employee.full_name', read_only=True, allow_null=True)
+    # Presence (read-only, from login/heartbeat; independent of is_active).
+    is_online = serializers.SerializerMethodField()
+    last_seen_seconds = serializers.SerializerMethodField()
 
     class Meta:
         model = User
-        fields = ('id', 'username', 'email', 'first_name', 'last_name', 'role', 'role_key', 'is_active', 'is_staff', 'password', 'employee', 'employee_id', 'employee_name')
-        read_only_fields = ('id',)
+        fields = (
+            'id', 'username', 'email', 'first_name', 'last_name', 'role', 'role_key', 'is_active', 'is_staff',
+            'password', 'employee', 'employee_id', 'employee_name',
+            'last_seen_at', 'is_online', 'last_seen_seconds',
+        )
+        read_only_fields = ('id', 'last_seen_at')
+
+    def get_is_online(self, obj):
+        from .presence import is_online
+
+        return is_online(obj.last_seen_at)
+
+    def get_last_seen_seconds(self, obj):
+        from .presence import seconds_since
+
+        return seconds_since(obj.last_seen_at)
         extra_kwargs = {
             'email': {'required': True},
         }

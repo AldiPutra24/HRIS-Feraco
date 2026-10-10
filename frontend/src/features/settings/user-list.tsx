@@ -20,7 +20,9 @@ import {
   createUser,
   deleteUser,
   listRoles,
+  lastSeenLabel,
   listUsers,
+  ONLINE_WINDOW_SECONDS,
   updateUser,
   type AdminUser,
   type Role
@@ -53,6 +55,22 @@ function apiError(err: unknown): string {
   return 'Terjadi kesalahan.';
 }
 
+// Presence refresh: user list every 30s (silent), relative labels every 15s.
+const PRESENCE_REFRESH_MS = 30_000;
+const LABEL_TICK_MS = 15_000;
+
+function PresenceStatus({ online }: { online: boolean }) {
+  return (
+    <span className='flex items-center gap-1.5 text-sm whitespace-nowrap'>
+      <span
+        aria-hidden
+        className={online ? 'size-2.5 rounded-full bg-green-500' : 'bg-muted-foreground/40 size-2.5 rounded-full'}
+      />
+      {online ? 'Online' : 'Offline'}
+    </span>
+  );
+}
+
 const EMPTY: FormState = { username: '', email: '', first_name: '', last_name: '', role: '', is_active: true, password: '', employee: '' };
 
 export function UserList() {
@@ -67,6 +85,10 @@ export function UserList() {
   const [form, setForm] = useState<FormState>(EMPTY);
   const [formError, setFormError] = useState('');
   const [saving, setSaving] = useState(false);
+  // When `users` was fetched + a ticking clock, so "x detik lalu" advances
+  // between refreshes. Ages come from the server (no client clock skew).
+  const [fetchedAt, setFetchedAt] = useState(() => Date.now());
+  const [now, setNow] = useState(() => Date.now());
 
   async function load() {
     setLoading(true);
@@ -74,6 +96,7 @@ export function UserList() {
     try {
       const [us, rs, es] = await Promise.all([listUsers(), listRoles(), listEmployees({ page_size: '1000' })]);
       setUsers(us);
+      setFetchedAt(Date.now());
       setRoles(rs);
       setEmployees(es.results);
     } catch (err) {
@@ -86,6 +109,32 @@ export function UserList() {
   useEffect(() => {
     load();
   }, []);
+
+  // Silent presence refresh (users only, no skeleton); paused in hidden tabs.
+  useEffect(() => {
+    const refresh = async () => {
+      if (document.visibilityState !== 'visible') return;
+      try {
+        const us = await listUsers();
+        setUsers(us);
+        setFetchedAt(Date.now());
+      } catch {
+        // Keep the last list; the next tick retries.
+      }
+    };
+    const refreshTimer = setInterval(refresh, PRESENCE_REFRESH_MS);
+    const tickTimer = setInterval(() => setNow(Date.now()), LABEL_TICK_MS);
+    return () => {
+      clearInterval(refreshTimer);
+      clearInterval(tickTimer);
+    };
+  }, []);
+
+  function presenceOf(u: AdminUser) {
+    if (u.last_seen_seconds === null) return { online: false, seconds: null };
+    const seconds = u.last_seen_seconds + Math.max(0, Math.floor((now - fetchedAt) / 1000));
+    return { online: seconds < ONLINE_WINDOW_SECONDS, seconds };
+  }
 
   const filtered = users.filter((u) => {
     if (search && !`${u.username} ${u.email} ${u.first_name} ${u.last_name}`.toLowerCase().includes(search.toLowerCase())) return false;
@@ -370,6 +419,8 @@ export function UserList() {
                   <TableHead>Role</TableHead>
                   <TableHead>Karyawan</TableHead>
                   <TableHead>Status</TableHead>
+                  <TableHead>Terakhir aktif</TableHead>
+                  <TableHead>Akun</TableHead>
                   <TableHead className='text-right'>Aksi</TableHead>
                 </TableRow>
               </TableHeader>
@@ -388,6 +439,15 @@ export function UserList() {
                       ) : (
                         <span className='text-muted-foreground text-sm'>Not Created</span>
                       )}
+                    </TableCell>
+                    <TableCell>
+                      <PresenceStatus online={presenceOf(u).online} />
+                    </TableCell>
+                    <TableCell
+                      className='text-muted-foreground text-sm whitespace-nowrap'
+                      title={u.last_seen_at ? new Date(u.last_seen_at).toLocaleString('id-ID') : undefined}
+                    >
+                      {lastSeenLabel(presenceOf(u).seconds)}
                     </TableCell>
                     <TableCell>
                       <div className='flex items-center gap-2'>
@@ -421,7 +481,7 @@ export function UserList() {
                 ))}
                 {filtered.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={7} className='text-muted-foreground py-8 text-center'>
+                    <TableCell colSpan={9} className='text-muted-foreground py-8 text-center'>
                       Tidak ada data.
                     </TableCell>
                   </TableRow>

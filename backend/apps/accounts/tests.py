@@ -201,3 +201,134 @@ class GeneralManagerUserBindingTests(TestCase):
         self.assertEqual(res.status_code, 201)
         res = self._create('EMPLOYEE', self.emp_emp.id)
         self.assertEqual(res.status_code, 201)
+
+
+class PresenceTests(TestCase):
+    """Online / last seen: login + heartbeat, threshold, permissions."""
+
+    def setUp(self):
+        from django.test import Client
+
+        self.admin_role, _ = Role.objects.get_or_create(key='ADMIN', defaults={'name': 'Admin'})
+        self.hr_role, _ = Role.objects.get_or_create(key='HR_STAFF', defaults={'name': 'HR Staff'})
+        self.admin = User.objects.create_user(username='admin.p@feraco.id', email='admin.p@feraco.id', password='password')
+        self.admin.role = self.admin_role
+        self.admin.save()
+        self.staff = User.objects.create_user(username='staff.p@feraco.id', email='staff.p@feraco.id', password='password')
+        self.staff.role = self.hr_role
+        self.staff.save()
+        self.Client = Client
+
+    def _users_by_id(self):
+        self.client.force_login(self.admin)
+        res = self.client.get(reverse('user-list'))
+        self.assertEqual(res.status_code, 200)
+        return {u['id']: u for u in res.json()}
+
+    def test_login_sets_last_seen_at(self):
+        self.assertIsNone(self.staff.last_seen_at)
+        res = self.client.post(reverse('login'), {'email': 'staff.p@feraco.id', 'password': 'password'},
+                               content_type='application/json')
+        self.assertEqual(res.status_code, 200)
+        self.staff.refresh_from_db()
+        self.assertIsNotNone(self.staff.last_seen_at)
+
+    def test_failed_login_does_not_touch_last_seen(self):
+        self.client.post(reverse('login'), {'email': 'staff.p@feraco.id', 'password': 'wrong'},
+                         content_type='application/json')
+        self.staff.refresh_from_db()
+        self.assertIsNone(self.staff.last_seen_at)
+
+    def test_heartbeat_updates_own_last_seen(self):
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        old = timezone.now() - timedelta(minutes=10)
+        User.objects.filter(pk=self.staff.pk).update(last_seen_at=old)
+        self.client.force_login(self.staff)
+        res = self.client.post(reverse('heartbeat'))
+        self.assertEqual(res.status_code, 200)
+        self.assertTrue(res.json()['is_online'])
+        self.staff.refresh_from_db()
+        self.assertGreater(self.staff.last_seen_at, old)
+        # Other users untouched.
+        self.admin.refresh_from_db()
+        self.assertIsNone(self.admin.last_seen_at)
+
+    def test_heartbeat_ignores_other_user_id(self):
+        self.client.force_login(self.staff)
+        self.client.post(reverse('heartbeat'), {'user': self.admin.pk, 'id': self.admin.pk},
+                         content_type='application/json')
+        self.admin.refresh_from_db()
+        self.assertIsNone(self.admin.last_seen_at)
+
+    def test_heartbeat_requires_login(self):
+        res = self.client.post(reverse('heartbeat'))
+        self.assertEqual(res.status_code, 403)
+
+    def test_heartbeat_requires_csrf(self):
+        client = self.Client(enforce_csrf_checks=True)
+        client.force_login(self.staff)
+        self.assertEqual(client.post(reverse('heartbeat')).status_code, 403)
+        self.staff.refresh_from_db()
+        self.assertIsNone(self.staff.last_seen_at)
+
+    def test_heartbeat_get_not_allowed(self):
+        self.client.force_login(self.staff)
+        self.assertEqual(self.client.get(reverse('heartbeat')).status_code, 405)
+
+    def test_heartbeat_write_throttled(self):
+        self.client.force_login(self.staff)
+        self.client.post(reverse('heartbeat'))
+        self.staff.refresh_from_db()
+        first = self.staff.last_seen_at
+        self.client.post(reverse('heartbeat'))  # < 15s later: no extra write
+        self.staff.refresh_from_db()
+        self.assertEqual(self.staff.last_seen_at, first)
+
+    def test_online_offline_threshold(self):
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        now = timezone.now()
+        User.objects.filter(pk=self.staff.pk).update(last_seen_at=now - timedelta(seconds=100))
+        u = self._users_by_id()[self.staff.pk]
+        self.assertTrue(u['is_online'])
+        self.assertGreaterEqual(u['last_seen_seconds'], 100)
+
+        User.objects.filter(pk=self.staff.pk).update(last_seen_at=now - timedelta(seconds=125))
+        u = self._users_by_id()[self.staff.pk]
+        self.assertFalse(u['is_online'])
+
+        User.objects.filter(pk=self.staff.pk).update(last_seen_at=now - timedelta(minutes=18))
+        u = self._users_by_id()[self.staff.pk]
+        self.assertFalse(u['is_online'])
+        self.assertGreaterEqual(u['last_seen_seconds'], 18 * 60)
+
+    def test_never_logged_in(self):
+        u = self._users_by_id()[self.staff.pk]
+        self.assertIsNone(u['last_seen_at'])
+        self.assertIsNone(u['last_seen_seconds'])
+        self.assertFalse(u['is_online'])
+
+    def test_presence_independent_of_is_active(self):
+        from django.utils import timezone
+
+        User.objects.filter(pk=self.staff.pk).update(is_active=True, last_seen_at=None)
+        self.assertFalse(self._users_by_id()[self.staff.pk]['is_online'])
+        User.objects.filter(pk=self.staff.pk).update(is_active=False, last_seen_at=timezone.now())
+        self.assertTrue(self._users_by_id()[self.staff.pk]['is_online'])
+
+    def test_last_seen_not_writable_via_user_admin(self):
+        self.client.force_login(self.admin)
+        res = self.client.patch(reverse('user-detail', args=[self.staff.pk]),
+                                {'last_seen_at': '2020-01-01T00:00:00Z'}, content_type='application/json')
+        self.assertEqual(res.status_code, 200)
+        self.staff.refresh_from_db()
+        self.assertIsNone(self.staff.last_seen_at)
+
+    def test_presence_list_denied_for_non_admin(self):
+        self.client.force_login(self.staff)
+        self.assertEqual(self.client.get(reverse('user-list')).status_code, 403)

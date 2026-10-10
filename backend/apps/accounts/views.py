@@ -11,6 +11,7 @@ from apps.softdelete import SoftHardDeleteMixin
 
 from .models import Role, User
 from .permissions import IsAdminRole
+from .presence import touch_last_seen
 from .serializers import LoginSerializer, RoleSerializer, SelfAccountSerializer, UserAdminSerializer, UserSerializer
 
 
@@ -23,6 +24,7 @@ class LoginView(APIView):
         serializer.is_valid(raise_exception=True)
         user = serializer.validated_data['user']
         auth_login(request, user)
+        touch_last_seen(user, force=True)
         log_event(request, 'login', user=user)
         return Response(UserSerializer(user).data, status=status.HTTP_200_OK)
 
@@ -32,6 +34,20 @@ class LogoutView(APIView):
         log_event(request, 'logout', user=request.user)
         auth_logout(request)
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class HeartbeatView(APIView):
+    """Session presence ping from an open HRIS tab (~every 45s).
+
+    Session-authenticated + CSRF-checked: only the logged-in user can touch
+    their OWN last_seen_at; no user id is accepted.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        last_seen_at = touch_last_seen(request.user)
+        return Response({'last_seen_at': last_seen_at, 'is_online': True})
 
 
 class CurrentUserView(APIView):

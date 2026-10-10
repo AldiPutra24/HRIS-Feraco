@@ -45,6 +45,9 @@ class User(AbstractUser):
     # Lets us re-activate only employee-caused inactivity, never an
     # independently deactivated account.
     inactive_by_employee = models.BooleanField(default=False)
+    # Session presence only (login + periodic heartbeat from an open HRIS
+    # tab). Independent of is_active. See apps.accounts.presence.
+    last_seen_at = models.DateTimeField(null=True, blank=True)
 
     def __str__(self):
         return self.get_username()

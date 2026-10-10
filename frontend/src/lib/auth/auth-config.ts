@@ -3,5 +3,6 @@ export const AUTH_API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhos
 export const AUTH_ENDPOINTS = {
   login: `${AUTH_API_BASE}/api/auth/login/`,
   logout: `${AUTH_API_BASE}/api/auth/logout/`,
-  me: `${AUTH_API_BASE}/api/auth/me/`
+  me: `${AUTH_API_BASE}/api/auth/me/`,
+  heartbeat: `${AUTH_API_BASE}/api/auth/heartbeat/`
 };
