@@ -8,6 +8,18 @@ function getCookie(name: string): string | null {
   return match ? decodeURIComponent(match[1]) : null;
 }
 
+/** First readable message from a DRF error body ({detail} or {field: [msg]}). */
+function errorMessage(data: unknown): string {
+  if (!data || typeof data !== 'object') return '';
+  const body = data as Record<string, unknown>;
+  if (typeof body.detail === 'string') return body.detail;
+  for (const value of Object.values(body)) {
+    if (typeof value === 'string') return value;
+    if (Array.isArray(value) && typeof value[0] === 'string') return value[0];
+  }
+  return '';
+}
+
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
   const csrf = getCookie('csrftoken');
@@ -16,8 +28,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const res = await fetch(`${BASE}${path}`, { ...init, headers, credentials: 'include' });
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
-    const msg = typeof data.detail === 'string' ? data.detail : `API error ${res.status}`;
-    throw new Error(msg || `API error ${res.status}`);
+    throw new Error(errorMessage(data) || `API error ${res.status}`);
   }
   if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;
@@ -42,10 +53,21 @@ export type AuditEntry = {
 
 export type Page<T> = { count: number; next: string | null; previous: string | null; results: T[] };
 
+// Fallback when /actions/ is unavailable. Values are lowercase, as stored.
 export const AUDIT_ACTIONS = [
-  'CREATE', 'UPDATE', 'DELETE', 'APPROVE', 'REJECT', 'ACTIVATE',
-  'TERMINATE', 'RENEW', 'LOGIN', 'LOGOUT', 'UPLOAD', 'DOWNLOAD',
+  'create', 'update', 'delete', 'approve', 'reject', 'activate',
+  'terminate', 'renew', 'login', 'logout', 'upload', 'download'
 ];
+
+/** Action values for the filter: known choices + custom actions recorded in the log. */
+export function listAuditActions(): Promise<string[]> {
+  return request<string[]>('/audit/audit-logs/actions/');
+}
+
+/** Display label: 'payroll_period_approved' -> 'PAYROLL PERIOD APPROVED'. */
+export function auditActionLabel(action: string): string {
+  return action.replace(/_/g, ' ').toUpperCase();
+}
 
 export function listAuditLogs(params: Record<string, string | undefined> = {}): Promise<Page<AuditEntry>> {
   const q = new URLSearchParams();

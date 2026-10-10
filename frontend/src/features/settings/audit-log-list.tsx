@@ -9,7 +9,15 @@ import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { SoftHardDeleteMenu } from '@/components/soft-hard-delete-menu';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { clearAllAuditLogs, deleteAuditLog, AUDIT_ACTIONS, listAuditLogs, type AuditEntry } from '@/lib/audit';
+import {
+  AUDIT_ACTIONS,
+  auditActionLabel,
+  clearAllAuditLogs,
+  deleteAuditLog,
+  listAuditActions,
+  listAuditLogs,
+  type AuditEntry
+} from '@/lib/audit';
 import { useAuth } from '@/lib/auth/auth-provider';
 
 function fmtTime(ts: string) {
@@ -18,16 +26,22 @@ function fmtTime(ts: string) {
 }
 
 function ActionBadge({ action }: { action: string }) {
+  const key = action.toLowerCase();
   const tone =
-    action === 'DELETE'
+    key === 'delete'
       ? 'destructive'
-      : action === 'APPROVE' || action === 'ACTIVATE'
+      : key === 'approve' || key === 'activate'
         ? 'default'
-        : action === 'REJECT' || action === 'TERMINATE'
+        : key === 'reject' || key === 'terminate'
           ? 'secondary'
           : 'outline';
-  return <Badge variant={tone as 'destructive'}>{action}</Badge>;
+  return <Badge variant={tone as 'destructive'}>{auditActionLabel(action)}</Badge>;
 }
+
+type Filters = { actor: string; action: string; module: string; dateFrom: string; dateTo: string };
+
+const EMPTY_FILTERS: Filters = { actor: '', action: '', module: '', dateFrom: '', dateTo: '' };
+const PAGE_SIZE = 20;
 
 function changedCount(e: AuditEntry) {
   return Object.keys(e.changes_before).length + Object.keys(e.changes_after).length;
@@ -37,27 +51,34 @@ export function AuditLogList() {
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin';
   const [entries, setEntries] = useState<AuditEntry[]>([]);
+  const [count, setCount] = useState(0);
+  const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [actor, setActor] = useState('');
-  const [action, setAction] = useState('');
-  const [module, setModule] = useState('');
-  const [dateFrom, setDateFrom] = useState('');
-  const [dateTo, setDateTo] = useState('');
+  const [actions, setActions] = useState<string[]>(AUDIT_ACTIONS);
+  // `draft` = form inputs; `applied` = filters used for the current list.
+  const [draft, setDraft] = useState<Filters>(EMPTY_FILTERS);
+  const [applied, setApplied] = useState<Filters>(EMPTY_FILTERS);
   const [selected, setSelected] = useState<AuditEntry | null>(null);
 
-  async function load() {
+  const totalPages = Math.max(1, Math.ceil(count / PAGE_SIZE));
+
+  async function load(filters: Filters = applied, targetPage: number = page) {
     setLoading(true);
     setError('');
     try {
       const data = await listAuditLogs({
-        actor: actor || undefined,
-        action: action || undefined,
-        module: module || undefined,
-        date_from: dateFrom || undefined,
-        date_to: dateTo || undefined
+        actor: filters.actor.trim() || undefined,
+        action: filters.action || undefined,
+        module: filters.module.trim() || undefined,
+        date_from: filters.dateFrom || undefined,
+        date_to: filters.dateTo || undefined,
+        page: targetPage > 1 ? String(targetPage) : undefined
       });
       setEntries(data.results);
+      setCount(data.count);
+      setPage(targetPage);
+      setSelected(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Gagal memuat audit log.');
     } finally {
@@ -65,11 +86,31 @@ export function AuditLogList() {
     }
   }
 
+  function apply() {
+    if (draft.dateFrom && draft.dateTo && draft.dateFrom > draft.dateTo) {
+      setError('Tanggal "Sampai" tidak boleh sebelum tanggal "Dari".');
+      return;
+    }
+    setApplied(draft);
+    load(draft, 1);
+  }
+
+  function reset() {
+    setDraft(EMPTY_FILTERS);
+    setApplied(EMPTY_FILTERS);
+    load(EMPTY_FILTERS, 1);
+  }
+
+  function setField(field: keyof Filters, value: string) {
+    setDraft((d) => ({ ...d, [field]: value }));
+  }
+
   async function onDelete(id: number, hard = false) {
     if (!window.confirm(hard ? 'Hapus permanen log ini?' : 'Hapus log ini?')) return;
     try {
       await deleteAuditLog(id, hard);
-      load();
+      // Stay on the page unless it just became empty.
+      load(applied, entries.length === 1 && page > 1 ? page - 1 : page);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Gagal menghapus log.');
     }
@@ -79,24 +120,23 @@ export function AuditLogList() {
     if (!window.confirm('Hapus SEMUA audit log secara permanen?')) return;
     try {
       await clearAllAuditLogs();
-      load();
+      load(applied, 1);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Gagal menghapus log.');
     }
   }
 
   useEffect(() => {
-    load();
+    load(EMPTY_FILTERS, 1);
+    listAuditActions()
+      .then((list) => {
+        if (list.length) setActions(list);
+      })
+      .catch(() => {
+        // Keep the static fallback list.
+      });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  function reset() {
-    setActor('');
-    setAction('');
-    setModule('');
-    setDateFrom('');
-    setDateTo('');
-  }
 
   return (
     <div className='flex flex-1 flex-col gap-4 p-4 md:p-6'>
@@ -114,34 +154,61 @@ export function AuditLogList() {
       </div>
 
       <Card>
-        <CardContent className='flex flex-wrap items-end gap-2 p-4'>
-          <div className='flex flex-col gap-1'>
-            <label htmlFor='audit-actor' className='text-muted-foreground text-xs'>Actor</label>
-            <Input id='audit-actor' value={actor} onChange={(e) => setActor(e.target.value)} placeholder='username' className='h-8 w-40' />
-          </div>
-          <div className='flex flex-col gap-1'>
-            <label htmlFor='audit-action' className='text-muted-foreground text-xs'>Action</label>
-            <select id='audit-action' className='border-input h-8 rounded-lg border bg-transparent px-2.5 text-sm' value={action} onChange={(e) => setAction(e.target.value)}>
-              <option value=''>Semua</option>
-              {AUDIT_ACTIONS.map((a) => (
-                <option key={a} value={a}>{a}</option>
-              ))}
-            </select>
-          </div>
-          <div className='flex flex-col gap-1'>
-            <label htmlFor='audit-module' className='text-muted-foreground text-xs'>Module</label>
-            <Input id='audit-module' value={module} onChange={(e) => setModule(e.target.value)} placeholder='personnel/leaves' className='h-8 w-40' />
-          </div>
-          <div className='flex flex-col gap-1'>
-            <label htmlFor='audit-from' className='text-muted-foreground text-xs'>Dari</label>
-            <Input id='audit-from' type='date' value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className='h-8' />
-          </div>
-          <div className='flex flex-col gap-1'>
-            <label htmlFor='audit-to' className='text-muted-foreground text-xs'>Sampai</label>
-            <Input id='audit-to' type='date' value={dateTo} onChange={(e) => setDateTo(e.target.value)} className='h-8' />
-          </div>
-          <Button size='sm' onClick={load}>Terapkan</Button>
-          <Button size='sm' variant='ghost' onClick={reset}>Reset</Button>
+        <CardContent className='p-4'>
+          <form
+            className='flex flex-wrap items-end gap-2'
+            onSubmit={(ev) => {
+              ev.preventDefault();
+              apply();
+            }}
+          >
+            <div className='flex flex-col gap-1'>
+              <label htmlFor='audit-actor' className='text-muted-foreground text-xs'>Actor</label>
+              <Input id='audit-actor' value={draft.actor} onChange={(e) => setField('actor', e.target.value)} placeholder='username' className='h-8 w-40' />
+            </div>
+            <div className='flex flex-col gap-1'>
+              <label htmlFor='audit-action' className='text-muted-foreground text-xs'>Action</label>
+              <select
+                id='audit-action'
+                className='border-input h-8 rounded-lg border bg-transparent px-2.5 text-sm'
+                value={draft.action}
+                onChange={(e) => setField('action', e.target.value)}
+              >
+                <option value=''>Semua</option>
+                {actions.map((a) => (
+                  <option key={a} value={a}>{auditActionLabel(a)}</option>
+                ))}
+              </select>
+            </div>
+            <div className='flex flex-col gap-1'>
+              <label htmlFor='audit-module' className='text-muted-foreground text-xs'>Module</label>
+              <Input id='audit-module' value={draft.module} onChange={(e) => setField('module', e.target.value)} placeholder='personnel/leaves' className='h-8 w-40' />
+            </div>
+            <div className='flex flex-col gap-1'>
+              <label htmlFor='audit-from' className='text-muted-foreground text-xs'>Dari</label>
+              <Input
+                id='audit-from'
+                type='date'
+                value={draft.dateFrom}
+                max={draft.dateTo || undefined}
+                onChange={(e) => setField('dateFrom', e.target.value)}
+                className='h-8'
+              />
+            </div>
+            <div className='flex flex-col gap-1'>
+              <label htmlFor='audit-to' className='text-muted-foreground text-xs'>Sampai</label>
+              <Input
+                id='audit-to'
+                type='date'
+                value={draft.dateTo}
+                min={draft.dateFrom || undefined}
+                onChange={(e) => setField('dateTo', e.target.value)}
+                className='h-8'
+              />
+            </div>
+            <Button size='sm' type='submit' disabled={loading}>Terapkan</Button>
+            <Button size='sm' type='button' variant='ghost' onClick={reset} disabled={loading}>Reset</Button>
+          </form>
         </CardContent>
       </Card>
 
@@ -198,6 +265,29 @@ export function AuditLogList() {
               </TableBody>
             </Table>
           )}
+          <div className='flex items-center justify-between gap-2 border-t px-4 py-2 text-sm'>
+            <span className='text-muted-foreground'>
+              {count === 0
+                ? '0 data'
+                : `${(page - 1) * PAGE_SIZE + 1}–${Math.min(page * PAGE_SIZE, count)} dari ${count} data`}
+            </span>
+            <div className='flex items-center gap-2'>
+              <Button size='sm' variant='outline' disabled={loading || page <= 1} onClick={() => load(applied, page - 1)}>
+                Sebelumnya
+              </Button>
+              <span className='text-muted-foreground'>
+                {page} / {totalPages}
+              </span>
+              <Button
+                size='sm'
+                variant='outline'
+                disabled={loading || page >= totalPages}
+                onClick={() => load(applied, page + 1)}
+              >
+                Berikutnya
+              </Button>
+            </div>
+          </div>
         </CardContent>
       </Card>
 
