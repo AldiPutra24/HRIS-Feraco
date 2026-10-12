@@ -332,3 +332,36 @@ class PresenceTests(TestCase):
     def test_presence_list_denied_for_non_admin(self):
         self.client.force_login(self.staff)
         self.assertEqual(self.client.get(reverse('user-list')).status_code, 403)
+
+
+class EmployeeSelfAccountTests(TestCase):
+    """EMPLOYEE role can change own password via /api/auth/me/account/."""
+
+    def setUp(self):
+        role, _ = Role.objects.get_or_create(key='EMPLOYEE', defaults={'name': 'Employee'})
+        self.emp = User.objects.create_user(username='emp.self@feraco.id', email='emp.self@feraco.id', password='lama12345')
+        self.emp.role = role
+        self.emp.save()
+        self.client.force_login(self.emp)
+
+    def test_employee_can_read_own_account(self):
+        res = self.client.get(reverse('me-account'))
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.data['email'], 'emp.self@feraco.id')
+
+    def test_employee_can_change_password(self):
+        res = self.client.patch(reverse('me-account'), {'password': 'baru12345', 'current_password': 'lama12345'},
+                                content_type='application/json')
+        self.assertEqual(res.status_code, 200)
+        self.emp.refresh_from_db()
+        self.assertTrue(self.emp.check_password('baru12345'))
+
+    def test_wrong_current_password_rejected(self):
+        res = self.client.patch(reverse('me-account'), {'password': 'baru12345', 'current_password': 'salah'},
+                                content_type='application/json')
+        self.assertEqual(res.status_code, 400)
+        self.emp.refresh_from_db()
+        self.assertTrue(self.emp.check_password('lama12345'))
+
+    def test_employee_still_denied_admin_users_api(self):
+        self.assertEqual(self.client.get(reverse('user-list')).status_code, 403)

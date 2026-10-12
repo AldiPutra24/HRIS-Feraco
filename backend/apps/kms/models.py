@@ -219,13 +219,18 @@ class KnowledgeArticle(models.Model):
             return qs.none()
         employee = employee_for(user)
         dept_ids = [employee.department_id] if employee and employee.department_id else []
-        return qs.filter(
+        matching = qs.filter(
             Q(visibility=VISIBILITY_ALL)
             | Q(visibility=VISIBILITY_PRIVATE, created_by=user)
             | Q(visibility=VISIBILITY_ROLE, role_targets__key=_role(user))
             | Q(visibility=VISIBILITY_USER, user_targets=user)
             | (Q(visibility=VISIBILITY_DEPARTMENT, department_targets__in=dept_ids) if dept_ids else Q(pk__in=[]))
         )
+        # The OR above LEFT JOINs the role/user/department target tables, so an
+        # article with several target rows matched once per row (duplicated
+        # cards + inflated count). Wrap as `pk IN (subquery)` -> one row per
+        # article, and callers can still chain filters/ordering/pagination.
+        return KnowledgeArticle.objects.filter(pk__in=matching.values('pk'))
 
 
 class KnowledgeArticleRole(models.Model):

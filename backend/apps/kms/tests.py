@@ -544,3 +544,70 @@ class KmsUserTargetPickerTests(BaseKmsTests):
         self.assertEqual(self.client.get(f'{ARTICLES_URL}{art_id}/').status_code, 404)
         ids = [a['id'] for a in self.client.get(ARTICLES_URL, {'search': 'Khusus'}).data['results']]
         self.assertNotIn(art_id, ids)
+
+
+class KmsVisibilityDuplicateTests(BaseKmsTests):
+    """Regression: articles with several target rows listed more than once
+    for non-manager roles (OR over role/user/department JOINs)."""
+
+    def setUp(self):
+        super().setUp()
+        from .models import KnowledgeArticleRole, KnowledgeArticleUser
+
+        roles = Role.objects.filter(key__in=['EMPLOYEE', 'MANAGEMENT', 'HR_STAFF'])
+        # visibility ALL but with leftover targets from earlier visibility edits.
+        self.all_art = KnowledgeArticle.objects.create(
+            title='Mengenal HRIS FERACO', content='<p>x</p>', category=self.cat,
+            status='PUBLISHED', visibility='ALL', created_by=self.hr,
+        )
+        KnowledgeArticleRole.objects.bulk_create(
+            [KnowledgeArticleRole(article=self.all_art, role=r) for r in roles]
+        )
+        KnowledgeArticleUser.objects.bulk_create([
+            KnowledgeArticleUser(article=self.all_art, user=self.emp),
+            KnowledgeArticleUser(article=self.all_art, user=self.mgmt),
+        ])
+        # ROLE visibility matching the employee + extra user targets.
+        self.role_art = KnowledgeArticle.objects.create(
+            title='Panduan Role', content='<p>y</p>', category=self.cat,
+            status='PUBLISHED', visibility='ROLE', created_by=self.hr,
+        )
+        KnowledgeArticleRole.objects.bulk_create(
+            [KnowledgeArticleRole(article=self.role_art, role=r) for r in roles]
+        )
+        KnowledgeArticleUser.objects.bulk_create([
+            KnowledgeArticleUser(article=self.role_art, user=self.emp),
+            KnowledgeArticleUser(article=self.role_art, user=self.admin),
+        ])
+
+    def test_list_has_no_duplicates_for_employee(self):
+        self.client.force_login(self.emp)
+        res = self.client.get(ARTICLES_URL)
+        ids = [a['id'] for a in res.data['results']]
+        self.assertEqual(sorted(ids), sorted({self.all_art.id, self.role_art.id}))
+        self.assertEqual(res.data['count'], 2)
+
+    def test_search_and_category_filter_no_duplicates(self):
+        self.client.force_login(self.mgmt)
+        for params in ({'search': 'HRIS'}, {'category': self.cat.id}):
+            res = self.client.get(ARTICLES_URL, params)
+            ids = [a['id'] for a in res.data['results']]
+            self.assertEqual(len(ids), len(set(ids)), params)
+
+    def test_accessible_to_unique(self):
+        qs = KnowledgeArticle.accessible_to(self.emp)
+        self.assertEqual(qs.count(), qs.values('pk').distinct().count())
+
+    def test_detail_and_related_still_work(self):
+        self.client.force_login(self.emp)
+        self.assertEqual(self.client.get(f'{ARTICLES_URL}{self.all_art.id}/').status_code, 200)
+        res = self.client.get(f'{ARTICLES_URL}{self.all_art.id}/related/')
+        self.assertEqual(res.status_code, 200)
+        ids = [a['id'] for a in res.data]
+        self.assertEqual(len(ids), len(set(ids)))
+
+    def test_non_targeted_role_still_hidden(self):
+        other = make_user('gm@t', 'GENERAL_MANAGER')
+        self.client.force_login(other)
+        ids = [a['id'] for a in self.client.get(ARTICLES_URL).data['results']]
+        self.assertEqual(ids, [self.all_art.id])

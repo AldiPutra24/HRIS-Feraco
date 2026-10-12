@@ -5,6 +5,10 @@ import { hasDualMode, readMode } from '@/lib/auth/dashboard-mode';
 import { usePathname, useRouter } from 'next/navigation';
 import { useCallback, useEffect } from 'react';
 
+// Self-service account page (username/email/password) — open to every role.
+// Exact path only: other /dashboard/settings/* pages stay HR/Admin-only.
+const SELF_ACCOUNT_PATH = '/dashboard/settings/account';
+
 export function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, isAuthenticated, isLoading } = useAuth();
   const router = useRouter();
@@ -17,12 +21,13 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (isLoading || !isAuthenticated) return;
-    // Route guard by role: employees live under /dashboard/employee (KMS is
-    // accessible to every role, per spec).
+    // Route guard by role: employees live under /dashboard/employee (KMS and
+    // their own account settings are accessible to every role, per spec).
     if (
       user?.role === 'employee' &&
       !pathname.startsWith('/dashboard/employee') &&
-      !pathname.startsWith('/kms')
+      !pathname.startsWith('/kms') &&
+      pathname.replace(/\/+$/, '') !== SELF_ACCOUNT_PATH
     ) {
       router.replace('/dashboard/employee');
       return;
