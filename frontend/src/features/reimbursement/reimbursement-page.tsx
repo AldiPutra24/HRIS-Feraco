@@ -355,12 +355,13 @@ export function ReimbursementPage() {
             <p className='text-muted-foreground p-6 text-center'>Belum ada pengajuan.</p>
           ) : (
             <div className='overflow-x-auto'>
-              <table className='w-full min-w-[960px] text-sm'>
+              <table className='w-full min-w-[1120px] text-sm'>
                 <TableHeader>
                   <TableRow>
                     <TableHead>Karyawan</TableHead>
                     <TableHead>Kategori</TableHead>
                     <TableHead>Kategori Project</TableHead>
+                    <TableHead>Deskripsi</TableHead>
                     <TableHead>Tanggal</TableHead>
                     <TableHead className='text-right'>Nominal Diajukan</TableHead>
                     <TableHead className='text-right'>Nominal Disetujui</TableHead>
@@ -379,6 +380,13 @@ export function ReimbursementPage() {
                       <TableCell>{r.employee_name}</TableCell>
                       <TableCell>{r.category_name}</TableCell>
                       <TableCell>{r.project_category === 'OTHER' ? r.project_category_other : r.project_category.replace(/_/g, ' ')}</TableCell>
+                      <TableCell className='max-w-64 min-w-40 whitespace-normal break-words text-xs' title={r.description || undefined}>
+                        {r.description ? (
+                          <span className='line-clamp-3'>{r.description}</span>
+                        ) : (
+                          <span className='text-muted-foreground'>-</span>
+                        )}
+                      </TableCell>
                       <TableCell>{r.transaction_date}</TableCell>
                       <TableCell className='text-right'>{formatAmount(r.amount)}</TableCell>
                       <TableCell className='text-right'>{r.approved_amount != null ? formatAmount(r.approved_amount) : '-'}</TableCell>
