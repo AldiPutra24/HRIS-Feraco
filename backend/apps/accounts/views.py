@@ -1,4 +1,4 @@
-from django.contrib.auth import login as auth_login, logout as auth_logout
+from django.contrib.auth import login as auth_login, logout as auth_logout, update_session_auth_hash
 from django.utils import timezone
 from rest_framework import status, viewsets
 from rest_framework.parsers import FormParser, MultiPartParser
@@ -66,6 +66,9 @@ class SelfAccountView(APIView):
         serializer = SelfAccountSerializer(request.user, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         user = serializer.save()
+        # Password change rotates the session auth hash; keep this session
+        # logged in (other sessions of the user are invalidated as usual).
+        update_session_auth_hash(request, user)
         log_event(request, 'update', obj=user, description=f'User {user.username} updated own account')
         return Response(SelfAccountSerializer(user).data)
 

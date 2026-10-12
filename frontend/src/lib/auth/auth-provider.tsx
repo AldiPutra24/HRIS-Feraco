@@ -90,8 +90,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const updateAccount = useCallback(async (data: SelfAccountInput) => {
     setError(null);
     try {
-      const updated = await updateSelfAccount(data);
-      setUser(updated);
+      await updateSelfAccount(data);
+      // Reload from /me/ (has role + photo); keep the current user if that
+      // request fails so the sidebar never falls back to a role-less menu.
+      const current = await getCurrentUser();
+      if (current) setUser(current);
     } catch (err) {
       const authError = err instanceof Error ? { message: err.message } : { message: 'Unknown error' };
       setError(authError);

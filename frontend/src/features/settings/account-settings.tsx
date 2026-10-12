@@ -7,6 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Icons } from '@/components/icons';
+import { getSelfAccount } from '@/lib/auth/auth-client';
 import { useAuth } from '@/lib/auth/auth-provider';
 
 export function AccountSettings() {
@@ -19,29 +20,45 @@ export function AccountSettings() {
     current_password: ''
   });
   const [saving, setSaving] = useState(false);
+  // Original first/last name: an unchanged "Nama" is sent back as-is so a
+  // password-only change never rewrites the user's name fields.
+  const [original, setOriginal] = useState({ name: '', first_name: '', last_name: '' });
 
   useEffect(() => {
-    if (user) {
-      setForm((f) => ({
-        ...f,
-        username: f.username || user.email,
-        email: f.email || user.email,
-        name: f.name || user.name
-      }));
-    }
-  }, [user]);
+    if (!user) return;
+    let cancelled = false;
+    getSelfAccount()
+      .then((acc) => {
+        if (cancelled) return;
+        const name = [acc.first_name, acc.last_name].filter(Boolean).join(' ');
+        setOriginal({ name, first_name: acc.first_name, last_name: acc.last_name });
+        setForm((f) => ({ ...f, username: acc.username, email: acc.email, name }));
+      })
+      .catch((err) => toast.error(err instanceof Error ? err.message : 'Gagal memuat data akun.'));
+    return () => {
+      cancelled = true;
+    };
+    // Load once per logged-in user; later `user` refreshes must not reset the form.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    if (form.password && !form.current_password) {
+      toast.error('Isi password saat ini untuk mengganti password.');
+      return;
+    }
+    const nameChanged = form.name.trim() !== original.name;
     setSaving(true);
     try {
       await updateAccount({
         username: form.username.trim(),
         email: form.email.trim(),
-        first_name: form.name.trim(),
-        last_name: '',
+        first_name: nameChanged ? form.name.trim() : original.first_name,
+        last_name: nameChanged ? '' : original.last_name,
         ...(form.password ? { password: form.password, current_password: form.current_password } : {})
       });
+      if (nameChanged) setOriginal({ name: form.name.trim(), first_name: form.name.trim(), last_name: '' });
       setForm((f) => ({ ...f, password: '', current_password: '' }));
       toast.success('Akun diperbarui.');
     } catch (err) {

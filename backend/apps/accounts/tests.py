@@ -363,5 +363,37 @@ class EmployeeSelfAccountTests(TestCase):
         self.emp.refresh_from_db()
         self.assertTrue(self.emp.check_password('lama12345'))
 
+    def test_session_survives_password_change_and_role_kept(self):
+        """Real login session (not force_login): after changing the password
+        the same session stays valid and /me/ still reports EMPLOYEE."""
+        from django.test import Client
+
+        client = Client()
+        res = client.post(reverse('login'), {'email': 'emp.self@feraco.id', 'password': 'lama12345'},
+                          content_type='application/json')
+        self.assertEqual(res.status_code, 200)
+        res = client.patch(reverse('me-account'), {'password': 'baru12345', 'current_password': 'lama12345'},
+                           content_type='application/json')
+        self.assertEqual(res.status_code, 200)
+        me = client.get(reverse('me'))
+        self.assertEqual(me.status_code, 200)
+        self.assertEqual(me.data['role'], 'EMPLOYEE')
+
+    def test_username_unchanged_when_only_password_sent(self):
+        self.emp.username = 'budi.santoso'
+        self.emp.save()
+        res = self.client.patch(reverse('me-account'), {'password': 'baru12345', 'current_password': 'lama12345'},
+                                content_type='application/json')
+        self.assertEqual(res.status_code, 200)
+        self.emp.refresh_from_db()
+        self.assertEqual(self.emp.username, 'budi.santoso')
+
+    def test_duplicate_username_returns_field_error(self):
+        User.objects.create_user(username='taken@feraco.id', email='taken@feraco.id', password='x')
+        res = self.client.patch(reverse('me-account'), {'username': 'taken@feraco.id'},
+                                content_type='application/json')
+        self.assertEqual(res.status_code, 400)
+        self.assertIn('username', res.json())
+
     def test_employee_still_denied_admin_users_api(self):
         self.assertEqual(self.client.get(reverse('user-list')).status_code, 403)

@@ -82,6 +82,50 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
   }
 }
 
+const ACCOUNT_FIELD_LABELS: Record<string, string> = {
+  username: 'Username',
+  email: 'Email',
+  first_name: 'Nama',
+  last_name: 'Nama',
+  password: 'Password baru',
+  current_password: 'Password saat ini'
+};
+
+/** First readable message from a DRF error body: "Label: pesan". */
+function accountErrorMessage(payload: unknown): string {
+  if (!payload || typeof payload !== 'object') return '';
+  const body = payload as Record<string, unknown>;
+  if (typeof body.detail === 'string') return body.detail;
+  for (const [field, value] of Object.entries(body)) {
+    const msg = Array.isArray(value) ? value[0] : value;
+    if (typeof msg === 'string') {
+      const label = ACCOUNT_FIELD_LABELS[field];
+      return label ? `${label}: ${msg}` : msg;
+    }
+  }
+  return '';
+}
+
+export type SelfAccount = {
+  id: number;
+  username: string;
+  email: string;
+  first_name: string;
+  last_name: string;
+};
+
+/** Current account fields (real username — AuthUser has no username). */
+export async function getSelfAccount(): Promise<SelfAccount> {
+  const res = await authFetch(`${AUTH_API_BASE}/api/auth/me/account/`);
+  if (!res.ok) throw new Error('Gagal memuat data akun.');
+  return res.json();
+}
+
+/**
+ * PATCH own account. The response has no role, so callers must reload the
+ * session user from /me/ (see AuthProvider.updateAccount) — never build the
+ * AuthUser from this response (role would become null -> wrong menu).
+ */
 export async function updateSelfAccount(data: {
   username: string;
   email: string;
@@ -89,15 +133,14 @@ export async function updateSelfAccount(data: {
   last_name: string;
   password?: string;
   current_password?: string;
-}): Promise<AuthUser> {
+}): Promise<SelfAccount> {
   const res = await authFetch(`${AUTH_API_BASE}/api/auth/me/account/`, {
     method: 'PATCH',
     body: JSON.stringify(data)
   });
   if (!res.ok) {
     const payload = await res.json().catch(() => ({}));
-    const message = typeof payload.detail === 'string' ? payload.detail : JSON.stringify(payload);
-    throw buildError(String(message), 'update_failed');
+    throw new Error(accountErrorMessage(payload) || `Gagal memperbarui akun (HTTP ${res.status}).`);
   }
-  return toUser(await res.json());
+  return res.json();
 }
