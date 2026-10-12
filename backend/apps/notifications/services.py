@@ -297,7 +297,26 @@ def _leave_context(leave) -> dict:
         'leave_status': leave.get_status_display(),
         'approver_name': _approver_name(leave),
         'rejection_reason': getattr(leave, 'rejection_reason', '') or '-',
+        'leave_reason': (leave.reason or '').strip() or '-',
+        'leave_attachment': leave.attachment_name or 'Tidak ada lampiran',
+        'leave_attachment_url': _leave_attachment_url(leave),
     }
+
+
+def _leave_attachment_url(leave) -> str:
+    """Stable link to the leave attachment (login-protected endpoint that
+    redirects to a fresh signed URL on each click), or '-' if none.
+
+    The file is uploaded right after the request is created, so the
+    LEAVE_SUBMITTED email may go out first — the link resolves once the
+    upload completes.
+    """
+    from django.conf import settings as dj_settings
+
+    if not leave.attachment_name:
+        return '-'
+    base = getattr(dj_settings, 'HRIS_PUBLIC_URL', '')
+    return f'{base}/api/leaves/requests/{leave.pk}/attachment/' if base else '-'
 
 
 def notify_leave_submitted(leave) -> dict:

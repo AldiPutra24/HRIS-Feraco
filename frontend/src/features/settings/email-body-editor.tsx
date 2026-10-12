@@ -45,6 +45,9 @@ const PLACEHOLDER_LABELS: Record<string, string> = {
   '{{leave_start}}': 'Leave Start',
   '{{leave_end}}': 'Leave End',
   '{{leave_status}}': 'Leave Status',
+  '{{leave_reason}}': 'Alasan Izin/Cuti',
+  '{{leave_attachment}}': 'Berkas Izin/Cuti',
+  '{{leave_attachment_url}}': 'Link Berkas Izin/Cuti',
   '{{rejection_reason}}': 'Rejection Reason',
   '{{birthday_date}}': 'Birthday Date',
 };

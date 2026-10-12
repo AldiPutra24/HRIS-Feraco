@@ -121,6 +121,39 @@ class LeaveNotificationTests(TestCase):
         self.assertEqual(mail.outbox[0].subject, 'Custom subj John')
         self.assertIn('Halo Manager', mail.outbox[0].body)
 
+    @override_settings(HRIS_PUBLIC_URL='https://hris.feraco.co.id')
+    def test_reason_and_attachment_placeholders(self):
+        self.leave.reason = 'Sakit demam'
+        self.leave.attachment_name = 'surat-dokter.pdf'
+        self.leave.save()
+        NotificationEventConfig.objects.create(
+            event='LEAVE_SUBMITTED', enabled=True, subject='Izin {{employee_name}}',
+            body='Alasan: {{leave_reason}} | Berkas: {{leave_attachment}} | Link: {{leave_attachment_url}}',
+        )
+        notify_leave_submitted(self.leave)
+        body = mail.outbox[0].body
+        self.assertIn('Alasan: Sakit demam', body)
+        self.assertIn('Berkas: surat-dokter.pdf', body)
+        self.assertIn(f'Link: https://hris.feraco.co.id/api/leaves/requests/{self.leave.pk}/attachment/', body)
+
+    def test_attachment_placeholders_without_file(self):
+        NotificationEventConfig.objects.create(
+            event='LEAVE_SUBMITTED', enabled=True, subject='Izin {{employee_name}}',
+            body='Berkas: {{leave_attachment}} | Link: {{leave_attachment_url}} | Alasan: {{leave_reason}}',
+        )
+        notify_leave_submitted(self.leave)
+        body = mail.outbox[0].body
+        self.assertIn('Berkas: Tidak ada lampiran', body)
+        self.assertIn('Link: -', body)
+        self.assertIn('Alasan: -', body)
+
+    def test_new_placeholders_listed_for_editor(self):
+        from .emails import AVAILABLE_PLACEHOLDERS, PREVIEW_CONTEXT
+
+        for key in ('leave_reason', 'leave_attachment', 'leave_attachment_url'):
+            self.assertIn('{{%s}}' % key, AVAILABLE_PLACEHOLDERS)
+            self.assertIn(key, PREVIEW_CONTEXT)
+
     def test_submitted_disabled_no_delivery(self):
         NotificationEventConfig.objects.create(event='LEAVE_SUBMITTED', enabled=False)
         result = notify_leave_submitted(self.leave)

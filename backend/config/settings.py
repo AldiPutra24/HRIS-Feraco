@@ -194,6 +194,12 @@ CSRF_TRUSTED_ORIGINS = [
     o for o in (os.environ.get('CSRF_TRUSTED_ORIGINS') or 'http://localhost:3000,http://localhost:3001,http://localhost:3002').split(',') if o
 ]
 
+# Public base URL of the HRIS (frontend + /api on the same host behind Nginx),
+# used for absolute links inside notification emails.
+HRIS_PUBLIC_URL = (
+    os.environ.get('HRIS_PUBLIC_URL') or (CORS_ALLOWED_ORIGINS[0] if CORS_ALLOWED_ORIGINS else '')
+).rstrip('/')
+
 # Email (freelance task reminders). Console backend prints to stderr in dev;
 # set EMAIL_BACKEND=smtp + SMTP_* in production env to actually deliver.
 EMAIL_BACKEND = os.environ.get('EMAIL_BACKEND', 'django.core.mail.backends.console.EmailBackend')

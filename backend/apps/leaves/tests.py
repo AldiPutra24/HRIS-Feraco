@@ -1377,6 +1377,12 @@ class ManagementSelfLeaveTests(TestCase):
         self.assertEqual(res.status_code, 200)
         self.assertEqual(res.data[0]['leave_type_code'], 'ANNUAL')
 
+    def test_attachment_name_sent_on_create_is_kept(self):
+        self.api.force_authenticate(self.mgr_user)
+        res = self.api.post('/api/leaves/requests/', {**self.payload, 'attachment_name': 'surat.pdf'}, format='json')
+        self.assertEqual(res.status_code, 201, res.data)
+        self.assertEqual(LeaveRequest.objects.get(pk=res.data['id']).attachment_name, 'surat.pdf')
+
     def test_general_manager_cannot_submit(self):
         self.api.force_authenticate(self.gm_user)
         res = self.api.post('/api/leaves/requests/', self.payload, format='json')

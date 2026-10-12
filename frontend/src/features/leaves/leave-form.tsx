@@ -77,7 +77,10 @@ export function LeaveForm({ redirectTo = '/dashboard/leave' }: { redirectTo?: st
         kind,
         dates,
         half_days: halfDayAllowed ? halfDays.filter((d) => dates.includes(d)) : [],
-        reason: form.reason
+        reason: form.reason,
+        // Sent up front so the "pengajuan baru" email already names the file;
+        // the binary follows in the upload call below.
+        ...(file ? { attachment_name: file.name } : {})
       });
       if (file) await uploadLeaveAttachment(created.id, file);
       toast.success('Pengajuan cuti berhasil dibuat');

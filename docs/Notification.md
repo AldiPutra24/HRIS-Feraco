@@ -304,6 +304,9 @@ Format tanggal: `fmt_date` → `%d %b %Y` (contoh `08 Oct 2026`).
 | `{leave_status}` | Status pengajuan | Leave |
 | `{approver_name}` | Nama approver | Leave approved/rejected |
 | `{rejection_reason}` | Alasan penolakan | Leave/Reimbursement rejected |
+| `{leave_reason}` | Alasan/deskripsi pengajuan izin/cuti | Leave |
+| `{leave_attachment}` | Nama berkas lampiran izin/cuti, atau `Tidak ada lampiran` | Leave |
+| `{leave_attachment_url}` | Link berkas (`HRIS_PUBLIC_URL/api/leaves/requests/{id}/attachment/`, wajib login & sesuai hak akses), atau `-` | Leave |
 | `{reimbursement_category}` | Kategori reimbursement | Reimbursement |
 | `{reimbursement_amount}` | Nominal diajukan | Reimbursement |
 | `{reimbursement_date}` | Tanggal transaksi | Reimbursement |
@@ -501,6 +504,7 @@ Setting di `backend/config/settings.py`, dibaca dari environment:
 | `EMAIL_USE_SSL` | `false` | `true` | SSL langsung (port 465) |
 | `DEFAULT_FROM_EMAIL` | `HRIS Feraco <hris.noreply@feraco.co.id>` | | Pengirim |
 | `EMAIL_TIMEOUT` | `15` | | Detik |
+| `HRIS_PUBLIC_URL` | CORS origin pertama | `https://hris.feraco.co.id` | Base URL untuk link di email (mis. `{leave_attachment_url}`) |
 | `NOTIFICATION_EMAIL_ASYNC` | otomatis (lihat §7) | | Opsional, override mode async |
 
 `EMAIL_USE_TLS` dan `EMAIL_USE_SSL` tidak boleh sama-sama `true`.
