@@ -153,7 +153,30 @@ export const managementNavGroups: NavGroup[] = [
         url: '/dashboard/management/leave',
         icon: 'leave',
         isActive: false,
-        items: []
+        items: [
+          {
+            title: 'Persetujuan',
+            url: '/dashboard/management/leave',
+            isActive: false,
+            items: []
+          },
+          // Own requests: MANAGEMENT only — General Manager cannot submit
+          // izin/cuti (backend returns 403 for GM).
+          {
+            title: 'Pengajuan Saya',
+            url: '/dashboard/management/leave/my',
+            isActive: false,
+            access: { roles: ['management'] },
+            items: []
+          },
+          {
+            title: 'Ajukan Izin & Cuti',
+            url: '/dashboard/management/leave/new',
+            isActive: false,
+            access: { roles: ['management'] },
+            items: []
+          }
+        ]
       },
       {
         title: 'Reimbursement',

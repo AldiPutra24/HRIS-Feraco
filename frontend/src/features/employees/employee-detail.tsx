@@ -58,6 +58,10 @@ export function EmployeeDetail({ id }: { id: number }) {
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin';
   const isManagement = user?.role === 'management' || user?.role === 'general_manager';
+  // MANAGEMENT (not GM) sees team Overview + Employment only — no contract,
+  // history or document data (backend returns 403 / null for those).
+  const hidesHrTabs = user?.role === 'management';
+  const visibleTabs: readonly Tab[] = hidesHrTabs ? ['Overview', 'Employment'] : TABS;
   const [employee, setEmployee] = useState<Employee | null>(null);
   const [contracts, setContracts] = useState<Contract[]>([]);
   const [history, setHistory] = useState<History[]>([]);
@@ -104,9 +108,9 @@ export function EmployeeDetail({ id }: { id: number }) {
   const loadAll = useCallback(async () => {
     const [emp, ct, hs, docs] = await Promise.all([
       getEmployee(id),
-      listContracts(id),
-      listHistory(id),
-      listDocuments(id)
+      hidesHrTabs ? Promise.resolve([]) : listContracts(id),
+      hidesHrTabs ? Promise.resolve([]) : listHistory(id),
+      hidesHrTabs ? Promise.resolve([]) : listDocuments(id)
     ]);
     setEmployee(emp);
     setContracts(ct);
@@ -118,7 +122,7 @@ export function EmployeeDetail({ id }: { id: number }) {
         .then((d) => setAudit(d.results))
         .catch(() => setAudit([]));
     }
-  }, [id]);
+  }, [id, hidesHrTabs]);
 
   useEffect(() => {
     loadAll();
@@ -390,7 +394,7 @@ export function EmployeeDetail({ id }: { id: number }) {
       )}
 
       <div className='flex gap-2 border-b'>
-        {TABS.map((t) => (
+        {visibleTabs.map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -440,7 +444,7 @@ export function EmployeeDetail({ id }: { id: number }) {
               <Field label='NPWP' value={employee.npwp} />
             </CardContent>
           </Card>
-          {employee.contract_accumulation && (
+          {!hidesHrTabs && employee.contract_accumulation && (
             <Card>
               <CardHeader>
                 <CardTitle>Akumulasi Masa Kontrak</CardTitle>

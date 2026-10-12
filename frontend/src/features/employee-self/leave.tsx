@@ -27,9 +27,13 @@ export function EmployeeLeave() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const [b, r] = await Promise.all([getMyBalances().catch(() => [] as MyBalance[]), listLeaveRequests()]);
-    // HR staff sees all data server-side; scope to own employee when linked.
+    // HR/Management also see others' requests server-side (paginated), so ask
+    // the API for the caller's own employee only — own rows are never cut off.
     const myId = employee?.id ?? null;
+    const [b, r] = await Promise.all([
+      getMyBalances().catch(() => [] as MyBalance[]),
+      listLeaveRequests(myId ? { employee: String(myId) } : undefined)
+    ]);
     setBalances(b);
     setRequests(myId ? r.filter((x) => x.employee === myId) : r);
     setLoading(false);

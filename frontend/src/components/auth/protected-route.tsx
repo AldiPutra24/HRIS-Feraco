@@ -9,6 +9,13 @@ import { useCallback, useEffect } from 'react';
 // Exact path only: other /dashboard/settings/* pages stay HR/Admin-only.
 const SELF_ACCOUNT_PATH = '/dashboard/settings/account';
 
+// Own izin/cuti pages. General Manager cannot submit leave (backend 403s too).
+const GM_BLOCKED_LEAVE_PATHS = [
+  '/dashboard/management/leave/new',
+  '/dashboard/management/leave/my',
+  '/dashboard/employee/leave'
+];
+
 export function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, isAuthenticated, isLoading } = useAuth();
   const router = useRouter();
@@ -35,6 +42,11 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
     // HR Staff / HR Lead in employee mode may browse their own /dashboard/employee/*.
     if (hasDualMode(user?.role) && pathname.startsWith('/dashboard/employee')) {
       if (readMode() !== 'employee') router.replace('/dashboard/pilih');
+      return;
+    }
+    // General Manager cannot submit izin/cuti: keep them on the approval page.
+    if (user?.role === 'general_manager' && GM_BLOCKED_LEAVE_PATHS.some((p) => pathname.startsWith(p))) {
+      router.replace('/dashboard/management/leave');
       return;
     }
     if (user && user.role !== 'employee' && user.role !== 'general_manager' && pathname.startsWith('/dashboard/employee')) {

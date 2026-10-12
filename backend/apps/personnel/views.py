@@ -141,6 +141,14 @@ class EmployeeViewSet(SoftHardDeleteMixin, viewsets.ModelViewSet):
         log_event(request, 'download', obj=emp, description=f'Profile photo {emp.employee_id} downloaded')
         return Response({'url': url, 'filename': filename})
 
+    def _block_management_detail_tabs(self):
+        """MANAGEMENT sees team Overview + Employment only: contracts, history
+        and documents of their team are HR data (GM keeps read access)."""
+        if _role(self.request.user) == 'MANAGEMENT':
+            from rest_framework.exceptions import PermissionDenied
+
+            raise PermissionDenied('Management tidak dapat melihat data kontrak, riwayat, atau dokumen karyawan.')
+
     def _block_management_write(self):
         """Management Karyawan access is view-only for every write action."""
         if self._is_management():
@@ -273,6 +281,7 @@ class EmployeeViewSet(SoftHardDeleteMixin, viewsets.ModelViewSet):
 
     @action(detail=True, methods=['get', 'post'])
     def contracts(self, request, pk=None):
+        self._block_management_detail_tabs()
         employee = self.get_object()
         if request.method == 'POST':
             self._block_management_write()
@@ -415,6 +424,7 @@ class EmployeeViewSet(SoftHardDeleteMixin, viewsets.ModelViewSet):
 
     @action(detail=True, methods=['get', 'post'])
     def history(self, request, pk=None):
+        self._block_management_detail_tabs()
         employee = self.get_object()
         if request.method == 'POST':
             self._block_management_write()
@@ -429,6 +439,7 @@ class EmployeeViewSet(SoftHardDeleteMixin, viewsets.ModelViewSet):
 
     @action(detail=True, methods=['get', 'post'], parser_classes=[MultiPartParser, FormParser])
     def documents(self, request, pk=None):
+        self._block_management_detail_tabs()
         employee = self.get_object()
         if request.method == 'POST':
             self._block_management_write()
@@ -513,10 +524,11 @@ class DocumentDownloadView(generics.GenericAPIView):
     permission_classes = [IsHRStaff]
 
     def get(self, request, pk):
-        docs = EmployeeDocument.objects.filter(deleted_at__isnull=True)
-        # Same scope as the employee list: MANAGEMENT only its team (GM all).
+        # MANAGEMENT has no access to employee documents (Overview/Employment
+        # only); GM and HR read all.
         if _role(request.user) == 'MANAGEMENT':
-            docs = docs.filter(employee_id__in=team_scope_ids(request.user))
+            return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
+        docs = EmployeeDocument.objects.filter(deleted_at__isnull=True)
         doc = docs.filter(pk=pk).first()
         if doc is None:
             return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)

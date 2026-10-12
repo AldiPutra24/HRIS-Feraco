@@ -1317,3 +1317,76 @@ class HrLeadSelfServiceTests(TestCase):
         self.assertEqual(res.status_code, 201, res.data)
         self.assertEqual(res.data['employee'], self.lead_emp.id)
         self.assertEqual(self.api.get('/api/payroll/payrolls/my-payslips/').status_code, 200)
+
+
+class ManagementSelfLeaveTests(TestCase):
+    """MANAGEMENT may submit own izin/cuti like EMPLOYEE; GENERAL_MANAGER may not."""
+
+    def setUp(self):
+        from rest_framework.test import APIClient
+
+        self.api = APIClient()
+        self.gm_user = make_user('GENERAL_MANAGER', 'gm@test.com')
+        self.gm_emp = Employee.objects.create(
+            employee_id='G001', full_name='GM', employment_status='ACTIVE', user=self.gm_user,
+        )
+        self.mgr_user = make_user('MANAGEMENT', 'mgr.self@test.com')
+        self.mgr_emp = Employee.objects.create(
+            employee_id='M101', full_name='Manager Self', employment_status='ACTIVE',
+            user=self.mgr_user, manager=self.gm_emp,
+        )
+        self.report = Employee.objects.create(
+            employee_id='E101', full_name='Report', employment_status='ACTIVE', manager=self.mgr_emp,
+        )
+        self.annual = LeaveType.objects.create(name='Cuti Tahunan', code='ANNUAL', default_quota=12)
+        self.payload = {'leave_type': self.annual.id, 'kind': 'LEAVE', 'reason': 'Keperluan keluarga',
+                        'dates': ['2026-09-01']}
+
+    def test_management_can_submit_own_leave(self):
+        self.api.force_authenticate(self.mgr_user)
+        res = self.api.post('/api/leaves/requests/', self.payload, format='json')
+        self.assertEqual(res.status_code, 201, res.data)
+        self.assertEqual(res.data['employee'], self.mgr_emp.id)
+        self.assertEqual(res.data['status'], 'PENDING')
+
+    def test_management_cannot_approve_own_request(self):
+        self.api.force_authenticate(self.mgr_user)
+        rid = self.api.post('/api/leaves/requests/', self.payload, format='json').data['id']
+        self.assertEqual(self.api.post(f'/api/leaves/requests/{rid}/approve/').status_code, 403)
+
+    def test_own_request_approved_by_their_reporting_to(self):
+        self.api.force_authenticate(self.mgr_user)
+        rid = self.api.post('/api/leaves/requests/', self.payload, format='json').data['id']
+        self.api.force_authenticate(self.gm_user)
+        res = self.api.post(f'/api/leaves/requests/{rid}/approve/')
+        self.assertEqual(res.status_code, 200, res.data)
+        self.assertEqual(res.data['status'], 'APPROVED')
+
+    def test_management_my_requests_filter(self):
+        LeaveRequest.objects.create(employee=self.report, leave_type=self.annual,
+                                    start_date=date(2026, 9, 2), end_date=date(2026, 9, 2), total_days=1)
+        self.api.force_authenticate(self.mgr_user)
+        self.api.post('/api/leaves/requests/', self.payload, format='json')
+        res = self.api.get('/api/leaves/requests/', {'employee': self.mgr_emp.id})
+        rows = res.data['results']
+        self.assertEqual({r['employee'] for r in rows}, {self.mgr_emp.id})
+
+    def test_management_sees_own_balance(self):
+        self.api.force_authenticate(self.mgr_user)
+        res = self.api.get('/api/leaves/balances/me/')
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.data[0]['leave_type_code'], 'ANNUAL')
+
+    def test_general_manager_cannot_submit(self):
+        self.api.force_authenticate(self.gm_user)
+        res = self.api.post('/api/leaves/requests/', self.payload, format='json')
+        self.assertEqual(res.status_code, 403)
+        self.assertFalse(LeaveRequest.objects.filter(employee=self.gm_emp).exists())
+
+    def test_general_manager_list_unchanged_and_approval_rule_kept(self):
+        req = LeaveRequest.objects.create(employee=self.report, leave_type=self.annual,
+                                          start_date=date(2026, 9, 3), end_date=date(2026, 9, 3), total_days=1)
+        self.api.force_authenticate(self.gm_user)
+        self.assertEqual(self.api.get('/api/leaves/requests/').status_code, 200)
+        # GM is not the direct manager of `report` -> not an approver (unchanged rule).
+        self.assertEqual(self.api.post(f'/api/leaves/requests/{req.id}/approve/').status_code, 403)

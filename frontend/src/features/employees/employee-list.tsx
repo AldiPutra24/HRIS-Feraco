@@ -69,6 +69,8 @@ function StatusBadge({ status }: { status: string }) {
 export function EmployeeList() {
   const { user } = useAuth();
   const isManagement = user?.role === 'management' || user?.role === 'general_manager';
+  // MANAGEMENT (not GM): no contract data of the team (backend sends null).
+  const showContract = user?.role !== 'management';
   // MANAGEMENT: view-only (backend enforces direct-report scope + 403 on writes).
   const canDelete = !isManagement && (user?.role === 'admin' || user?.role === 'hr_lead');
   const [employees, setEmployees] = useState<Employee[]>([]);
@@ -271,9 +273,13 @@ export function EmployeeList() {
                   <TableHead>Nama</TableHead>
                   <TableHead>Departemen</TableHead>
                   <TableHead>Posisi</TableHead>
-                  <TableHead>Kontrak</TableHead>
-                  <TableHead>End Date Kontrak</TableHead>
-                  <TableHead>Akumulasi Kontrak</TableHead>
+                  {showContract && (
+                    <>
+                      <TableHead>Kontrak</TableHead>
+                      <TableHead>End Date Kontrak</TableHead>
+                      <TableHead>Akumulasi Kontrak</TableHead>
+                    </>
+                  )}
                   <TableHead>Status</TableHead>
                   <TableHead className='text-right'>Aksi</TableHead>
                 </TableRow>
@@ -294,20 +300,24 @@ export function EmployeeList() {
                         </AvatarFallback>
                       </Avatar>
                       <span>{e.full_name}</span>
-                      <ContractWarning summary={e.contract_summary} />
+                      {showContract && <ContractWarning summary={e.contract_summary} />}
                     </div>
                   </TableCell>
                     <TableCell>{e.department_name || '-'}</TableCell>
                     <TableCell>{e.position_name || '-'}</TableCell>
-                    <TableCell>{contractLabel(e.contract_summary)}</TableCell>
-                    <TableCell className='whitespace-nowrap'>
-                      {e.contract_summary?.contract_type === 'PKWTT' ? (
-                        <span className='text-muted-foreground'>Tidak terbatas</span>
-                      ) : (
-                        fmtContractDate(e.contract_summary?.end_date)
-                      )}
-                    </TableCell>
-                    <TableCell className='whitespace-nowrap'>{e.contract_accumulation?.display ?? '-'}</TableCell>
+                    {showContract && (
+                      <>
+                        <TableCell>{contractLabel(e.contract_summary)}</TableCell>
+                        <TableCell className='whitespace-nowrap'>
+                          {e.contract_summary?.contract_type === 'PKWTT' ? (
+                            <span className='text-muted-foreground'>Tidak terbatas</span>
+                          ) : (
+                            fmtContractDate(e.contract_summary?.end_date)
+                          )}
+                        </TableCell>
+                        <TableCell className='whitespace-nowrap'>{e.contract_accumulation?.display ?? '-'}</TableCell>
+                      </>
+                    )}
                     <TableCell>
                       <StatusBadge status={e.employment_status} />
                     </TableCell>
@@ -352,7 +362,7 @@ export function EmployeeList() {
                 ))}
                 {employees.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={8} className='text-muted-foreground py-8 text-center'>
+                    <TableCell colSpan={showContract ? 8 : 5} className='text-muted-foreground py-8 text-center'>
                       Tidak ada data.
                     </TableCell>
                   </TableRow>

@@ -1,0 +1,7 @@
+import { LeaveForm } from '@/features/leaves/leave-form';
+
+export const metadata = { title: 'Ajukan Izin & Cuti' };
+
+export default function Page() {
+  return <LeaveForm redirectTo='/dashboard/management/leave/my' />;
+}

@@ -413,18 +413,17 @@ class DocumentDownloadTests(TestCase):
         self.assertEqual(res.status_code, 404)
         op.assert_not_called()
 
-    def test_management_limited_to_team(self):
-        from .models import EmployeeDocument
-
+    def test_management_has_no_document_access(self):
+        """MANAGEMENT sees team Overview/Employment only — no documents, not even direct reports'."""
         mgmt = make_user('MANAGEMENT')
         self.manager_emp.user = mgmt
         self.manager_emp.save()
-        self.assertEqual(self._get(user=mgmt)[0].status_code, 200)  # direct report
-        outside = EmployeeDocument.objects.create(employee=self.other, name='x.pdf', storage_path='employees/99/x.pdf',
-                                                  content_type='application/pdf', size=1, version=1)
-        res, _, op, _ = self._get(doc=outside, user=mgmt)
+        res, _, op, _ = self._get(user=mgmt)  # direct report's document
         self.assertEqual(res.status_code, 404)
         op.assert_not_called()
+
+    def test_general_manager_can_download(self):
+        self.assertEqual(self._get(user=make_user('GENERAL_MANAGER'))[0].status_code, 200)
 
     def test_employee_role_forbidden(self):
         res, _, op, _ = self._get(user=make_user('EMPLOYEE'))
@@ -1352,6 +1351,57 @@ class ManagementEmployeeScopeTests(TestCase):
         ids = self._list_ids()
         self.assertIn(self.rep.id, ids)
         self.assertIn(self.other.id, ids)
+
+class ManagementHidesContractDataTests(TestCase):
+    """MANAGEMENT: team detail = Overview + Employment only (no contract,
+    history or documents). GM and HR unchanged; own record still visible."""
+
+    def setUp(self):
+        from datetime import date
+
+        from .models import EmployeeContract
+
+        self.mgr_user = make_user('MANAGEMENT')
+        self.mgr = Employee.objects.create(employee_id='M201', full_name='Manager', employment_status='ACTIVE',
+                                           user=self.mgr_user)
+        self.rep = Employee.objects.create(employee_id='E201', full_name='Report', employment_status='ACTIVE',
+                                           manager=self.mgr)
+        for emp in (self.mgr, self.rep):
+            EmployeeContract.objects.create(employee=emp, contract_type='PKWT', start_date=date(2026, 1, 1),
+                                            end_date=date(2026, 12, 31), status='ACTIVE')
+
+    def test_list_and_detail_hide_team_contract_fields(self):
+        self.client.force_login(self.mgr_user)
+        rows = self.client.get('/api/employees/').json()['results']
+        rep_row = next(r for r in rows if r['id'] == self.rep.id)
+        self.assertIsNone(rep_row['contract_summary'])
+        self.assertIsNone(rep_row['contract_accumulation'])
+        detail = self.client.get(f'/api/employees/{self.rep.id}/').json()
+        self.assertIsNone(detail['contract_summary'])
+        self.assertIsNone(detail['contract_accumulation'])
+        # Overview + Employment data still there.
+        self.assertEqual(detail['full_name'], 'Report')
+        self.assertEqual(detail['manager_name'], 'Manager')
+
+    def test_contracts_history_documents_endpoints_forbidden(self):
+        self.client.force_login(self.mgr_user)
+        for sub in ('contracts', 'history', 'documents'):
+            res = self.client.get(f'/api/employees/{self.rep.id}/{sub}/')
+            self.assertEqual(res.status_code, 403, sub)
+
+    def test_own_profile_keeps_contract_data(self):
+        self.client.force_login(self.mgr_user)
+        me = self.client.get('/api/auth/me/employee/').json()
+        self.assertIsNotNone(me['contract_summary'])
+        self.assertEqual(self.client.get('/api/auth/me/employee/contracts/').status_code, 200)
+
+    def test_general_manager_and_hr_unchanged(self):
+        for role in ('GENERAL_MANAGER', 'HR_STAFF'):
+            self.client.force_login(make_user(role))
+            detail = self.client.get(f'/api/employees/{self.rep.id}/').json()
+            self.assertIsNotNone(detail['contract_summary'], role)
+            self.assertEqual(self.client.get(f'/api/employees/{self.rep.id}/contracts/').status_code, 200, role)
+
 
 class ContractPkwtSequenceTests(TestCase):
     """PKWT sequence field: validation + backward compatibility."""

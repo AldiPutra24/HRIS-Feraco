@@ -206,6 +206,12 @@ class LeaveRequestViewSet(viewsets.ModelViewSet):
         return qs.filter(employee_id=employee.id)
 
     def perform_create(self, serializer):
+        # General Manager only approves/monitors; every other role with a
+        # linked employee (incl. MANAGEMENT) may submit their own request.
+        if _role(self.request.user) == 'GENERAL_MANAGER':
+            from rest_framework.exceptions import PermissionDenied
+
+            raise PermissionDenied('General Manager tidak dapat mengajukan izin/cuti.')
         employee = _employee_for(self.request.user)
         if employee is None:
             from rest_framework.exceptions import ValidationError

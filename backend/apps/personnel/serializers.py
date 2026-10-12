@@ -232,12 +232,28 @@ class EmployeeReadSerializer(EmployeeSerializer):
         except Exception:
             return None
 
+    def _hides_contracts(self, obj):
+        """MANAGEMENT sees their team's Overview + Employment only — no
+        contract data of other employees (own record stays visible)."""
+        request = self.context.get('request')
+        role = getattr(getattr(request.user, 'role', None), 'key', None) if request else None
+        if role != 'MANAGEMENT':
+            return False
+        from .permissions import employee_for
+
+        own = employee_for(request.user)
+        return own is None or own.pk != obj.pk
+
     def get_contract_accumulation(self, obj):
+        if self._hides_contracts(obj):
+            return None
         from .services import contract_accumulation
 
         return contract_accumulation(obj)
 
     def get_contract_summary(self, obj):
+        if self._hides_contracts(obj):
+            return None
         from .services import contract_summary
 
         return contract_summary(obj)
