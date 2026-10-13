@@ -415,6 +415,7 @@ export function LeavePage() {
             <TableHeader>
               <TableRow>
                 <TableHead>Karyawan</TableHead>
+                <TableHead>Reporting To</TableHead>
                 <TableHead>Jenis</TableHead>
                 <TableHead>Periode</TableHead>
                 <TableHead>Hari</TableHead>
@@ -428,6 +429,9 @@ export function LeavePage() {
               {requests.map((r) => (
                 <TableRow key={r.id}>
                   <TableCell>{r.employee_name}</TableCell>
+                  <TableCell>
+                    {r.employee_manager_name || <span className='text-muted-foreground'>-</span>}
+                  </TableCell>
                   <TableCell>
                     {r.leave_type_name}
                     {r.leave_type_kind === 'PERMISSION' && (
@@ -475,7 +479,7 @@ export function LeavePage() {
               ))}
               {requests.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={8} className='text-muted-foreground py-10 text-center'>
+                  <TableCell colSpan={9} className='text-muted-foreground py-10 text-center'>
                     Tidak ada pengajuan yang cocok dengan filter.
                   </TableCell>
                 </TableRow>
