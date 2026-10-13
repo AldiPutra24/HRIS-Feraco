@@ -162,7 +162,7 @@ export function ManagementLeave() {
                       </TableCell>
                       <TableCell className='text-right'>
                         <div className='flex items-center justify-end gap-2'>
-                          {r.status === 'PENDING' ? (
+                          {r.status === 'PENDING' && r.can_decide ? (
                             <>
                               <Button variant='success' size='sm' disabled={acting[r.id]} onClick={() => approve(r.id)}>
                                 {acting[r.id] ? 'Memproses...' : 'Setujui'}
@@ -171,6 +171,12 @@ export function ManagementLeave() {
                                 Tolak
                               </Button>
                             </>
+                          ) : r.status === 'PENDING' ? (
+                            // Only the direct Reporting To (or HR) decides — e.g. a GM
+                            // sees deeper levels of the hierarchy read-only.
+                            <span className='text-muted-foreground text-xs'>
+                              Menunggu {r.employee_manager_name || 'atasan langsung'}
+                            </span>
                           ) : (
                             <span className='text-muted-foreground text-xs'>Selesai</span>
                           )}

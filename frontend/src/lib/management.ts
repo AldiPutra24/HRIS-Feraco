@@ -53,9 +53,53 @@ export type ManagementDashboard = {
     rejected: number;
     cancelled: number;
     total: number;
+    /** PENDING requests of direct reports — the ones this user can decide. */
+    awaiting_me: number;
   };
   pending_leave_items: ManagementPendingLeave[];
   team_members: ManagementTeamMember[];
+  /** General Manager only: company-wide read-only overview. */
+  company?: CompanyOverview;
+};
+
+export type CompanyDepartment = { id: number | null; name: string; total: number; active: number };
+
+export type CompanyContractEnding = {
+  id: number;
+  employee: number;
+  employee_name: string;
+  employee_id: string;
+  position_name: string | null;
+  department_name: string | null;
+  contract_type: string;
+  pkwt_sequence: number | null;
+  end_date: string;
+  days_left: number;
+};
+
+export type CompanyEmployee = {
+  id: number;
+  full_name: string;
+  employee_id: string;
+  department_name: string | null;
+  position_name: string | null;
+  manager_name: string | null;
+  join_date: string | null;
+  employment_status: string;
+};
+
+export type CompanyOverview = {
+  summary: {
+    total_employees: number;
+    active_employees: number;
+    inactive_employees: number;
+    total_departments: number;
+    total_positions: number;
+  };
+  departments: CompanyDepartment[];
+  contracts_ending: CompanyContractEnding[];
+  contracts_ending_30d: number;
+  latest_employees: CompanyEmployee[];
 };
 
 export function getManagementDashboard(): Promise<ManagementDashboard> {

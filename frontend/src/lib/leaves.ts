@@ -133,6 +133,8 @@ export type LeaveRequest = {
   rejection_reason: string;
   created_at: string;
   updated_at: string;
+  /** Viewer may approve/reject this PENDING request (direct Reporting To or HR). */
+  can_decide?: boolean;
 };
 
 export type LeaveNotification = {
