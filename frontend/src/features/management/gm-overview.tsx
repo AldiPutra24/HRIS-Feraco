@@ -286,7 +286,7 @@ export function GmOverview({
             <p className='text-muted-foreground text-xs font-medium tracking-wide uppercase'>{today}</p>
             <h2 className='mt-1 text-2xl font-bold tracking-tight md:text-3xl'>
               {greeting()}
-              {firstName ? `, ${firstName}` : ''} 👋
+              {firstName ? `, ${firstName}` : ''}
             </h2>
             <p className='text-muted-foreground mt-1 text-sm'>
               Ringkasan perusahaan secara menyeluruh
