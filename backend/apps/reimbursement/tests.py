@@ -971,3 +971,98 @@ class ReimbursementTwoLayerTests(TestCase):
         self.assertEqual(paid.to, ['john.transfer@gmail.com'])
         self.assertIn('TRF-9', paid.body)
         self.assertIn('BCA 1234567890', paid.body)
+
+
+class ReimbursementKpiExportTests(TestCase):
+    """KPI summary (paid this month) + XLSX export follow the user's scope."""
+
+    def setUp(self):
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        self.hr = make_user('HR_STAFF', 'hr.kpi@test.com')
+        self.lead = make_user('HR_LEAD', 'lead.kpi@test.com')
+        self.emp_user = make_user('EMPLOYEE', 'emp.kpi@test.com')
+        self.other_user = make_user('EMPLOYEE', 'other.kpi@test.com')
+        self.emp = Employee.objects.create(employee_id='K001', full_name='Budi', employment_status='ACTIVE',
+                                           user=self.emp_user)
+        self.other = Employee.objects.create(employee_id='K002', full_name='Sari', employment_status='ACTIVE',
+                                             user=self.other_user)
+        self.cat = ReimbursementCategory.objects.create(name='Transport', code='TRK')
+        now = timezone.now()
+
+        def make(emp, status, amount, approved=None, paid_at=None, **extra):
+            return Reimbursement.objects.create(
+                employee=emp, category=self.cat, transaction_date=date(2026, 10, 1), amount=amount,
+                approved_amount=approved, status=status, paid_at=paid_at, description='Taksi klien',
+                **BANK, **extra,
+            )
+
+        self.pending = make(self.emp, 'PENDING', 100000)
+        self.waiting = make(self.other, 'WAITING_HR_LEAD', 200000, approved=150000, amount_set_by=self.hr)
+        self.paid_now = make(self.emp, 'PAID', 300000, approved=250000, paid_at=now,
+                             amount_set_by=self.hr, reviewer=self.lead, approved_at=now)
+        self.paid_old = make(self.other, 'PAID', 400000, approved=400000, paid_at=now - timedelta(days=70),
+                             amount_set_by=self.hr, reviewer=self.lead, approved_at=now - timedelta(days=71))
+
+    def _summary(self, user, **params):
+        self.client.force_login(user)
+        res = self.client.get('/api/reimbursements/summary/', params)
+        self.assertEqual(res.status_code, 200)
+        return res.json()
+
+    def test_hr_kpi_company_wide(self):
+        data = self._summary(self.hr)
+        self.assertEqual(data['counts']['PENDING'], 1)
+        self.assertEqual(data['counts']['WAITING_HR_LEAD'], 1)
+        self.assertEqual(data['paid_this_month']['count'], 1)
+        self.assertEqual(float(data['paid_this_month']['amount']), 250000)  # approved amount
+
+    def test_employee_kpi_scoped_to_own(self):
+        data = self._summary(self.other_user)
+        self.assertEqual(data['counts']['PENDING'], 0)
+        self.assertEqual(data['counts']['WAITING_HR_LEAD'], 1)
+        self.assertEqual(data['paid_this_month']['count'], 0)  # Sari's payment was 70 days ago
+
+    def _export(self, user, **params):
+        from io import BytesIO
+
+        from openpyxl import load_workbook
+
+        self.client.force_login(user)
+        res = self.client.get('/api/reimbursements/export/', params)
+        self.assertEqual(res.status_code, 200)
+        self.assertIn('attachment; filename="reimbursement-', res['Content-Disposition'])
+        ws = load_workbook(BytesIO(res.content)).active
+        rows = list(ws.iter_rows(values_only=True))
+        return ws, rows[0], rows[1:]
+
+    def test_export_columns_and_formatting(self):
+        ws, header, rows = self._export(self.hr)
+        self.assertEqual(header[:5], ('Karyawan', 'Kategori', 'Kategori Project', 'Deskripsi', 'Tanggal'))
+        self.assertEqual(header[-3:], ('Reviewer HR Staff', 'Approver HR Lead', 'Tanggal Pembayaran'))
+        self.assertEqual(len(rows), 4)
+        self.assertTrue(ws['A1'].font.bold)
+        self.assertEqual(ws.auto_filter.ref.split(':')[0], 'A1')
+        self.assertEqual(ws['F2'].number_format, '"Rp" #,##0')
+        paid = next(r for r in rows if r[5] == 300000)
+        self.assertEqual(paid[6], 250000)
+        self.assertEqual(paid[10], '1234567890')  # account number kept as text
+        self.assertTrue(paid[12])  # reviewer HR Staff
+        self.assertTrue(paid[13])  # approver HR Lead
+        self.assertIsNotNone(paid[14])  # tanggal pembayaran
+        waiting = next(r for r in rows if r[5] == 200000)
+        self.assertIn(waiting[13], (None, ''))  # not approved yet -> no HR Lead approver
+
+    def test_export_respects_filters(self):
+        _, _, rows = self._export(self.hr, status='PAID')
+        self.assertEqual(len(rows), 2)
+
+    def test_employee_export_only_own_rows(self):
+        _, _, rows = self._export(self.emp_user)
+        self.assertEqual({r[0] for r in rows}, {'Budi'})
+        self.assertEqual(len(rows), 2)
+
+    def test_export_requires_login(self):
+        self.assertEqual(self.client.get('/api/reimbursements/export/').status_code, 403)

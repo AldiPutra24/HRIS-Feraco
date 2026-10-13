@@ -116,11 +116,38 @@ export type ReimbursementSummary = {
   counts: Record<string, number>;
   total: number;
   paid_amount: number | string;
+  /** PAID within the current month (paid_at, local time). */
+  paid_this_month?: { count: number; amount: number | string };
 };
 
 /** Live status counts from the backend (`mine` = caller's own records only). */
 export function getReimbursementSummary(mine = true): Promise<ReimbursementSummary> {
   return request<ReimbursementSummary>(`/summary/${mine ? '?mine=1' : ''}`, { cache: 'no-store' });
+}
+
+/**
+ * Download the reimbursement XLSX. The backend applies the user's scope (HR:
+ * all, others: own) plus the given list filters; the file name comes from
+ * the server (reimbursement-YYYY-MM-DD.xlsx).
+ */
+export async function exportReimbursementsXlsx(params: Record<string, string> = {}): Promise<void> {
+  const qs = new URLSearchParams(params);
+  const res = await fetch(`${BASE}/export/${qs.size ? `?${qs}` : ''}`, { credentials: 'include', cache: 'no-store' });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(extractError(data) || `Export gagal (HTTP ${res.status}).`);
+  }
+  const disposition = res.headers.get('Content-Disposition') ?? '';
+  const match = disposition.match(/filename="?([^";]+)"?/);
+  const filename = match?.[1] ?? `reimbursement-${new Date().toISOString().slice(0, 10)}.xlsx`;
+  const url = URL.createObjectURL(await res.blob());
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
 }
 
 export function getReimbursement(id: number): Promise<Reimbursement> {

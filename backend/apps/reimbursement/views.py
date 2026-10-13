@@ -487,10 +487,35 @@ class ReimbursementViewSet(viewsets.ModelViewSet):
         counts = {key: 0 for key, _ in Reimbursement.STATUS_CHOICES}
         for row in qs.values('status').annotate(n=Count('id')):
             counts[row['status']] = row['n']
-        paid = qs.filter(status='PAID').aggregate(
-            total=Coalesce(Sum(Coalesce('approved_amount', 'amount')), 0, output_field=DecimalField())
-        )['total']
-        return Response({'counts': counts, 'total': sum(counts.values()), 'paid_amount': paid})
+        paid_total = Coalesce(Sum(Coalesce('approved_amount', 'amount')), 0, output_field=DecimalField())
+        paid = qs.filter(status='PAID').aggregate(total=paid_total)['total']
+        # Paid in the current month (local time), for the HR KPI cards.
+        today = timezone.localdate()
+        month_paid = qs.filter(status='PAID', paid_at__date__year=today.year, paid_at__date__month=today.month)
+        month = month_paid.aggregate(n=Count('id'), total=paid_total)
+        return Response({
+            'counts': counts,
+            'total': sum(counts.values()),
+            'paid_amount': paid,
+            'paid_this_month': {'count': month['n'], 'amount': month['total']},
+        })
+
+    @action(detail=False, methods=['get'])
+    def export(self, request):
+        """XLSX of the reimbursements this user may see.
+
+        Same scope as the list (get_queryset: HR all, everyone else their
+        own) plus the list filters (status/employee/category/search), so the
+        file never exposes rows the user cannot already view.
+        """
+        from .exports import build_reimbursement_xlsx
+
+        qs = self.filter_queryset(self.get_queryset())
+        if request.query_params.get('mine') in ('1', 'true'):
+            employee = _employee_for(request.user)
+            qs = qs.filter(employee_id=employee.id) if employee is not None else qs.none()
+        log_event(request, 'download', obj=None, description=f'Reimbursement export XLSX ({qs.count()} rows)')
+        return build_reimbursement_xlsx(qs)
 
     @action(detail=False, methods=['get'])
     def notifications(self, request):

@@ -10,10 +10,13 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import { TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Icons } from '@/components/icons';
 import {
   approveReimbursement,
   deleteReimbursement,
+  exportReimbursementsXlsx,
   getReimbursement,
+  getReimbursementSummary,
   listReimbursementCategories,
   listReimbursements,
   markReimbursementPaid,
@@ -21,7 +24,8 @@ import {
   reviewReimbursement,
   REIMBURSEMENT_STATUS_LABELS,
   type Reimbursement,
-  type ReimbursementCategory
+  type ReimbursementCategory,
+  type ReimbursementSummary
 } from '@/lib/reimbursements';
 import { listEmployees, type Employee } from '@/lib/employees';
 import { useAuth } from '@/lib/auth/auth-provider';
@@ -44,6 +48,51 @@ function StatusBadge({ status }: { status: string }) {
 
 function formatAmount(n: number): string {
   return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR' }).format(n);
+}
+
+function formatRupiah(n: number): string {
+  return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(n);
+}
+
+function KpiCard({
+  label,
+  value,
+  hint,
+  icon,
+  tone,
+  onClick
+}: {
+  label: string;
+  value: string;
+  hint: string;
+  icon: keyof typeof Icons;
+  tone: string;
+  onClick?: () => void;
+}) {
+  const Icon = Icons[icon];
+  const body = (
+    <CardContent className='flex items-start justify-between gap-3 px-4'>
+      <div className='min-w-0'>
+        <p className='text-muted-foreground text-xs font-medium'>{label}</p>
+        <p className='mt-1 truncate text-2xl font-semibold tracking-tight tabular-nums'>{value}</p>
+        <p className='text-muted-foreground mt-0.5 text-xs'>{hint}</p>
+      </div>
+      <span className={`flex size-9 shrink-0 items-center justify-center rounded-lg ${tone}`}>
+        <Icon className='size-4' />
+      </span>
+    </CardContent>
+  );
+  return (
+    <Card className='gap-0 py-4 transition-colors hover:border-ring/50'>
+      {onClick ? (
+        <button type='button' onClick={onClick} className='text-left'>
+          {body}
+        </button>
+      ) : (
+        body
+      )}
+    </Card>
+  );
 }
 
 export function ReimbursementPage() {
@@ -88,6 +137,8 @@ export function ReimbursementPage() {
   const [paymentRef, setPaymentRef] = useState('');
   const [paymentFile, setPaymentFile] = useState<File | null>(null);
   const [focused, setFocused] = useState<Reimbursement | null>(null);
+  const [summary, setSummary] = useState<ReimbursementSummary | null>(null);
+  const [exporting, setExporting] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -95,9 +146,15 @@ export function ReimbursementPage() {
     if (fStatus) params.status = fStatus;
     if (fCategory) params.category = fCategory;
     if (fEmployee) params.employee = fEmployee;
-    const [r, c] = await Promise.all([listReimbursements(params), listReimbursementCategories()]);
+    const [r, c, s] = await Promise.all([
+      listReimbursements(params),
+      listReimbursementCategories(),
+      // KPI: backend scopes to what this user may see (not the list filters).
+      getReimbursementSummary(false).catch(() => null)
+    ]);
     setItems(r);
     setCategories(c);
+    setSummary(s);
     setFocused(focusId ? await getReimbursement(focusId).catch(() => null) : null);
     setLoading(false);
   }, [fStatus, fCategory, fEmployee, focusId]);
@@ -182,6 +239,21 @@ export function ReimbursementPage() {
     }
   }
 
+  async function handleExport() {
+    setExporting(true);
+    try {
+      const params: Record<string, string> = {};
+      if (fStatus) params.status = fStatus;
+      if (fCategory) params.category = fCategory;
+      if (fEmployee) params.employee = fEmployee;
+      await exportReimbursementsXlsx(params);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Gagal export XLSX.');
+    } finally {
+      setExporting(false);
+    }
+  }
+
   async function handleDelete(r: Reimbursement) {
     if (!window.confirm(`Hapus reimbursement ${r.employee_name} (${r.category_name})? Tindakan ini permanen.`)) return;
     try {
@@ -213,9 +285,48 @@ export function ReimbursementPage() {
         </p>
       </div>
 
+      {summary && (
+        <div className='grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4'>
+          <KpiCard
+            label='Pengajuan Baru / Menunggu Review'
+            value={String(summary.counts.PENDING ?? 0)}
+            hint='Menunggu review HR Staff'
+            icon='clock'
+            tone='bg-amber-500/10 text-amber-600 dark:text-amber-400'
+            onClick={() => setFilter('status', 'PENDING')}
+          />
+          <KpiCard
+            label='Menunggu Approval HR Lead'
+            value={String(summary.counts.WAITING_HR_LEAD ?? 0)}
+            hint='Nominal sudah direview'
+            icon='badgeCheck'
+            tone='bg-sky-500/10 text-sky-600 dark:text-sky-400'
+            onClick={() => setFilter('status', 'WAITING_HR_LEAD')}
+          />
+          <KpiCard
+            label='Dibayar Bulan Ini'
+            value={String(summary.paid_this_month?.count ?? 0)}
+            hint={new Date().toLocaleDateString('id-ID', { month: 'long', year: 'numeric' })}
+            icon='circleCheck'
+            tone='bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+          />
+          <KpiCard
+            label='Total Dibayar Bulan Ini'
+            value={formatRupiah(Number(summary.paid_this_month?.amount ?? 0))}
+            hint='Berdasarkan nominal disetujui'
+            icon='wallet'
+            tone='bg-violet-500/10 text-violet-600 dark:text-violet-400'
+          />
+        </div>
+      )}
+
       <Card>
-        <CardHeader>
+        <CardHeader className='flex flex-row items-center justify-between gap-3 space-y-0'>
           <CardTitle>Filter</CardTitle>
+          <Button variant='outline' size='sm' onClick={handleExport} disabled={exporting}>
+            <Icons.download className='size-4' />
+            {exporting ? 'Mengekspor...' : 'Export XLSX'}
+          </Button>
         </CardHeader>
         <CardContent>
           <div className='grid grid-cols-1 gap-3 md:grid-cols-4'>
