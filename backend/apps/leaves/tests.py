@@ -1396,3 +1396,63 @@ class ManagementSelfLeaveTests(TestCase):
         self.assertEqual(self.api.get('/api/leaves/requests/').status_code, 200)
         # GM is not the direct manager of `report` -> not an approver (unchanged rule).
         self.assertEqual(self.api.post(f'/api/leaves/requests/{req.id}/approve/').status_code, 403)
+
+
+class LeaveMinNoticeTests(TestCase):
+    """Per-type minimum notice (paling lambat H-N). Today is patched to 2026-01-01."""
+
+    def setUp(self):
+        from rest_framework.test import APIClient
+
+        self.api = APIClient()
+        self.user = make_user('EMPLOYEE', 'notice@test.com')
+        self.emp = Employee.objects.create(employee_id='N001', full_name='Notice', employment_status='ACTIVE',
+                                           user=self.user, join_date=date(2020, 1, 1))
+        self.annual = LeaveType.objects.create(name='Cuti Tahunan', code='ANNUAL', kind='LEAVE',
+                                               default_quota=12, min_notice_days=7)
+        self.sick = LeaveType.objects.create(name='Izin Sakit', code='SICK', kind='PERMISSION', min_notice_days=0)
+        self.api.force_authenticate(self.user)
+
+    def _submit(self, lt, dates, kind='LEAVE'):
+        return self.api.post('/api/leaves/requests/', {
+            'leave_type': lt.id, 'kind': kind, 'reason': 'x', 'dates': dates,
+        }, format='json')
+
+    def test_less_than_h7_rejected(self):
+        res = self._submit(self.annual, ['2026-01-07'])  # H-6
+        self.assertEqual(res.status_code, 400)
+        self.assertIn('H-7', str(res.data['dates']))
+
+    def test_exactly_h7_allowed(self):
+        self.assertEqual(self._submit(self.annual, ['2026-01-08']).status_code, 201)
+
+    def test_earliest_selected_date_counts(self):
+        # One date far ahead does not excuse an earlier, too-close date.
+        res = self._submit(self.annual, ['2026-01-20', '2026-01-05'])
+        self.assertEqual(res.status_code, 400)
+
+    def test_type_without_minimum_unaffected(self):
+        self.assertEqual(self._submit(self.sick, ['2026-01-01'], kind='PERMISSION').status_code, 201)
+
+    def test_min_notice_exposed_and_editable_by_hr(self):
+        res = self.api.get('/api/leaves/types/')
+        row = next(t for t in res.data if t['code'] == 'ANNUAL')
+        self.assertEqual(row['min_notice_days'], 7)
+        self.api.force_authenticate(make_user('HR_STAFF', 'hr.notice@test.com'))
+        res = self.api.patch(f'/api/leaves/types/{self.annual.id}/', {'min_notice_days': 3}, format='json')
+        self.assertEqual(res.status_code, 200)
+        self.annual.refresh_from_db()
+        self.assertEqual(self.annual.min_notice_days, 3)
+
+    def test_seeder_does_not_override_hr_setting(self):
+        from django.core.management import call_command
+
+        self.annual.min_notice_days = 2
+        self.annual.save()
+        from io import StringIO
+
+        call_command('seed_leave_types', stdout=StringIO())
+        self.annual.refresh_from_db()
+        self.assertEqual(self.annual.min_notice_days, 2)
+        self.assertEqual(LeaveType.objects.get(code='MARRIAGE').min_notice_days, 7)  # created by seeder
+        self.assertEqual(LeaveType.objects.get(code='MATERNITY').min_notice_days, 0)

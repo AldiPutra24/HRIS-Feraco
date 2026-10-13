@@ -69,6 +69,19 @@ PERMISSION_TYPES = [
     ),
 ]
 
+# Planned leave must be submitted at least 7 days ahead (paling lambat H-7).
+# Applied on CREATE only — afterwards HR owns the value (re-seeding never
+# overwrites it). Unplanned types (sakit, terlambat, melahirkan, keguguran,
+# berobat) have no minimum.
+MIN_NOTICE_DAYS = {
+    'ANNUAL': 7,
+    'MARRIAGE': 7,
+    'VACCINE': 7,
+    'PATERNITY': 7,
+    'CHILD_CIRCUMCISION': 7,
+    'SPECIAL': 7,
+}
+
 # Cuti Tidak Berbayar - no separate category; employees select a LEAVE category
 # and note the unpaid nature in the reason field. Handled by HR when approving.
 UNPAID_NOTE = (
@@ -108,7 +121,9 @@ class Command(BaseCommand):
             'requires_attachment': requires_attachment,
             'description': description,
         }
-        obj, created = LeaveType.objects.get_or_create(code=code, defaults=data)
+        obj, created = LeaveType.objects.get_or_create(
+            code=code, defaults={**data, 'min_notice_days': MIN_NOTICE_DAYS.get(code, 0)},
+        )
         if not created:
             # Re-point deducts_from after creation (self-referential FK).
             changed = [f for f, v in data.items() if getattr(obj, f) != v]

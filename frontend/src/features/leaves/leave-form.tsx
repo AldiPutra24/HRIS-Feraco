@@ -22,6 +22,13 @@ import type { Employee } from '@/lib/employees';
 import { Icons } from '@/components/icons';
 import { MultiDateCalendar, formatIsoShort } from './multi-date-calendar';
 
+/** 'YYYY-MM-DD' + n days, in local time (no UTC shift). */
+function isoPlusDays(iso: string, days: number): string {
+  const [y, m, d] = iso.split('-').map(Number);
+  const dt = new Date(y, m - 1, d + days);
+  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+}
+
 export function LeaveForm({ redirectTo = '/dashboard/leave' }: { redirectTo?: string }) {
   const router = useRouter();
   const [types, setTypes] = useState<LeaveType[]>([]);
@@ -70,6 +77,14 @@ export function LeaveForm({ redirectTo = '/dashboard/leave' }: { redirectTo?: st
       toast.error('Tidak dapat mengajukan untuk tanggal sebelum hari ini.');
       return;
     }
+    const type = types.find((t) => t.id === Number(form.leave_type));
+    const minNotice = type?.min_notice_days ?? 0;
+    if (minNotice > 0 && dates.some((d) => d < isoPlusDays(todayIso, minNotice))) {
+      toast.error(
+        `${type?.name} wajib diajukan paling lambat H-${minNotice}. Tanggal paling awal: ${formatIsoShort(isoPlusDays(todayIso, minNotice))}.`
+      );
+      return;
+    }
     setSubmitting(true);
     try {
       const created = await createLeaveRequest({
@@ -92,6 +107,18 @@ export function LeaveForm({ redirectTo = '/dashboard/leave' }: { redirectTo?: st
   }
 
   const selectedType = types.find((t) => t.id === Number(form.leave_type));
+  // Minimum notice (e.g. paling lambat H-7): earliest selectable leave day.
+  const noticeDays = selectedType?.min_notice_days ?? 0;
+  const earliestIso = noticeDays > 0 ? isoPlusDays(todayIso, noticeDays) : todayIso;
+
+  // Switching to a category with a notice rule drops days it no longer allows.
+  useEffect(() => {
+    if (!dates.some((d) => d < earliestIso)) return;
+    setDates((ds) => ds.filter((d) => d >= earliestIso));
+    toast.info(`Tanggal sebelum ${formatIsoShort(earliestIso)} dihapus karena aturan minimal pengajuan.`);
+    // Only re-check when the rule changes (category switch), not on each pick.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [earliestIso]);
   // Full Day / Half Day applies to Cuti Tahunan.
   const halfDayAllowed = selectedType?.code === 'ANNUAL';
   const effectiveHalf = halfDayAllowed ? halfDays.filter((d) => dates.includes(d)) : [];
@@ -172,8 +199,15 @@ export function LeaveForm({ redirectTo = '/dashboard/leave' }: { redirectTo?: st
                 <span className='text-muted-foreground'>(klik tanggal untuk memilih; boleh tidak berurutan)</span>
               </Label>
               <div className='mt-1 flex flex-col gap-3 md:flex-row'>
-                <MultiDateCalendar value={dates} onChange={setDates} minDate={todayIso} />
+                <MultiDateCalendar value={dates} onChange={setDates} minDate={earliestIso} />
                 <div className='flex-1 space-y-2'>
+                  {noticeDays > 0 && (
+                    <p className='rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-300'>
+                      {selectedType?.name} wajib diajukan <span className='font-semibold'>paling lambat H-{noticeDays}</span>{' '}
+                      (minimal {noticeDays} hari sebelum tanggal izin/cuti). Tanggal paling awal yang bisa dipilih:{' '}
+                      <span className='font-semibold'>{formatIsoShort(earliestIso)}</span>.
+                    </p>
+                  )}
                   <p className='text-sm'>
                     Total: <span className='font-semibold'>{formatDays(totalDays)} hari</span>
                   </p>

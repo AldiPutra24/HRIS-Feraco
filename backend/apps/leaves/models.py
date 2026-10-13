@@ -32,6 +32,9 @@ class LeaveType(models.Model):
     # Attachment becomes mandatory only above this many days (e.g. sick leave:
     # 1 day free, >1 day needs a doctor's note).
     max_days_without_attachment = models.PositiveIntegerField(default=0)
+    # Submission must be at least N days before the first leave day
+    # (e.g. 7 = paling lambat H-7). 0 = no minimum (sick leave, late, etc.).
+    min_notice_days = models.PositiveIntegerField(default=0)
     # Unused days carried to next year's balance, capped.
     carry_forward_max = models.PositiveIntegerField(default=0)
     # Deducts from another type's balance (e.g. Cuti Berobat uses Cuti Tahunan).

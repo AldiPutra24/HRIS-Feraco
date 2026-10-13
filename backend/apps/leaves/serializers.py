@@ -39,7 +39,7 @@ class LeaveTypeSerializer(serializers.ModelSerializer):
             'id', 'name', 'code', 'kind', 'is_active', 'default_quota',
             'max_days_per_request', 'min_tenure_months', 'max_days_without_attachment',
             'carry_forward_max', 'deducts_from', 'is_paid',
-            'requires_attachment', 'description',
+            'requires_attachment', 'description', 'min_notice_days',
         )
         read_only_fields = ('id',)
 
@@ -276,6 +276,21 @@ class LeaveRequestSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError(
                     {'kind': f'Kategori "{leave_type.name}" tidak termasuk dalam jenis yang dipilih.'}
                 )
+
+        # Minimum notice (e.g. Cuti Tahunan paling lambat H-7): the earliest
+        # requested day must be at least `min_notice_days` after today.
+        if self.instance is None and leave_type is not None and leave_type.min_notice_days:
+            first_day = picked[0] if picked else start
+            if first_day is not None:
+                from datetime import timedelta
+
+                earliest = _today() + timedelta(days=leave_type.min_notice_days)
+                if first_day < earliest:
+                    raise serializers.ValidationError({'dates': (
+                        f'{leave_type.name} wajib diajukan paling lambat H-{leave_type.min_notice_days} '
+                        f'sebelum tanggal izin/cuti. Tanggal paling awal yang bisa diajukan hari ini: '
+                        f'{format_leave_dates([earliest], [])}.'
+                    )})
 
         employee = attrs.get('employee')
         if employee is None:

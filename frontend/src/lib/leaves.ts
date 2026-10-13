@@ -53,6 +53,8 @@ export type LeaveType = {
   deducts_from: number | null;
   is_paid: boolean;
   description: string;
+  /** Submit at least N days before the first leave day (0 = no minimum). */
+  min_notice_days: number;
 };
 
 export type LeaveBalance = {
@@ -147,6 +149,10 @@ export type LeaveNotification = {
 
 export function listLeaveTypes(): Promise<LeaveType[]> {
   return request<LeaveType[]>('/types/');
+}
+
+export function updateLeaveType(id: number, data: Partial<Pick<LeaveType, 'min_notice_days'>>): Promise<LeaveType> {
+  return request<LeaveType>(`/types/${id}/`, { method: 'PATCH', body: JSON.stringify(data) });
 }
 
 // ponytail: unwrap DRF paginated {count, results}; drop when all leave endpoints set pagination_class=None
