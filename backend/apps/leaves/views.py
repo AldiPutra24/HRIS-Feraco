@@ -25,7 +25,14 @@ from .serializers import (
     LeaveRequestSerializer,
     LeaveTypeSerializer,
 )
-from .services import apply_approval_deduction, apply_quota_adjustment, balance_summary, get_balance, notify
+from .services import (
+    apply_approval_deduction,
+    apply_quota_adjustment,
+    balance_summaries,
+    balance_summary,
+    get_balance,
+    notify,
+)
 
 
 class LeaveTypeViewSet(viewsets.ModelViewSet):
@@ -155,13 +162,16 @@ class LeaveBalanceViewSet(viewsets.ModelViewSet):
         paginator = Paginator(employees, self.SUMMARY_PAGE_SIZE)
         page_param = request.query_params.get('page', '1')
         page = paginator.get_page(int(page_param) if page_param.isdigit() else 1)
+        page_employees = list(page.object_list)
+        # One batch for the whole page (fixed query count, not employees x types).
+        summaries = balance_summaries(page_employees, year=year)
         results = [
             {
                 'employee': emp.id,
                 'employee_name': emp.full_name,
-                'rows': self._as_numbers(balance_summary(emp, year=year)),
+                'rows': self._as_numbers(summaries[emp.id]),
             }
-            for emp in page.object_list
+            for emp in page_employees
         ]
         return Response({
             'count': paginator.count,

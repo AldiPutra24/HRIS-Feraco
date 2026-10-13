@@ -267,6 +267,9 @@ def get_balance(employee, leave_type, year):
     never silently overwritten (see `recompute_allocation` / the
     `recompute_leave_quota` command to re-sync after data changes).
     """
+    existing = LeaveBalance.objects.filter(employee=employee, leave_type=leave_type, year=year).first()
+    if existing is not None:
+        return existing  # allocation only matters on creation (several queries saved)
     allocated = computed_allocation(employee, leave_type, year)
     balance, _ = LeaveBalance.objects.get_or_create(
         employee=employee,
@@ -328,20 +331,48 @@ def balance_summary(employee, today=None, year=None):
     any leave history: the balance row is computed on first access.
     `year` defaults to the current year (HR may look at another year).
     """
+    return balance_summaries([employee], today=today, year=year)[employee.id]
+
+
+def balance_summaries(employees, today=None, year=None):
+    """`balance_summary` for many employees with a fixed number of queries.
+
+    Quota types, existing balance rows and pending requests are fetched once
+    for the whole batch (HR quota list: 10 employees/page). Only balances that
+    do not exist yet go through the quota engine (first visit). Returns
+    {employee_id: rows}.
+    """
     from .models import LeaveRequest
 
     today = today or timezone.localdate()
     year = year or today.year
-    pending_requests = list(
-        LeaveRequest.objects.filter(
-            employee=employee, status='PENDING', start_date__year=year,
-        ).select_related('leave_type')
-    )
+    employees = list(employees)
+    emp_ids = [e.id for e in employees]
+    quota_types = [t for t in LeaveType.objects.filter(is_active=True).order_by('name') if tracks_quota(t)]
+    existing = {
+        (b.employee_id, b.leave_type_id): b
+        for b in LeaveBalance.objects.filter(
+            employee_id__in=emp_ids, year=year, leave_type__in=quota_types,
+        )
+    }
+    pending_by_emp = {}
+    for lr in LeaveRequest.objects.filter(
+        employee_id__in=emp_ids, status='PENDING', start_date__year=year,
+    ).select_related('leave_type'):
+        pending_by_emp.setdefault(lr.employee_id, []).append(lr)
+
+    result = {}
+    for employee in employees:
+        result[employee.id] = _summary_rows(
+            employee, year, today, quota_types, existing, pending_by_emp.get(employee.id, []),
+        )
+    return result
+
+
+def _summary_rows(employee, year, today, quota_types, existing, pending_requests):
     rows = []
-    for leave_type in LeaveType.objects.filter(is_active=True).order_by('name'):
-        if not tracks_quota(leave_type):
-            continue
-        balance = get_balance(employee, leave_type, year)
+    for leave_type in quota_types:
+        balance = existing.get((employee.id, leave_type.id)) or get_balance(employee, leave_type, year)
         pending = sum(
             (lr.total_days for lr in pending_requests
              if (lr.leave_type.deducts_from_id or lr.leave_type_id) == leave_type.id),
