@@ -1456,3 +1456,75 @@ class LeaveMinNoticeTests(TestCase):
         self.assertEqual(self.annual.min_notice_days, 2)
         self.assertEqual(LeaveType.objects.get(code='MARRIAGE').min_notice_days, 7)  # created by seeder
         self.assertEqual(LeaveType.objects.get(code='MATERNITY').min_notice_days, 0)
+
+
+class LeaveCategoryManageTests(TestCase):
+    """HR add/delete leave categories without losing history."""
+
+    URL = '/api/leaves/types/'
+
+    def setUp(self):
+        from rest_framework.test import APIClient
+
+        self.api = APIClient()
+        self.hr = make_user('HR_STAFF', 'hr.cat@test.com')
+        self.api.force_authenticate(self.hr)
+
+    def test_create_generates_code_from_name(self):
+        res = self.api.post(self.URL, {'name': 'Izin Duka Cita', 'kind': 'PERMISSION'}, format='json')
+        self.assertEqual(res.status_code, 201, res.data)
+        self.assertEqual(res.data['code'], 'IZIN_DUKA_CITA')
+        # Same name again -> rejected; different name with same slug -> suffixed code.
+        self.assertEqual(self.api.post(self.URL, {'name': 'izin duka cita', 'kind': 'PERMISSION'},
+                                       format='json').status_code, 400)
+        res = self.api.post(self.URL, {'name': 'Izin Duka-Cita', 'kind': 'PERMISSION'}, format='json')
+        self.assertEqual(res.data['code'], 'IZIN_DUKA_CITA_2')
+
+    def test_unused_custom_category_hard_deleted(self):
+        lt = LeaveType.objects.create(name='Cuti Studi', code='STUDY', kind='LEAVE')
+        res = self.api.delete(f'{self.URL}{lt.id}/')
+        self.assertEqual(res.status_code, 204)
+        self.assertFalse(LeaveType.objects.filter(pk=lt.pk).exists())
+
+    def test_used_category_deactivated_and_history_kept(self):
+        lt = LeaveType.objects.create(name='Cuti Studi', code='STUDY', kind='LEAVE')
+        emp = Employee.objects.create(employee_id='C001', full_name='Cat', employment_status='ACTIVE')
+        req = LeaveRequest.objects.create(employee=emp, leave_type=lt, start_date=date(2026, 2, 2),
+                                          end_date=date(2026, 2, 2), total_days=1)
+        res = self.api.delete(f'{self.URL}{lt.id}/')
+        self.assertEqual(res.status_code, 200)
+        self.assertTrue(res.data['deactivated'])
+        lt.refresh_from_db()
+        self.assertFalse(lt.is_active)
+        self.assertTrue(LeaveRequest.objects.filter(pk=req.pk).exists())
+
+    def test_builtin_category_deactivated_and_seeder_keeps_it_off(self):
+        from io import StringIO
+
+        from django.core.management import call_command
+
+        call_command('seed_leave_types', stdout=StringIO())
+        vaccine = LeaveType.objects.get(code='VACCINE')
+        res = self.api.delete(f'{self.URL}{vaccine.id}/')
+        self.assertEqual(res.status_code, 200)
+        call_command('seed_leave_types', stdout=StringIO())  # container restart
+        vaccine.refresh_from_db()
+        self.assertFalse(vaccine.is_active)
+
+    def test_reactivate_via_patch(self):
+        lt = LeaveType.objects.create(name='Cuti Studi', code='STUDY', kind='LEAVE', is_active=False)
+        res = self.api.patch(f'{self.URL}{lt.id}/', {'is_active': True}, format='json')
+        self.assertEqual(res.status_code, 200)
+        self.assertTrue(res.data['is_active'])
+
+    def test_inactive_hidden_from_employee_form(self):
+        LeaveType.objects.create(name='Cuti Studi', code='STUDY', kind='LEAVE', is_active=False)
+        self.api.force_authenticate(make_user('EMPLOYEE', 'emp.cat@test.com'))
+        codes = [t['code'] for t in self.api.get(self.URL).data]
+        self.assertNotIn('STUDY', codes)
+
+    def test_employee_cannot_add_or_delete(self):
+        lt = LeaveType.objects.create(name='Cuti Studi', code='STUDY', kind='LEAVE')
+        self.api.force_authenticate(make_user('EMPLOYEE', 'emp.cat2@test.com'))
+        self.assertEqual(self.api.post(self.URL, {'name': 'X', 'kind': 'LEAVE'}, format='json').status_code, 403)
+        self.assertEqual(self.api.delete(f'{self.URL}{lt.id}/').status_code, 403)

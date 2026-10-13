@@ -82,6 +82,9 @@ MIN_NOTICE_DAYS = {
     'SPECIAL': 7,
 }
 
+# Built-in categories (deleting them only deactivates — see LeaveTypeViewSet).
+SEEDED_CODES = frozenset(row[0] for row in LEAVE_TYPES + PERMISSION_TYPES)
+
 # Cuti Tidak Berbayar - no separate category; employees select a LEAVE category
 # and note the unpaid nature in the reason field. Handled by HR when approving.
 UNPAID_NOTE = (
@@ -125,6 +128,8 @@ class Command(BaseCommand):
             code=code, defaults={**data, 'min_notice_days': MIN_NOTICE_DAYS.get(code, 0)},
         )
         if not created:
+            # HR may deactivate ("hapus") a built-in category: keep it off.
+            data.pop('is_active')
             # Re-point deducts_from after creation (self-referential FK).
             changed = [f for f, v in data.items() if getattr(obj, f) != v]
             if deducts_from:

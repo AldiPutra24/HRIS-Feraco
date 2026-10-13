@@ -12,7 +12,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { AllQuotaTable } from './all-quota-table';
 import { QuotaAdjustmentPanel } from './quota-adjustment-panel';
-import { LeaveNoticeRules } from './leave-notice-rules';
+import { LeaveCategoryManager } from './leave-category-manager';
 import { useAuth } from '@/lib/auth/auth-provider';
 import {
   approveLeave,
@@ -334,12 +334,7 @@ export function LeavePage() {
         </Card>
       )}
 
-      {isAdmin && types.length > 0 && (
-        <LeaveNoticeRules
-          types={types}
-          onSaved={(updated) => setTypes((ts) => ts.map((t) => (t.id === updated.id ? updated : t)))}
-        />
-      )}
+      {isAdmin && <LeaveCategoryManager types={types} onChanged={setTypes} />}
 
       <Card>
         <CardHeader>

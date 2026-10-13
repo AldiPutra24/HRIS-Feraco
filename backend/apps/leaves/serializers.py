@@ -1,3 +1,5 @@
+import re
+
 from django.db.models import Q
 from django.utils import timezone
 from rest_framework import serializers
@@ -33,6 +35,9 @@ STATUS_CHOICES = set(dict(LeaveRequest.STATUS_CHOICES).keys())
 
 
 class LeaveTypeSerializer(serializers.ModelSerializer):
+    # Optional on create: generated from the name (e.g. "Izin Duka" -> IZIN_DUKA).
+    code = serializers.CharField(max_length=32, required=False, allow_blank=True)
+
     class Meta:
         model = LeaveType
         fields = (
@@ -44,10 +49,35 @@ class LeaveTypeSerializer(serializers.ModelSerializer):
         read_only_fields = ('id',)
 
     def validate_code(self, value):
-        value = (value or '').strip().upper()
+        value = re.sub(r'[^A-Z0-9_]+', '_', (value or '').strip().upper()).strip('_')
         if not value:
-            raise serializers.ValidationError('Kode wajib diisi.')
+            if self.instance is not None:
+                raise serializers.ValidationError('Kode wajib diisi.')
+            return ''
+        clash = LeaveType.objects.filter(code=value)
+        if self.instance is not None:
+            clash = clash.exclude(pk=self.instance.pk)
+        if clash.exists():
+            raise serializers.ValidationError(f'Kode "{value}" sudah dipakai kategori lain.')
         return value
+
+    def validate_name(self, value):
+        value = (value or '').strip()
+        clash = LeaveType.objects.filter(name__iexact=value)
+        if self.instance is not None:
+            clash = clash.exclude(pk=self.instance.pk)
+        if clash.exists():
+            raise serializers.ValidationError(f'Kategori "{value}" sudah ada.')
+        return value
+
+    def create(self, validated_data):
+        if not validated_data.get('code'):
+            base = re.sub(r'[^A-Z0-9]+', '_', validated_data['name'].upper()).strip('_')[:28] or 'KATEGORI'
+            code, n = base, 2
+            while LeaveType.objects.filter(code=code).exists():
+                code, n = f'{base}_{n}', n + 1
+            validated_data['code'] = code
+        return super().create(validated_data)
 
 
 class LeaveBalanceSerializer(serializers.ModelSerializer):

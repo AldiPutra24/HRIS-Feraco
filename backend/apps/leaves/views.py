@@ -51,6 +51,41 @@ class LeaveTypeViewSet(viewsets.ModelViewSet):
         obj = serializer.save()
         log_event(self.request, 'update', obj=obj, description=f'Leave type {obj.code} updated')
 
+    def destroy(self, request, *args, **kwargs):
+        """Delete a category without losing history.
+
+        Hard delete only when the category was never used (no requests, quota
+        adjustments or types deducting from it) and is not a built-in seeded
+        category (the seeder would recreate it). Otherwise it is deactivated:
+        hidden from the submission form, history kept, re-activatable.
+        """
+        from .management.commands.seed_leave_types import SEEDED_CODES
+
+        obj = self.get_object()
+        in_use = (
+            obj.requests.exists()
+            or obj.quota_adjustments.exists()
+            or LeaveType.objects.filter(deducts_from=obj).exists()
+        )
+        if in_use or obj.code in SEEDED_CODES:
+            if obj.is_active:
+                obj.is_active = False
+                obj.save(update_fields=['is_active'])
+                log_event(request, 'update', obj=obj, description=f'Leave type {obj.code} deactivated (in use/built-in)')
+            return Response(
+                {
+                    'detail': f'Kategori "{obj.name}" sudah dipakai atau bawaan sistem, jadi dinonaktifkan '
+                              '(riwayat tetap tersimpan, bisa diaktifkan kembali).',
+                    'deactivated': True,
+                    'leave_type': LeaveTypeSerializer(obj).data,
+                },
+                status=status.HTTP_200_OK,
+            )
+        code = obj.code
+        obj.delete()  # unused: balances rows (cascade) are empty/derived
+        log_event(request, 'delete', obj=None, description=f'Leave type {code} deleted')
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
 
 class LeaveBalanceViewSet(viewsets.ModelViewSet):
     queryset = LeaveBalance.objects.select_related('employee', 'leave_type').all()
