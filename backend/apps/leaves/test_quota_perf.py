@@ -36,9 +36,22 @@ class QuotaSummaryQueryCountTests(TestCase):
         self.assertEqual(len(res.data['results']), 10)
         return len(ctx.captured_queries), res.data
 
-    def test_query_count(self):
-        first, _ = self._page()   # first visit creates balance rows
+    def test_query_count_is_constant_per_page(self):
+        self._page()  # first visit creates balance rows (one-time, per employee/year)
         warm, data = self._page()  # typical visit: rows already exist
-        print(f'\nQUERIES first={first} warm={warm}')
+        # Was 92 (10 employees x 2 types); now a fixed handful regardless of size.
+        self.assertLessEqual(warm, 8)
         row = data['results'][0]['rows']
         self.assertEqual({r['leave_type_code'] for r in row}, {'ANNUAL', 'BIG'})
+
+    def test_values_match_single_employee_summary(self):
+        from apps.leaves.services import balance_summary
+
+        _, data = self._page()
+        emp = Employee.objects.get(full_name='Emp 00')
+        single = balance_summary(emp, year=2026)
+        page_rows = next(r['rows'] for r in data['results'] if r['employee'] == emp.id)
+        self.assertEqual(
+            [(r['leave_type_code'], float(r['allocated_days']), float(r['remaining_days'])) for r in single],
+            [(r['leave_type_code'], r['allocated_days'], r['remaining_days']) for r in page_rows],
+        )
