@@ -664,6 +664,13 @@ class DashboardHrView(APIView):
     def get(self, request):
         from apps.leaves.models import LeaveRequest
 
+        from .permissions import WRITE_ROLES
+
+        # HR/Admin only: includes audit activity and every contract. GM gets
+        # its company overview from /dashboard/management/ instead.
+        if _role(request.user) not in WRITE_ROLES:
+            return Response({'detail': 'Hanya untuk HR/Admin.'}, status=status.HTTP_403_FORBIDDEN)
+
         today = timezone.localdate()
         # Izin & cuti hari ini: approved requests covering today.
         leave_today = LeaveRequest.objects.filter(
@@ -808,7 +815,10 @@ class DashboardManagementView(APIView):
             'cancelled': counts.get('CANCELLED', 0),
             'total': sum(counts.values()),
         }
-        # Items for the "Perlu Perhatian" section (already scoped to the team).
+        # "Perlu Perhatian": only requests this user can actually decide. The
+        # Reporting To approves — a GM sees their whole hierarchy in the stats
+        # but acts only on direct reports (same rule as leave approve/reject).
+        pending_qs = leaves.filter(status='PENDING', employee__manager_id=employee.id)
         pending_items = [
             {
                 'id': lr.id,
@@ -818,7 +828,7 @@ class DashboardManagementView(APIView):
                 'end_date': lr.end_date.isoformat(),
                 'total_days': lr.total_days,
             }
-            for lr in leaves.filter(status='PENDING').order_by('start_date')[:5]
+            for lr in pending_qs.order_by('start_date')[:5]
         ]
 
         team_members = [
@@ -833,16 +843,101 @@ class DashboardManagementView(APIView):
             for e in team.select_related('position', 'department').order_by('full_name')
         ]
 
-        return Response(
+        leave['awaiting_me'] = pending_qs.count()
+        payload = {
+            'team': {
+                'total': team.count(),
+                'active': active,
+                'inactive': team.count() - active,
+                'by_department': by_department,
+            },
+            'leave': leave,
+            'pending_leave_items': pending_items,
+            'team_members': team_members,
+        }
+        if role == 'GENERAL_MANAGER':
+            payload['company'] = self._company_overview()
+        return Response(payload)
+
+    @staticmethod
+    def _company_overview():
+        """Company-wide HR overview for the General Manager (read-only)."""
+        from django.db.models import Count, Q
+
+        today = timezone.localdate()
+        employees = Employee.objects.all()
+        total = employees.count()
+        active = employees.filter(employment_status='ACTIVE').count()
+
+        departments = [
             {
-                'team': {
-                    'total': team.count(),
-                    'active': active,
-                    'inactive': team.count() - active,
-                    'by_department': by_department,
-                },
-                'leave': leave,
-                'pending_leave_items': pending_items,
-                'team_members': team_members,
+                'id': d.id,
+                'name': d.name,
+                'total': d.n_total,
+                'active': d.n_active,
             }
+            for d in Department.objects.all()
+            .annotate(
+                n_total=Count('employees', distinct=True),
+                n_active=Count('employees', filter=Q(employees__employment_status='ACTIVE'), distinct=True),
+            )
+            .order_by('-n_total', 'name')
+        ]
+        unassigned = employees.filter(department__isnull=True)
+        if unassigned.exists():
+            departments.append({
+                'id': None,
+                'name': 'Tanpa Departemen',
+                'total': unassigned.count(),
+                'active': unassigned.filter(employment_status='ACTIVE').count(),
+            })
+
+        ending_qs = (
+            EmployeeContract.objects.filter(status='ACTIVE', end_date__gte=today, deleted_at__isnull=True)
+            .select_related('employee', 'employee__position', 'employee__department')
+            .order_by('end_date')
         )
+        contracts_ending = [
+            {
+                'id': c.id,
+                'employee': c.employee_id,
+                'employee_name': c.employee.full_name,
+                'employee_id': c.employee.employee_id,
+                'position_name': c.employee.position.name if c.employee.position_id else None,
+                'department_name': c.employee.department.name if c.employee.department_id else None,
+                'contract_type': c.contract_type,
+                'pkwt_sequence': c.pkwt_sequence,
+                'end_date': c.end_date.isoformat(),
+                'days_left': (c.end_date - today).days,
+            }
+            for c in ending_qs[:8]
+        ]
+
+        latest = [
+            {
+                'id': e.id,
+                'full_name': e.full_name,
+                'employee_id': e.employee_id,
+                'department_name': e.department.name if e.department_id else None,
+                'position_name': e.position.name if e.position_id else None,
+                'manager_name': e.manager.full_name if e.manager_id else None,
+                'join_date': e.join_date.isoformat() if e.join_date else None,
+                'employment_status': e.employment_status,
+            }
+            for e in employees.select_related('department', 'position', 'manager').order_by('-created_at', '-id')[:8]
+        ]
+
+        return {
+            'summary': {
+                'total_employees': total,
+                'active_employees': active,
+                'inactive_employees': total - active,
+                # Same basis as the HRIS dashboard (all records).
+                'total_departments': Department.objects.count(),
+                'total_positions': Position.objects.count(),
+            },
+            'departments': departments,
+            'contracts_ending': contracts_ending,
+            'contracts_ending_30d': ending_qs.filter(end_date__lte=today + datetime.timedelta(days=30)).count(),
+            'latest_employees': latest,
+        }

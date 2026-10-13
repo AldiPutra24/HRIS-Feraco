@@ -13,11 +13,11 @@ from apps.personnel.storage import is_configured, signed_url, upload_bytes
 
 from .models import LeaveBalance, LeaveNotification, LeaveQuotaAdjustment, LeaveRequest, LeaveType
 from .permissions import (
-    HR_APPROVER_ROLES,
     LEAVE_ADMIN_ROLES,
     IsLeaveAdmin,
     LeaveRequestPermission,
     _employee_for,
+    leave_decision_error,
 )
 from .serializers import (
     LeaveBalanceSerializer,
@@ -449,19 +449,9 @@ class LeaveRequestViewSet(viewsets.ModelViewSet):
 
     @staticmethod
     def _decision_denied(request, leave, verb):
-        """Approve/reject authorization (backend source of truth).
-
-        Primary approver = the employee's Reporting To (direct manager).
-        HR Staff / HR Lead may decide as a fallback. Nobody decides their
-        own request.
-        """
-        actor = _employee_for(request.user)
-        if actor is not None and leave.employee_id == actor.id:
-            return Response({'detail': f'Tidak dapat {verb} pengajuan sendiri.'}, status=status.HTTP_403_FORBIDDEN)
-        is_manager = actor is not None and leave.employee.manager_id == actor.id
-        if not is_manager and _role(request.user) not in HR_APPROVER_ROLES:
-            return Response(
-                {'detail': f'Hanya atasan langsung atau HR Staff/HR Lead yang dapat {verb}.'},
-                status=status.HTTP_403_FORBIDDEN,
-            )
+        """Approve/reject authorization (backend source of truth) — see
+        permissions.leave_decision_error."""
+        error = leave_decision_error(request.user, leave, verb)
+        if error:
+            return Response({'detail': error}, status=status.HTTP_403_FORBIDDEN)
         return None

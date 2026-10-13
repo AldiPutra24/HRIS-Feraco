@@ -1269,6 +1269,92 @@ class DashboardManagementTests(TestCase):
         self.assertEqual(res.status_code, 403)
 
 
+class GeneralManagerOverviewTests(TestCase):
+    """GM dashboard: company-wide overview, but approvals only for direct reports."""
+
+    def setUp(self):
+        from apps.leaves.models import LeaveRequest, LeaveType
+
+        from .models import EmployeeContract
+
+        self.dept_a = Department.objects.create(name='Finance')
+        self.dept_b = Department.objects.create(name='Creative')
+        self.pos = Position.objects.create(name='Staff', department=self.dept_a)
+        self.gm_user = make_user('GENERAL_MANAGER')
+        self.gm = Employee.objects.create(employee_id='G001', full_name='GM', employment_status='ACTIVE',
+                                          user=self.gm_user, department=self.dept_a)
+        self.mgr = Employee.objects.create(employee_id='M001', full_name='Manager', employment_status='ACTIVE',
+                                           manager=self.gm, department=self.dept_a)
+        self.deep = Employee.objects.create(employee_id='E001', full_name='Deep Report', employment_status='ACTIVE',
+                                            manager=self.mgr, department=self.dept_b, position=self.pos)
+        self.outsider = Employee.objects.create(employee_id='E002', full_name='Outsider', employment_status='INACTIVE')
+        today = timezone.localdate()
+        EmployeeContract.objects.create(employee=self.deep, contract_type='PKWT', start_date=today - timedelta(days=300),
+                                        end_date=today + timedelta(days=10), status='ACTIVE')
+        lt = LeaveType.objects.create(name='Annual', code='ANNUAL', kind='LEAVE', default_quota=12)
+        self.direct_leave = LeaveRequest.objects.create(employee=self.mgr, leave_type=lt, start_date=date(2026, 11, 2),
+                                                        end_date=date(2026, 11, 2), total_days=1, status='PENDING')
+        self.deep_leave = LeaveRequest.objects.create(employee=self.deep, leave_type=lt, start_date=date(2026, 11, 3),
+                                                      end_date=date(2026, 11, 3), total_days=1, status='PENDING')
+
+    def _dashboard(self):
+        self.client.force_login(self.gm_user)
+        res = self.client.get('/api/dashboard/management/')
+        self.assertEqual(res.status_code, 200)
+        return res.json()
+
+    def test_company_summary_is_company_wide(self):
+        summary = self._dashboard()['company']['summary']
+        self.assertEqual(summary['total_employees'], 4)
+        self.assertEqual(summary['active_employees'], 3)
+        self.assertEqual(summary['inactive_employees'], 1)
+        self.assertEqual(summary['total_departments'], 2)
+        self.assertEqual(summary['total_positions'], 1)
+
+    def test_department_breakdown_and_unassigned(self):
+        depts = {d['name']: d for d in self._dashboard()['company']['departments']}
+        self.assertEqual(depts['Finance']['total'], 2)
+        self.assertEqual(depts['Creative']['total'], 1)
+        self.assertEqual(depts['Tanpa Departemen']['total'], 1)
+        self.assertEqual(depts['Tanpa Departemen']['active'], 0)
+
+    def test_contracts_ending_and_latest_employees(self):
+        company = self._dashboard()['company']
+        self.assertEqual([c['employee_name'] for c in company['contracts_ending']], ['Deep Report'])
+        self.assertEqual(company['contracts_ending'][0]['days_left'], 10)
+        self.assertEqual(company['contracts_ending_30d'], 1)
+        self.assertEqual(len(company['latest_employees']), 4)
+
+    def test_attention_lists_only_direct_reports(self):
+        data = self._dashboard()
+        self.assertEqual([p['id'] for p in data['pending_leave_items']], [self.direct_leave.id])
+        self.assertEqual(data['leave']['awaiting_me'], 1)
+        self.assertEqual(data['leave']['pending'], 2)  # hierarchy-wide stats unchanged
+
+    def test_gm_can_decide_only_direct_reports(self):
+        self.client.force_login(self.gm_user)
+        rows = {r['id']: r for r in self.client.get('/api/leaves/requests/').json()['results']}
+        self.assertTrue(rows[self.direct_leave.id]['can_decide'])
+        self.assertFalse(rows[self.deep_leave.id]['can_decide'])
+        self.assertEqual(self.client.post(f'/api/leaves/requests/{self.deep_leave.id}/approve/').status_code, 403)
+        self.assertEqual(self.client.post(f'/api/leaves/requests/{self.direct_leave.id}/approve/').status_code, 200)
+
+    def test_management_has_no_company_block(self):
+        mgr_user = make_user('MANAGEMENT')
+        self.mgr.user = mgr_user
+        self.mgr.save()
+        self.client.force_login(mgr_user)
+        data = self.client.get('/api/dashboard/management/').json()
+        self.assertNotIn('company', data)
+
+    def test_hr_dashboard_now_hr_only(self):
+        self.client.force_login(self.gm_user)
+        self.assertEqual(self.client.get('/api/dashboard/hr/').status_code, 403)
+        mgr_user = make_user('MANAGEMENT')
+        self.client.force_login(mgr_user)
+        self.assertEqual(self.client.get('/api/dashboard/hr/').status_code, 403)
+
+
 class ManagementEmployeeScopeTests(TestCase):
     """Management Karyawan access: read-only, direct reports only (manager FK)."""
 

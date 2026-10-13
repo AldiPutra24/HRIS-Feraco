@@ -46,3 +46,23 @@ class LeaveRequestPermission(BasePermission):
 
             return obj.employee_id in team_scope_ids(request.user)
         return False
+
+
+def leave_decision_error(user, leave, verb='memutuskan'):
+    """Why `user` may NOT approve/reject `leave`, or None if allowed.
+
+    Primary approver = the employee's Reporting To (direct manager only —
+    a General Manager does not decide for people deeper in the hierarchy).
+    HR Staff / HR Lead may decide as a fallback. Nobody decides their own
+    request. Single source of truth for the approve/reject actions and the
+    `can_decide` flag shown in the UI.
+    """
+    from apps.personnel.permissions import _role
+
+    actor = _employee_for(user)
+    if actor is not None and leave.employee_id == actor.id:
+        return f'Tidak dapat {verb} pengajuan sendiri.'
+    is_manager = actor is not None and leave.employee.manager_id == actor.id
+    if not is_manager and _role(user) not in HR_APPROVER_ROLES:
+        return f'Hanya atasan langsung atau HR Staff/HR Lead yang dapat {verb}.'
+    return None

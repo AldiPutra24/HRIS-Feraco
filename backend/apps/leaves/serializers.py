@@ -134,6 +134,10 @@ class LeaveRequestSerializer(serializers.ModelSerializer):
     leave_type_kind = serializers.CharField(source='leave_type.kind', read_only=True)
     approver_name = serializers.CharField(source='approver.username', read_only=True)
     attachment_url = serializers.SerializerMethodField()
+    # True when the requesting user may approve/reject this PENDING request
+    # (direct Reporting To or HR fallback; never own). UI hint only — the
+    # approve/reject actions enforce the same rule server-side.
+    can_decide = serializers.SerializerMethodField()
     # Individually picked days (e.g. 01, 02, 05 Sep). Optional: legacy clients
     # may still send start_date/end_date (inclusive range).
     dates = serializers.ListField(child=serializers.DateField(), write_only=True, required=False, allow_empty=False)
@@ -160,7 +164,7 @@ class LeaveRequestSerializer(serializers.ModelSerializer):
             'start_date', 'end_date', 'dates', 'half_days', 'leave_dates', 'leave_days', 'leave_dates_display',
             'total_days', 'reason', 'attachment_name',
             'attachment_url', 'status', 'submitted_at', 'approved_at', 'rejected_at',
-            'approver', 'approver_name', 'rejection_reason', 'created_at', 'updated_at',
+            'approver', 'approver_name', 'rejection_reason', 'created_at', 'updated_at', 'can_decide',
         )
         read_only_fields = (
             'id', 'employee', 'total_days', 'status', 'submitted_at', 'approved_at',
@@ -191,6 +195,14 @@ class LeaveRequestSerializer(serializers.ModelSerializer):
     def get_employee_manager_name(self, obj):
         mgr = getattr(obj.employee, 'manager', None)
         return mgr.full_name if mgr else None
+
+    def get_can_decide(self, obj):
+        request = self.context.get('request')
+        if request is None or obj.status != 'PENDING' or not request.user.is_authenticated:
+            return False
+        from .permissions import leave_decision_error
+
+        return leave_decision_error(request.user, obj) is None
 
     def get_attachment_url(self, obj):
         if not obj.attachment_path:
