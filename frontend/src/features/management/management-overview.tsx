@@ -11,6 +11,7 @@ import { Icons } from '@/components/icons';
 import { getManagementDashboard, type ManagementDashboard, type ManagementPendingLeave, type ManagementTeamMember } from '@/lib/management';
 import { listNotifications, type AppNotification } from '@/lib/notifications';
 import { listAnnouncements, type Announcement } from '@/lib/announcements';
+import { GmOverview } from './gm-overview';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -221,6 +222,39 @@ export function ManagementOverview() {
     );
   }
 
+  const announcementSheet = (
+    <Sheet open={announcementDetail !== null} onOpenChange={(o) => !o && setAnnouncementDetail(null)}>
+      <SheetContent side='right' className='w-full sm:max-w-md'>
+        <SheetHeader>
+          <SheetTitle>{announcementDetail?.title}</SheetTitle>
+          <SheetDescription>
+            Dipublikasikan {announcementDetail ? fmtDateLong(announcementDetail.created_at) : ''}
+            {announcementDetail?.created_by_name ? ` · ${announcementDetail.created_by_name}` : ''}
+          </SheetDescription>
+        </SheetHeader>
+        <div className='whitespace-pre-wrap px-4 py-4 text-sm'>{announcementDetail?.body}</div>
+      </SheetContent>
+    </Sheet>
+  );
+
+  // General Manager: company-wide dashboard (backend sends `company` for GM only).
+  const company = data.company;
+  if (company) {
+    return (
+      <>
+        <GmOverview
+          data={{ ...data, company }}
+          announcements={announcements}
+          notifications={notifications}
+          fetchedAt={fetchedAt}
+          onRefresh={load}
+          onOpenAnnouncement={setAnnouncementDetail}
+        />
+        {announcementSheet}
+      </>
+    );
+  }
+
   const { team, leave, pending_leave_items: pendingItems, team_members: teamMembers } = data;
   const attention: React.ReactNode[] = pendingItems.map((l) => <AttentionItem key={l.id} leave={l} />);
 
@@ -262,9 +296,9 @@ export function ManagementOverview() {
         ) : (
           <div className='flex flex-col gap-2'>
             {attention}
-            {leave.pending > pendingItems.length && (
+            {leave.awaiting_me > pendingItems.length && (
               <p className='text-muted-foreground px-1 text-xs'>
-                +{leave.pending - pendingItems.length} pengajuan pending lainnya
+                +{leave.awaiting_me - pendingItems.length} pengajuan pending lainnya
               </p>
             )}
           </div>
@@ -369,18 +403,7 @@ export function ManagementOverview() {
       </SectionCard>
 
       {/* Announcement detail sheet (same flow as Employee Dashboard) */}
-      <Sheet open={announcementDetail !== null} onOpenChange={(o) => !o && setAnnouncementDetail(null)}>
-        <SheetContent side='right' className='w-full sm:max-w-md'>
-          <SheetHeader>
-            <SheetTitle>{announcementDetail?.title}</SheetTitle>
-            <SheetDescription>
-              Dipublikasikan {announcementDetail ? fmtDateLong(announcementDetail.created_at) : ''}
-              {announcementDetail?.created_by_name ? ` · ${announcementDetail.created_by_name}` : ''}
-            </SheetDescription>
-          </SheetHeader>
-          <div className='whitespace-pre-wrap px-4 py-4 text-sm'>{announcementDetail?.body}</div>
-        </SheetContent>
-      </Sheet>
+      {announcementSheet}
 
       {/* Quick Actions */}
       <div className='flex flex-wrap gap-2'>
