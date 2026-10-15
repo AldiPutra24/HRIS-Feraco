@@ -227,7 +227,7 @@ export function ReimbursementForm({ redirectTo = '/dashboard/employee/reimbursem
               </Label>
               <Input
                 required
-                placeholder='mis. BCA'
+                placeholder='Diutamakan MANDIRI'
                 value={form.bank_name}
                 onChange={(e) => setForm((f) => ({ ...f, bank_name: e.target.value }))}
               />
