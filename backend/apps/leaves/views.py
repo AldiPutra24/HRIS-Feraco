@@ -346,7 +346,9 @@ class LeaveRequestViewSet(viewsets.ModelViewSet):
         """Delete the request; restore quota if its days were deducted."""
         with transaction.atomic():
             if leave.balance_deducted and leave.status == 'APPROVED':
-                target_type = leave.leave_type.deducts_from or leave.leave_type
+                # Restore exactly the balance deducted at approval; legacy
+                # rows (before deducted_type existed) use the category setting.
+                target_type = leave.deducted_type or leave.leave_type.deducts_from or leave.leave_type
                 balance = get_balance(leave.employee, target_type, leave.start_date.year)
                 balance.used_days = max(0, balance.used_days - leave.total_days)
                 balance.recompute()

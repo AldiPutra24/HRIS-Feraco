@@ -130,17 +130,12 @@ class Command(BaseCommand):
         if not created:
             # HR may deactivate ("hapus") a built-in category: keep it off.
             data.pop('is_active')
-            # Re-point deducts_from after creation (self-referential FK).
+            # deducts_from ("potong kuota Cuti Tahunan") is set on CREATE only;
+            # afterwards HR owns it (checkbox in Kategori), never re-pointed.
             changed = [f for f, v in data.items() if getattr(obj, f) != v]
-            if deducts_from:
-                target = LeaveType.objects.filter(code=deducts_from).first()
-                if target and obj.deducts_from_id != target.id:
-                    obj.deducts_from = target
-                    changed.append('deducts_from')
             if changed:
                 for f in changed:
-                    if f != 'deducts_from':
-                        setattr(obj, f, data[f])
+                    setattr(obj, f, data[f])
                 obj.save(update_fields=changed)
                 self.stdout.write(f'updated: {code} ({", ".join(changed)})')
             else:

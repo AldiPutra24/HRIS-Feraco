@@ -1528,3 +1528,83 @@ class LeaveCategoryManageTests(TestCase):
         self.api.force_authenticate(make_user('EMPLOYEE', 'emp.cat2@test.com'))
         self.assertEqual(self.api.post(self.URL, {'name': 'X', 'kind': 'LEAVE'}, format='json').status_code, 403)
         self.assertEqual(self.api.delete(f'{self.URL}{lt.id}/').status_code, 403)
+
+
+class DeductsFromAnnualSettingTests(TestCase):
+    """HR checkbox per category: "Potong kuota Cuti Tahunan" (deducts_from)."""
+
+    URL = '/api/leaves/types/'
+
+    def setUp(self):
+        from rest_framework.test import APIClient
+
+        self.api = APIClient()
+        self.hr = make_user('HR_STAFF', 'hr.deduct@test.com')
+        self.admin = make_user('ADMIN', 'admin.deduct@test.com')
+        self.annual = LeaveType.objects.create(name='Cuti Tahunan', code='ANNUAL', kind='LEAVE', default_quota=12)
+        self.family = LeaveType.objects.create(name='Izin Keluarga', code='FAMILY', kind='PERMISSION')
+        mgr = Employee.objects.create(employee_id='D000', full_name='Boss', employment_status='ACTIVE')
+        self.emp = Employee.objects.create(employee_id='D001', full_name='Dewi', employment_status='ACTIVE',
+                                           manager=mgr)
+        self.api.force_authenticate(self.hr)
+
+    def _set(self, lt, target):
+        return self.api.patch(f'{self.URL}{lt.id}/', {'deducts_from': target.id if target else None}, format='json')
+
+    def _annual_balance(self):
+        return get_balance(self.emp, self.annual, 2026)
+
+    def test_hr_can_toggle_and_approval_deducts_annual(self):
+        self.assertEqual(self._set(self.family, self.annual).status_code, 200)
+        self.family.refresh_from_db()
+        lr = LeaveRequest.objects.create(employee=self.emp, leave_type=self.family, start_date=date(2026, 3, 2),
+                                         end_date=date(2026, 3, 3), total_days=2)
+        apply_approval_deduction(lr)
+        lr.refresh_from_db()
+        self.assertEqual(lr.deducted_type_id, self.annual.id)
+        self.assertEqual(self._annual_balance().used_days, 2)
+        self.assertEqual(self._set(self.family, None).status_code, 200)
+        self.family.refresh_from_db()
+        self.assertIsNone(self.family.deducts_from_id)
+
+    def test_hard_delete_restores_recorded_balance_after_setting_changed(self):
+        self._set(self.family, self.annual)
+        self.family.refresh_from_db()
+        lr = LeaveRequest.objects.create(employee=self.emp, leave_type=self.family, start_date=date(2026, 3, 2),
+                                         end_date=date(2026, 3, 3), total_days=2, status='APPROVED')
+        apply_approval_deduction(lr)
+        self.assertEqual(self._annual_balance().used_days, 2)
+        self._set(self.family, None)  # HR unticks afterwards
+        self.api.force_authenticate(self.admin)
+        self.assertEqual(self.api.delete(f'/api/leaves/requests/{lr.id}/hard-delete/').status_code, 204)
+        self.assertEqual(self._annual_balance().used_days, 0)  # restored to Cuti Tahunan, not lost
+
+    def test_only_annual_target_and_no_self(self):
+        other = LeaveType.objects.create(name='Cuti Besar', code='BIG', kind='LEAVE', default_quota=5)
+        self.assertEqual(self._set(self.family, other).status_code, 400)
+        self.assertEqual(self._set(self.annual, self.annual).status_code, 400)
+
+    def test_create_category_with_checkbox(self):
+        res = self.api.post(self.URL, {'name': 'Izin Urusan Bank', 'kind': 'PERMISSION',
+                                       'deducts_from': self.annual.id}, format='json')
+        self.assertEqual(res.status_code, 201, res.data)
+        self.assertEqual(res.data['deducts_from'], self.annual.id)
+
+    def test_seeder_keeps_hr_choice(self):
+        from io import StringIO
+
+        from django.core.management import call_command
+
+        call_command('seed_leave_types', stdout=StringIO())
+        medical = LeaveType.objects.get(code='MEDICAL')
+        annual = LeaveType.objects.get(code='ANNUAL')
+        self.assertEqual(medical.deducts_from_id, annual.id)  # default on create
+        medical.deducts_from = None
+        medical.save()
+        call_command('seed_leave_types', stdout=StringIO())  # container restart
+        medical.refresh_from_db()
+        self.assertIsNone(medical.deducts_from_id)
+
+    def test_employee_cannot_change_setting(self):
+        self.api.force_authenticate(make_user('EMPLOYEE', 'emp.deduct@test.com'))
+        self.assertEqual(self._set(self.family, self.annual).status_code, 403)

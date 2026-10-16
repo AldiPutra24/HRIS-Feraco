@@ -61,6 +61,16 @@ class LeaveTypeSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(f'Kode "{value}" sudah dipakai kategori lain.')
         return value
 
+    def validate_deducts_from(self, value):
+        """Only "potong kuota Cuti Tahunan" is supported (HR checkbox)."""
+        if value is None:
+            return None
+        if value.code != 'ANNUAL':
+            raise serializers.ValidationError('Kategori hanya bisa memotong kuota Cuti Tahunan.')
+        if self.instance is not None and self.instance.pk == value.pk:
+            raise serializers.ValidationError('Cuti Tahunan tidak bisa memotong kuotanya sendiri.')
+        return value
+
     def validate_name(self, value):
         value = (value or '').strip()
         clash = LeaveType.objects.filter(name__iexact=value)

@@ -24,7 +24,8 @@ const EMPTY: NewLeaveType = {
   min_notice_days: 0,
   requires_attachment: false,
   is_paid: true,
-  description: ''
+  description: '',
+  deducts_from: null
 };
 
 /**
@@ -50,6 +51,8 @@ export function LeaveCategoryManager({
   );
   const visible = showInactive ? sorted : sorted.filter((t) => t.is_active);
   const inactiveCount = types.filter((t) => !t.is_active).length;
+  // Target of the "Potong kuota Cuti Tahunan" checkbox.
+  const annual = types.find((t) => t.code === 'ANNUAL') ?? null;
 
   function replace(updated: LeaveType) {
     onChanged(types.map((t) => (t.id === updated.id ? updated : t)));
@@ -91,6 +94,23 @@ export function LeaveCategoryManager({
       }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Gagal menghapus kategori.');
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function toggleDeductsAnnual(t: LeaveType, checked: boolean) {
+    if (!annual) return;
+    setBusy(t.id);
+    try {
+      replace(await updateLeaveType(t.id, { deducts_from: checked ? annual.id : null }));
+      toast.success(
+        checked
+          ? `${t.name} sekarang memotong kuota ${annual.name}.`
+          : `${t.name} tidak lagi memotong kuota ${annual.name}.`
+      );
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Gagal menyimpan.');
     } finally {
       setBusy(null);
     }
@@ -138,7 +158,8 @@ export function LeaveCategoryManager({
         <div>
           <CardTitle>Kategori Izin & Cuti</CardTitle>
           <CardDescription>
-            Tambah atau hapus kategori, dan atur minimal pengajuan (mis. 7 = paling lambat H-7; 0 = tanpa batas).
+            Tambah atau hapus kategori, pilih kategori yang memotong kuota Cuti Tahunan, dan atur minimal pengajuan
+            (mis. 7 = paling lambat H-7; 0 = tanpa batas).
           </CardDescription>
         </div>
         {!adding && (
@@ -218,6 +239,16 @@ export function LeaveCategoryManager({
                 />
                 Wajib lampiran
               </label>
+              {annual && (
+                <label className='flex items-center gap-2'>
+                  <input
+                    type='checkbox'
+                    checked={form.deducts_from === annual.id}
+                    onChange={(e) => setForm((f) => ({ ...f, deducts_from: e.target.checked ? annual.id : null }))}
+                  />
+                  Potong kuota {annual.name}
+                </label>
+              )}
               <div className='ml-auto flex gap-2'>
                 <Button
                   type='button'
@@ -252,6 +283,7 @@ export function LeaveCategoryManager({
                 <TableHead className='pl-4'>Kategori</TableHead>
                 <TableHead>Jenis</TableHead>
                 <TableHead>Aturan Pengajuan</TableHead>
+                <TableHead className='text-center'>Potong Kuota Cuti Tahunan</TableHead>
                 <TableHead>Minimal Pengajuan (hari)</TableHead>
                 <TableHead className='pr-4 text-right'>Aksi</TableHead>
               </TableRow>
@@ -275,6 +307,21 @@ export function LeaveCategoryManager({
                         <Badge variant='secondary'>Paling lambat H-{t.min_notice_days}</Badge>
                       ) : (
                         <span className='text-muted-foreground text-sm'>Tanpa batas</span>
+                      )}
+                    </TableCell>
+                    <TableCell className='text-center'>
+                      {annual && t.id !== annual.id ? (
+                        <input
+                          type='checkbox'
+                          className='size-4 cursor-pointer align-middle'
+                          checked={t.deducts_from === annual.id}
+                          disabled={!t.is_active || busy === t.id}
+                          onChange={(e) => toggleDeductsAnnual(t, e.target.checked)}
+                          aria-label={`${t.name} memotong kuota ${annual.name}`}
+                          title={`Bila dicentang, hari ${t.name} yang disetujui memotong kuota ${annual.name}`}
+                        />
+                      ) : (
+                        <span className='text-muted-foreground text-xs'>Kuota utama</span>
                       )}
                     </TableCell>
                     <TableCell>
@@ -317,7 +364,7 @@ export function LeaveCategoryManager({
               })}
               {visible.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={5} className='text-muted-foreground py-8 text-center'>
+                  <TableCell colSpan={6} className='text-muted-foreground py-8 text-center'>
                     Belum ada kategori.
                   </TableCell>
                 </TableRow>

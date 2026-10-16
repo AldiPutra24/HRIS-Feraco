@@ -415,7 +415,8 @@ def apply_approval_deduction(leave_request):
     balance.recompute()
     balance.save(update_fields=['used_days', 'remaining_days'])
     leave_request.balance_deducted = True
-    leave_request.save(update_fields=['balance_deducted', 'updated_at'])
+    leave_request.deducted_type = target_type
+    leave_request.save(update_fields=['balance_deducted', 'deducted_type', 'updated_at'])
     return balance
 
 

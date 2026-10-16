@@ -127,6 +127,12 @@ class LeaveRequest(models.Model):
     rejection_reason = models.TextField(blank=True)
     # Guards against double deduction when an approval is re-processed.
     balance_deducted = models.BooleanField(default=False)
+    # Which balance was actually deducted at approval (own type, or the
+    # `deducts_from` target such as Cuti Tahunan). Recorded so a later change
+    # of the category setting never restores quota to the wrong balance.
+    deducted_type = models.ForeignKey(
+        'LeaveType', on_delete=models.SET_NULL, null=True, blank=True, related_name='+',
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
