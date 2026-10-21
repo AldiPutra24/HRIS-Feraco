@@ -16,7 +16,6 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { AddButton } from '@/components/add-button';
 import { Icons } from '@/components/icons';
 import {
   RECOMMENDATION_LABELS,
@@ -534,7 +533,9 @@ export default function FreelancePage() {
             <Icons.adjustments className='mr-1' size={16} /> Skill &amp; Kategori
           </Button>
           {!readOnly && (
-            <AddButton label='Quick Add' onClick={() => setQuickAddOpen(true)} />
+            <Button onClick={() => setQuickAddOpen(true)}>
+              <Icons.add className='mr-1' size={16} /> Quick Add
+            </Button>
           )}
         </div>
       </div>

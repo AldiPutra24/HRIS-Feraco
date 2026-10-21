@@ -15,7 +15,6 @@ import {
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { AddButton } from '@/components/add-button';
 import { Icons } from '@/components/icons';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { useAuth } from '@/lib/auth/auth-provider';
@@ -140,7 +139,10 @@ export function EmployeeList() {
               <Icons.upload />
               Import XLSX
             </Button>
-            <AddButton label='Tambah Karyawan' onClick={() => { setEditing(null); setShowForm((v) => !v); }} />
+            <Button onClick={() => { setEditing(null); setShowForm((v) => !v); }}>
+              <Icons.add />
+              Tambah Karyawan
+            </Button>
           </div>
         )}
       </div>
