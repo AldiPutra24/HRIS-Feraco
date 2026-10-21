@@ -139,10 +139,20 @@ export function EmployeeList() {
               <Icons.upload />
               Import XLSX
             </Button>
-            <Button onClick={() => { setEditing(null); setShowForm((v) => !v); }}>
-              <Icons.add />
-              Tambah Karyawan
-            </Button>
+            {/* Green "add" button: on hover the icon block slides over the label. */}
+            <button
+              type='button'
+              onClick={() => { setEditing(null); setShowForm((v) => !v); }}
+              aria-label='Tambah Karyawan'
+              className='group relative flex h-9 w-[196px] cursor-pointer items-center overflow-hidden rounded-md border border-[#34974d] bg-[#3aa856] transition-all duration-300 hover:bg-[#34974d] focus-visible:ring-2 focus-visible:ring-[#34974d]/50 focus-visible:outline-none active:border-[#2e8644]'
+            >
+              <span className='pl-3.5 text-sm font-semibold text-white transition-all duration-300 group-hover:text-transparent'>
+                Tambah Karyawan
+              </span>
+              <span className='absolute right-0 flex h-full w-[38px] items-center justify-center bg-[#34974d] transition-all duration-300 group-hover:w-full group-active:bg-[#2e8644]'>
+                <Icons.add className='size-5 text-white' strokeWidth={2.5} />
+              </span>
+            </button>
           </div>
         )}
       </div>
