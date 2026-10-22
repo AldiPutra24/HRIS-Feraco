@@ -9,6 +9,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { useAuth } from '@/lib/auth/auth-provider';
+import { TeamQuotaCard } from './team-quota-card';
 import {
   approveLeave,
   formatDays,
@@ -30,6 +32,9 @@ function StatusBadge({ status }: { status: string }) {
 }
 
 export function ManagementLeave() {
+  const { user } = useAuth();
+  // Backend scopes the quota table: GM = all active employees, Management = direct reports.
+  const isGm = user?.role === 'general_manager';
   const [requests, setRequests] = useState<LeaveRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [acting, setActing] = useState<Record<number, boolean>>({});
@@ -190,6 +195,16 @@ export function ManagementLeave() {
           )}
         </CardContent>
       </Card>
+
+      <TeamQuotaCard
+        title={isGm ? 'Sisa Kuota Cuti Karyawan' : 'Sisa Kuota Cuti Tim'}
+        description={
+          isGm
+            ? 'Kuota per hari ini untuk seluruh karyawan aktif — cek sebelum menyetujui pengajuan.'
+            : 'Kuota per hari ini untuk karyawan yang melapor langsung ke Anda — cek sebelum menyetujui pengajuan.'
+        }
+        emptyText={isGm ? 'Tidak ada karyawan aktif.' : 'Belum ada karyawan aktif yang melapor langsung ke Anda.'}
+      />
 
       {rejecting && (
         <Card>
