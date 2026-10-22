@@ -12,6 +12,7 @@ import { getManagementDashboard, type ManagementDashboard, type ManagementPendin
 import { listNotifications, type AppNotification } from '@/lib/notifications';
 import { listAnnouncements, type Announcement } from '@/lib/announcements';
 import { GmOverview } from './gm-overview';
+import { TeamQuotaCard } from './team-quota-card';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -345,6 +346,13 @@ export function ManagementOverview() {
           </div>
         </SectionCard>
       </div>
+
+      {/* Sisa kuota cuti — bawahan langsung (Reporting To) */}
+      <TeamQuotaCard
+        title='Sisa Kuota Cuti Tim'
+        description='Kuota per hari ini untuk karyawan yang melapor langsung ke Anda.'
+        emptyText='Belum ada karyawan aktif yang melapor langsung ke Anda.'
+      />
 
       {/* Pengumuman */}
       <SectionCard title='Pengumuman'>

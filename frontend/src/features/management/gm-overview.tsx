@@ -8,6 +8,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Icons } from '@/components/icons';
 import { useAuth } from '@/lib/auth/auth-provider';
 import { cn } from '@/lib/utils';
+import { TeamQuotaCard } from './team-quota-card';
 import type { Announcement } from '@/lib/announcements';
 import type { AppNotification } from '@/lib/notifications';
 import type {
@@ -535,6 +536,13 @@ export function GmOverview({
           )}
         </CardContent>
       </Card>
+
+      {/* Sisa kuota cuti — seluruh karyawan aktif */}
+      <TeamQuotaCard
+        title='Sisa Kuota Cuti Karyawan'
+        description='Kuota per hari ini untuk seluruh karyawan aktif (Kuota + Adjustment − Terpakai; Pending belum memotong kuota).'
+        emptyText='Tidak ada karyawan aktif.'
+      />
 
       {/* Announcements + activity */}
       <div className='grid grid-cols-1 gap-4 lg:grid-cols-2'>

@@ -132,30 +132,42 @@ class LeaveBalanceViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['get'])
     def summary(self, request):
-        """HR: quota per employee/year from the quota engine — shown even when
+        """Quota per employee/year from the quota engine — shown even when
         the employee has no leave history yet (no stored balance rows).
 
-        ?employee=<id> -> that employee's rows (list).
-        No employee   -> all ACTIVE employees, 10 per page (?page=, ?search=):
+        Scope (read-only for non-HR):
+          HR (ADMIN/HR_STAFF/HR_LEAD) and GENERAL_MANAGER -> all ACTIVE employees.
+          MANAGEMENT -> only their direct reports (Reporting To = them).
+          Other roles -> 403 (own quota lives at /balances/me/).
+
+        ?employee=<id> -> that employee's rows (list), must be in scope.
+        No employee   -> ACTIVE employees in scope, 10 per page (?page=, ?search=):
                          {count, page, page_size, total_pages, results:[
                           {employee, employee_name, rows:[...]}]}.
         """
-        if _role(request.user) not in LEAVE_ADMIN_ROLES:
-            return Response({'detail': 'Hanya HR yang dapat melihat kuota karyawan lain.'}, status=status.HTTP_403_FORBIDDEN)
         from django.core.paginator import Paginator
 
         from apps.personnel.models import Employee
+        from apps.personnel.permissions import direct_report_ids
+
+        role = _role(request.user)
+        if role in LEAVE_ADMIN_ROLES or role == 'GENERAL_MANAGER':
+            scope = Employee.objects.all()
+        elif role == 'MANAGEMENT':
+            scope = Employee.objects.filter(id__in=direct_report_ids(request.user))
+        else:
+            return Response({'detail': 'Hanya HR yang dapat melihat kuota karyawan lain.'}, status=status.HTTP_403_FORBIDDEN)
 
         year_param = request.query_params.get('year', '')
         year = int(year_param) if year_param.isdigit() and 2000 <= int(year_param) <= 2100 else None
         employee_id = request.query_params.get('employee', '')
         if employee_id:
-            employee = Employee.objects.filter(pk=employee_id).first() if employee_id.isdigit() else None
+            employee = scope.filter(pk=employee_id).first() if employee_id.isdigit() else None
             if employee is None:
                 return Response({'employee': 'Karyawan tidak ditemukan.'}, status=status.HTTP_404_NOT_FOUND)
             return Response(self._as_numbers(balance_summary(employee, year=year)))
 
-        employees = Employee.objects.filter(employment_status='ACTIVE').order_by('full_name', 'id')
+        employees = scope.filter(employment_status='ACTIVE').order_by('full_name', 'id')
         search = (request.query_params.get('search') or '').strip()
         if search:
             employees = employees.filter(full_name__icontains=search)

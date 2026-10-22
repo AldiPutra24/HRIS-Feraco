@@ -1184,10 +1184,14 @@ class LeaveQuotaHalfDayAdjustmentTests(TestCase):
         self.assertEqual(res.data[0]['year'], 2027)
         # Unknown employee + authorization.
         self.assertEqual(self.api.get('/api/leaves/balances/summary/', {'employee': 99999}).status_code, 404)
-        for user in (self.emp_user, self.manager):
-            self.api.force_authenticate(user)
-            res = self.api.get('/api/leaves/balances/summary/', {'employee': self.emp.id})
-            self.assertEqual(res.status_code, 403)
+        # Employee: never another person's quota.
+        self.api.force_authenticate(self.emp_user)
+        res = self.api.get('/api/leaves/balances/summary/', {'employee': self.emp.id})
+        self.assertEqual(res.status_code, 403)
+        # Management: read-only access to their direct reports.
+        self.api.force_authenticate(self.manager)
+        res = self.api.get('/api/leaves/balances/summary/', {'employee': self.emp.id})
+        self.assertEqual(res.status_code, 200)
 
     def test_hr_summary_all_employees_paginated_by_10(self):
         for i in range(10):  # 2 existing ACTIVE (Manager, John) + 10 = 12
@@ -1608,3 +1612,59 @@ class DeductsFromAnnualSettingTests(TestCase):
     def test_employee_cannot_change_setting(self):
         self.api.force_authenticate(make_user('EMPLOYEE', 'emp.deduct@test.com'))
         self.assertEqual(self._set(self.family, self.annual).status_code, 403)
+
+
+class TeamQuotaSummaryScopeTests(TestCase):
+    """Dashboard "Sisa Kuota Cuti": MANAGEMENT = direct reports only,
+    GENERAL_MANAGER = all active employees, EMPLOYEE = 403."""
+
+    URL = '/api/leaves/balances/summary/'
+
+    def setUp(self):
+        from rest_framework.test import APIClient
+
+        self.api = APIClient()
+        LeaveType.objects.create(name='Cuti Tahunan', code='ANNUAL', kind='LEAVE', default_quota=12)
+        self.gm_user = make_user('GENERAL_MANAGER', 'gm.q@test.com')
+        self.gm = Employee.objects.create(employee_id='Q000', full_name='GM', employment_status='ACTIVE',
+                                          user=self.gm_user, join_date=date(2020, 1, 1))
+        self.mgr_user = make_user('MANAGEMENT', 'mgr.q@test.com')
+        self.mgr = Employee.objects.create(employee_id='Q001', full_name='Manager', employment_status='ACTIVE',
+                                           user=self.mgr_user, manager=self.gm, join_date=date(2020, 1, 1))
+        self.rep = Employee.objects.create(employee_id='Q002', full_name='Report', employment_status='ACTIVE',
+                                           manager=self.mgr, join_date=date(2021, 1, 1))
+        self.deep = Employee.objects.create(employee_id='Q003', full_name='Deep', employment_status='ACTIVE',
+                                            manager=self.rep, join_date=date(2021, 1, 1))
+        self.other = Employee.objects.create(employee_id='Q004', full_name='Other', employment_status='ACTIVE',
+                                             join_date=date(2021, 1, 1))
+        Employee.objects.create(employee_id='Q005', full_name='Gone', employment_status='INACTIVE',
+                                manager=self.mgr, join_date=date(2021, 1, 1))
+
+    def _names(self, user):
+        self.api.force_authenticate(user)
+        res = self.api.get(self.URL, {'year': 2026})
+        self.assertEqual(res.status_code, 200)
+        return {r['employee_name'] for r in res.data['results']}
+
+    def test_management_sees_only_active_direct_reports(self):
+        self.assertEqual(self._names(self.mgr_user), {'Report'})
+
+    def test_management_cannot_read_outside_scope(self):
+        self.api.force_authenticate(self.mgr_user)
+        for emp in (self.deep, self.other, self.mgr):
+            self.assertEqual(self.api.get(self.URL, {'employee': emp.id}).status_code, 404)
+
+    def test_general_manager_sees_all_active(self):
+        self.assertEqual(self._names(self.gm_user), {'GM', 'Manager', 'Report', 'Deep', 'Other'})
+
+    def test_employee_forbidden(self):
+        self.api.force_authenticate(make_user('EMPLOYEE', 'emp.q@test.com'))
+        self.assertEqual(self.api.get(self.URL).status_code, 403)
+
+    def test_management_cannot_adjust_quota(self):
+        self.api.force_authenticate(self.mgr_user)
+        res = self.api.post('/api/leaves/adjustments/', {
+            'employee': self.rep.id, 'leave_type': LeaveType.objects.get(code='ANNUAL').id,
+            'year': 2026, 'amount': '1', 'reason': 'x',
+        }, format='json')
+        self.assertEqual(res.status_code, 403)

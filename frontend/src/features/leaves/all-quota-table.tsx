@@ -8,11 +8,20 @@ import { TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/compon
 import { formatDays, getAllBalanceSummary, type EmployeeQuotaPage } from '@/lib/leaves';
 
 /**
- * HR "Semua Karyawan" quota overview: every ACTIVE employee's quota for a
- * year (quota engine — no leave history needed), 10 employees per page.
- * Clicking a name opens that employee's detail view (with adjustments).
+ * Quota overview: ACTIVE employees' quota for a year (quota engine — no
+ * leave history needed), 10 employees per page. Rows are scoped by the
+ * backend: HR/GM all employees, MANAGEMENT direct reports only.
+ * `onSelect` (HR only) makes names clickable to open detail/adjustments.
  */
-export function AllQuotaTable({ year, onSelect }: { year: number; onSelect: (employeeId: number) => void }) {
+export function AllQuotaTable({
+  year,
+  onSelect,
+  emptyText = 'Tidak ada karyawan aktif.'
+}: {
+  year: number;
+  onSelect?: (employeeId: number) => void;
+  emptyText?: string;
+}) {
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [query, setQuery] = useState('');
@@ -66,7 +75,7 @@ export function AllQuotaTable({ year, onSelect }: { year: number; onSelect: (emp
       ) : error ? (
         <p className='text-destructive text-sm'>{error}</p>
       ) : !data || data.results.length === 0 ? (
-        <p className='text-muted-foreground text-sm'>Tidak ada karyawan aktif.</p>
+        <p className='text-muted-foreground text-sm'>{query ? 'Tidak ada karyawan yang cocok.' : emptyText}</p>
       ) : (
         <>
           <div className={`overflow-x-auto ${loading ? 'opacity-60' : ''}`}>
@@ -88,13 +97,17 @@ export function AllQuotaTable({ year, onSelect }: { year: number; onSelect: (emp
                     <TableRow key={`${emp.employee}-${b.leave_type}`}>
                       {i === 0 && (
                         <TableCell rowSpan={emp.rows.length} className='align-top font-medium'>
-                          <button
-                            type='button'
-                            className='text-primary text-left hover:underline'
-                            onClick={() => onSelect(emp.employee)}
-                          >
-                            {emp.employee_name}
-                          </button>
+                          {onSelect ? (
+                            <button
+                              type='button'
+                              className='text-primary text-left hover:underline'
+                              onClick={() => onSelect(emp.employee)}
+                            >
+                              {emp.employee_name}
+                            </button>
+                          ) : (
+                            emp.employee_name
+                          )}
                         </TableCell>
                       )}
                       <TableCell>
