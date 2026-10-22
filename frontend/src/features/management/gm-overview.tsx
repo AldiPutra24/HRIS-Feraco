@@ -29,11 +29,11 @@ function fmtDate(iso: string | null): string {
   return isNaN(d.getTime()) ? iso : d.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
-function fmtShort(iso: string): string {
+export function fmtShort(iso: string): string {
   return new Date(iso).toLocaleDateString('id-ID', { day: 'numeric', month: 'short' });
 }
 
-function initials(name: string): string {
+export function initials(name: string): string {
   return name
     .split(' ')
     .filter(Boolean)
@@ -42,7 +42,7 @@ function initials(name: string): string {
     .join('');
 }
 
-function greeting(): string {
+export function greeting(): string {
   const h = new Date().getHours();
   if (h < 11) return 'Selamat pagi';
   if (h < 15) return 'Selamat siang';
@@ -50,7 +50,7 @@ function greeting(): string {
   return 'Selamat malam';
 }
 
-function pct(part: number, whole: number): number {
+export function pct(part: number, whole: number): number {
   return whole > 0 ? Math.round((part / whole) * 100) : 0;
 }
 
@@ -58,7 +58,7 @@ function pct(part: number, whole: number): number {
 // Building blocks
 // ---------------------------------------------------------------------------
 
-const TONES = {
+export const TONES = {
   primary: 'bg-primary/10 text-primary',
   emerald: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
   slate: 'bg-slate-500/10 text-slate-600 dark:text-slate-400',
@@ -68,9 +68,9 @@ const TONES = {
   rose: 'bg-rose-500/10 text-rose-600 dark:text-rose-400'
 } as const;
 
-type Tone = keyof typeof TONES;
+export type Tone = keyof typeof TONES;
 
-function StatCard({
+export function StatCard({
   label,
   value,
   hint,
@@ -109,7 +109,7 @@ function StatCard({
   );
 }
 
-function SeeAll({ href, label = 'Lihat Semua' }: { href: string; label?: string }) {
+export function SeeAll({ href, label = 'Lihat Semua' }: { href: string; label?: string }) {
   return (
     <Link href={href} className='text-primary inline-flex shrink-0 items-center gap-1 text-xs font-medium hover:underline'>
       {label}
@@ -118,7 +118,7 @@ function SeeAll({ href, label = 'Lihat Semua' }: { href: string; label?: string 
   );
 }
 
-function EmptyState({ icon, text }: { icon: IconName; text: string }) {
+export function EmptyState({ icon, text }: { icon: IconName; text: string }) {
   const Icon = Icons[icon];
   return (
     <div className='flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed px-4 py-8 text-center'>
@@ -129,7 +129,7 @@ function EmptyState({ icon, text }: { icon: IconName; text: string }) {
 }
 
 /** Active vs inactive ring (pure CSS conic-gradient, theme-aware). */
-function WorkforceRing({ active, inactive }: { active: number; inactive: number }) {
+export function WorkforceRing({ active, inactive }: { active: number; inactive: number }) {
   const total = active + inactive;
   const activePct = pct(active, total);
   return (
@@ -227,7 +227,7 @@ function ContractItem({ c }: { c: CompanyContractEnding }) {
   );
 }
 
-function ApprovalItem({ leave }: { leave: ManagementPendingLeave }) {
+export function ApprovalItem({ leave }: { leave: ManagementPendingLeave }) {
   return (
     <li>
       <Link
