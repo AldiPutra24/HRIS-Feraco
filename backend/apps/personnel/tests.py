@@ -1189,24 +1189,27 @@ class EmployeePhotoDownloadTests(TestCase):
     def _url(self, pk=None):
         return reverse('employee-photo-download', args=[pk if pk is not None else self.emp.pk])
 
-    def test_hr_roles_get_signed_url_with_tidy_filename(self):
-        from django.test import override_settings
+    def test_hr_roles_get_backend_download_link_with_tidy_filename(self):
         from unittest import mock
 
+        upstream = mock.Mock()
+        upstream.iter_content.return_value = iter([b'\xff\xd8\xff photo'])
         for role in ('ADMIN', 'HR_STAFF', 'HR_LEAD'):
             user = make_user(role)
             self.client.force_login(user)
-            with mock.patch('apps.personnel.views.is_configured', return_value=True), \
-                 mock.patch('apps.personnel.views.signed_url', return_value='https://supabase/signed?token=x') as m:
+            with mock.patch('apps.personnel.views.is_configured', return_value=True):
                 res = self.client.get(self._url())
             self.assertEqual(res.status_code, 200, res.content)
-            self.assertEqual(res.json()['url'], 'https://supabase/signed?token=x')
+            # Link to the backend stream (no storage signed URL).
+            self.assertTrue(res.json()['url'].endswith(f'/api/employees/{self.emp.pk}/photo/?download=1'))
             self.assertEqual(res.json()['filename'], 'foto-budi-santoso.jpg')
-            m.assert_called_once()
-            args, kwargs = m.call_args
-            self.assertEqual(args[0], 'employee-photos')
-            self.assertEqual(args[1], 'photos/emp_1.jpg')
-            self.assertEqual(kwargs.get('download'), 'foto-budi-santoso.jpg')
+        upstream.iter_content.return_value = iter([b'\xff\xd8\xff photo'])
+        with mock.patch('apps.personnel.views.is_configured', return_value=True), \
+             mock.patch('apps.personnel.storage.open_object', return_value=upstream) as op:
+            res = self.client.get(f'/api/employees/{self.emp.pk}/photo/?download=1')
+        self.assertEqual(res.status_code, 200)
+        op.assert_called_once_with('employee-photos', 'photos/emp_1.jpg')
+        self.assertTrue(res['Content-Disposition'].startswith('attachment; filename="foto-budi-santoso.jpg"'))
 
     def test_management_and_employee_forbidden(self):
         from unittest import mock
@@ -1230,11 +1233,64 @@ class EmployeePhotoDownloadTests(TestCase):
 
         user = make_user('HR_STAFF')
         self.client.force_login(user)
-        with mock.patch('apps.personnel.storage.is_configured', return_value=True), \
-             mock.patch('apps.personnel.storage.signed_url', return_value='https://supabase/signed'):
+        with mock.patch('apps.personnel.storage.is_configured', return_value=True):
             res = self.client.get(reverse('employee-detail', args=[self.emp.pk]))
         self.assertEqual(res.status_code, 200, res.content)
-        self.assertEqual(res.json()['photo_url'], 'https://supabase/signed')
+        # Backend-streamed, versioned by the stored file name.
+        self.assertTrue(res.json()['photo_url'].endswith(f'/api/employees/{self.emp.pk}/photo/?v=photos/emp_1.jpg'))
+
+
+class EmployeePhotoStreamTests(TestCase):
+    """Profile photo is streamed by the backend (browser never contacts the
+    storage host) with the same visibility as the employee record."""
+
+    def setUp(self):
+        from apps.accounts.models import Role
+
+        self.owner_user = make_user('EMPLOYEE')
+        self.emp = Employee.objects.create(employee_id='P001', full_name='Budi', photo='emp_1_1700.jpg',
+                                           user=self.owner_user)
+        self.other_user = User.objects.create_user(username='other.photo@test.com', email='other.photo@test.com', password='x')
+        self.other_user.role = Role.objects.get(key='EMPLOYEE')
+        self.other_user.save()
+        Employee.objects.create(employee_id='P002', full_name='Other', user=self.other_user)
+
+    def _get(self, user, url=None):
+        from unittest import mock
+
+        upstream = mock.Mock()
+        upstream.iter_content.return_value = iter([b'\xff\xd8\xff photo'])
+        self.client.force_login(user)
+        with mock.patch('apps.personnel.views.is_configured', return_value=True), \
+             mock.patch('apps.personnel.storage.open_object', return_value=upstream):
+            res = self.client.get(url or f'/api/employees/{self.emp.pk}/photo/?v=emp_1_1700.jpg')
+            body = b''.join(res.streaming_content) if getattr(res, 'streaming', False) else res.content
+        return res, body
+
+    def test_owner_and_hr_see_photo_inline_cached(self):
+        for user in (self.owner_user, make_user('HR_STAFF')):
+            res, body = self._get(user)
+            self.assertEqual(res.status_code, 200, body)
+            self.assertEqual(body, b'\xff\xd8\xff photo')
+            self.assertEqual(res['Content-Type'], 'image/jpeg')
+            self.assertTrue(res['Content-Disposition'].startswith('inline'))
+            self.assertEqual(res['Cache-Control'], 'private, max-age=86400')
+
+    def test_other_employee_and_out_of_team_management_get_404(self):
+        self.assertEqual(self._get(self.other_user)[0].status_code, 404)
+        self.assertEqual(self._get(make_user('MANAGEMENT'))[0].status_code, 404)  # not their team
+
+    def test_download_param_is_hr_only(self):
+        res, _ = self._get(self.owner_user, f'/api/employees/{self.emp.pk}/photo/?download=1')
+        self.assertEqual(res.status_code, 403)
+
+    def test_me_photo_url_points_to_backend(self):
+        from unittest import mock
+
+        self.client.force_login(self.owner_user)
+        with mock.patch('apps.personnel.storage.is_configured', return_value=True):
+            res = self.client.get(reverse('me'))
+        self.assertTrue(res.json()['photo_url'].endswith(f'/api/employees/{self.emp.pk}/photo/?v=emp_1_1700.jpg'))
 
 
 class DashboardManagementTests(TestCase):

@@ -27,7 +27,7 @@ from .serializers import (
     EmploymentHistorySerializer,
     PositionSerializer,
 )
-from .storage import delete_object, is_configured, signed_url, upload_bytes
+from .storage import delete_object, is_configured, upload_bytes
 
 
 def next_employee_id():
@@ -115,13 +115,55 @@ class EmployeeViewSet(SoftHardDeleteMixin, viewsets.ModelViewSet):
             qs = qs.filter(position__isnull=False, position__role=position_role)
         return qs
 
+    @staticmethod
+    def _photo_filename(emp):
+        ext = emp.photo.rsplit('.', 1)[-1].lower() if '.' in emp.photo else 'jpg'
+        slug = ''.join(c.lower() if c.isalnum() else '-' for c in emp.full_name).strip('-')
+        slug = '-'.join(s for s in slug.split('-') if s) or 'karyawan'
+        return f'foto-{slug}.{ext}'
+
+    @action(detail=True, methods=['get'], url_path='photo', permission_classes=[IsAuthenticated])
+    def photo(self, request, pk=None):
+        """Profile photo streamed by the backend (the browser never talks to
+        the storage provider: R2/Supabase hosts may be blocked on some
+        networks). Visible to the employee themself and to every role that
+        may read this employee (same scope as retrieve). `?download=1` =
+        original file as attachment (HR only). URLs carry `?v=<photo>` so
+        the private browser cache is safe.
+        """
+        from .permissions import READ_ROLES, employee_for
+        from .storage import stream_file_response
+
+        emp = Employee.objects.filter(pk=pk).first()
+        own = employee_for(request.user)
+        is_self = emp is not None and own is not None and own.pk == emp.pk
+        visible = is_self or (
+            emp is not None and _role(request.user) in READ_ROLES and self.get_queryset().filter(pk=emp.pk).exists()
+        )
+        if not visible or not emp.photo:
+            return Response({'detail': 'Foto tidak ditemukan.'}, status=status.HTTP_404_NOT_FOUND)
+        download = request.query_params.get('download') == '1'
+        if download and _role(request.user) not in {'ADMIN', 'HR_STAFF', 'HR_LEAD'}:
+            return Response({'detail': 'Not allowed.'}, status=status.HTTP_403_FORBIDDEN)
+        if not is_configured():
+            return Response({'detail': 'Storage not configured.'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        try:
+            response = stream_file_response('employee-photos', emp.photo, self._photo_filename(emp),
+                                            attachment=download, cache_seconds=0 if download else 86400)
+        except Exception as exc:
+            return Response({'detail': f'Gagal mengambil foto dari storage: {str(exc)[:150]}'},
+                            status=status.HTTP_502_BAD_GATEWAY)
+        if download:
+            log_event(request, 'download', obj=emp, description=f'Profile photo {emp.employee_id} downloaded')
+        return response
+
     @action(detail=True, methods=['get'], url_path='photo/download')
     def photo_download(self, request, pk=None):
-        """Signed URL to download the employee's ORIGINAL profile photo file.
+        """Link to download the employee's ORIGINAL profile photo file.
 
-        HR-only (Admin / HR Lead / HR Staff). Signed URL carries a
-        Content-Disposition download filename like 'foto-nama-karyawan.jpg' so
-        the browser saves the original file, not a render/screenshot.
+        HR-only (Admin / HR Lead / HR Staff). Returns `{url, filename}`; the
+        url streams the file from the backend with a tidy download filename
+        like 'foto-nama-karyawan.jpg' (no storage signed URL).
         """
         if _role(request.user) not in {'ADMIN', 'HR_STAFF', 'HR_LEAD'}:
             return Response({'detail': 'Not allowed.'}, status=status.HTTP_403_FORBIDDEN)
@@ -130,16 +172,8 @@ class EmployeeViewSet(SoftHardDeleteMixin, viewsets.ModelViewSet):
             return Response({'detail': 'Karyawan belum memiliki foto profil.'}, status=status.HTTP_404_NOT_FOUND)
         if not is_configured():
             return Response({'detail': 'Storage not configured.'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
-        ext = emp.photo.rsplit('.', 1)[-1].lower() if '.' in emp.photo else 'jpg'
-        slug = ''.join(c.lower() if c.isalnum() else '-' for c in emp.full_name).strip('-')
-        slug = '-'.join(s for s in slug.split('-') if s) or 'karyawan'
-        filename = f'foto-{slug}.{ext}'
-        try:
-            url = signed_url('employee-photos', emp.photo, expires_in=600, download=filename)
-        except Exception:
-            return Response({'detail': 'Gagal membuat URL unduhan.'}, status=status.HTTP_502_BAD_GATEWAY)
-        log_event(request, 'download', obj=emp, description=f'Profile photo {emp.employee_id} downloaded')
-        return Response({'url': url, 'filename': filename})
+        url = request.build_absolute_uri(f'/api/employees/{emp.pk}/photo/?download=1')
+        return Response({'url': url, 'filename': self._photo_filename(emp)})
 
     def _block_management_detail_tabs(self):
         """MANAGEMENT sees team Overview + Employment only: contracts, history

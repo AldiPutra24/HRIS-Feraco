@@ -340,14 +340,16 @@ def is_configured():
     return r2_configured() if _backend() == 'r2' else supabase_configured()
 
 
-def stream_file_response(bucket, path, filename):
+def stream_file_response(bucket, path, filename, attachment=False, cache_seconds=0):
     """Serve a private storage object through the backend (no signed URL).
 
     Signed URLs fail with 400 InvalidSignature for keys containing reserved
     characters such as ',' or '&'; streaming with the service key does not.
     PDF/PNG/JPEG/WEBP (detected from the real bytes, never the stored type)
     render inline; anything else downloads as octet-stream so an uploaded
-    file can never execute in the HRIS origin. Raises RuntimeError when the
+    file can never execute in the HRIS origin. `attachment=True` always
+    downloads. `cache_seconds` allows private browser caching (only for
+    versioned URLs, e.g. profile photos). Raises RuntimeError when the
     object cannot be fetched.
     """
     from itertools import chain
@@ -376,12 +378,27 @@ def stream_file_response(bucket, path, filename):
     safe_name = ''.join(ch for ch in (filename or '') if ch.isprintable() and ch not in '"\\') or 'dokumen'
     ascii_name = safe_name.encode('ascii', 'ignore').decode() or 'dokumen'
     response['Content-Disposition'] = (
-        f'{"inline" if inline_type else "attachment"}; filename="{ascii_name}"; '
+        f'{"inline" if inline_type and not attachment else "attachment"}; filename="{ascii_name}"; '
         f"filename*=UTF-8''{urlquote(safe_name)}"
     )
     response['X-Content-Type-Options'] = 'nosniff'
-    response['Cache-Control'] = 'private, no-store'
+    response['Cache-Control'] = f'private, max-age={cache_seconds}' if cache_seconds else 'private, no-store'
     return response
+
+
+def employee_photo_url(employee, request=None):
+    """Backend URL of an employee's profile photo (streamed by
+    EmployeeViewSet.photo), versioned by the stored file name so a new photo
+    gets a new URL. Absolute when a request is available."""
+    if not employee or not employee.photo or not is_configured():
+        return None
+    from urllib.parse import quote as urlquote
+
+    path = f'/api/employees/{employee.pk}/photo/?v={urlquote(employee.photo)}'
+    if request is not None:
+        return request.build_absolute_uri(path)
+    base = getattr(settings, 'HRIS_PUBLIC_URL', '')
+    return f'{base}{path}' if base else path
 
 
 def stream_link_or_file(request, bucket, path, filename, **extra):

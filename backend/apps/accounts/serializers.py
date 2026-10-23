@@ -41,16 +41,11 @@ class UserSerializer(serializers.ModelSerializer):
 
     def get_photo_url(self, obj):
         employee = getattr(getattr(obj, 'personnel', None), 'employee', None)
-        if not employee or not employee.photo:
-            return None
-        from apps.personnel.storage import is_configured, signed_url
+        # Backend-streamed photo URL (EmployeeViewSet.photo allows the
+        # employee themself), not a storage signed URL.
+        from apps.personnel.storage import employee_photo_url
 
-        if not is_configured():
-            return None
-        try:
-            return signed_url('employee-photos', employee.photo, expires_in=3600)
-        except Exception:
-            return None
+        return employee_photo_url(employee, self.context.get('request'))
 
 
 class RoleSerializer(serializers.ModelSerializer):

@@ -51,7 +51,7 @@ class LoginView(APIView):
         auth_login(request, user)
         touch_last_seen(user, force=True)
         log_event(request, 'login', user=user)
-        return Response(UserSerializer(user).data, status=status.HTTP_200_OK)
+        return Response(UserSerializer(user, context={'request': request}).data, status=status.HTTP_200_OK)
 
     @staticmethod
     def _locked(seconds):
@@ -86,7 +86,7 @@ class HeartbeatView(APIView):
 
 class CurrentUserView(APIView):
     def get(self, request):
-        return Response(UserSerializer(request.user).data)
+        return Response(UserSerializer(request.user, context={'request': request}).data)
 
 class SelfAccountView(APIView):
     """Self-service account edit (username/email/name/password) for any authenticated user."""

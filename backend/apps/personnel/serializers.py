@@ -221,16 +221,11 @@ class EmployeeReadSerializer(EmployeeSerializer):
     photo_url = serializers.SerializerMethodField()
 
     def get_photo_url(self, obj):
-        if not obj.photo:
-            return None
-        from .storage import is_configured, signed_url
+        # Streamed by the backend (see EmployeeViewSet.photo), not a storage
+        # signed URL: storage hosts can be blocked on users' networks.
+        from .storage import employee_photo_url
 
-        if not is_configured():
-            return None
-        try:
-            return signed_url('employee-photos', obj.photo, expires_in=3600)
-        except Exception:
-            return None
+        return employee_photo_url(obj, self.context.get('request'))
 
     def _hides_contracts(self, obj):
         """MANAGEMENT sees their team's Overview + Employment only — no

@@ -89,8 +89,8 @@ export function EmployeeDetail({ id }: { id: number }) {
   const [photoPreview, setPhotoPreview] = useState(false);
   const [downloadingPhoto, setDownloadingPhoto] = useState(false);
 
-  // HR-only (admin / hr_lead / hr_staff): download the ORIGINAL photo file via
-  // a backend-issued signed URL with a tidy download filename.
+  // HR-only (admin / hr_lead / hr_staff): download the ORIGINAL photo file,
+  // streamed by the backend with a tidy download filename.
   const canDownloadPhoto = !isManagement;
 
   async function handleDownloadPhoto() {
