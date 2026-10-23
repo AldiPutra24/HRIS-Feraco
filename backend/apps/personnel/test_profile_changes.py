@@ -215,3 +215,26 @@ class ProfileChangeTests(TestCase):
         Employee.objects.create(employee_id='E009', full_name='Other', user=other)
         self.client.force_login(other)
         self.assertEqual(self.client.post(f'{MY_CR}{cr.pk}/cancel/').status_code, 404)
+
+
+class ManagementProfileTests(TestCase):
+    """Management / GM use the same self-service profile endpoints."""
+
+    def test_management_and_gm_can_edit_contact_and_submit_request(self):
+        for key in ('MANAGEMENT', 'GENERAL_MANAGER'):
+            user = make_user(key, f'{key.lower()}.self@test.com')
+            emp = Employee.objects.create(employee_id=f'M-{key}', full_name=key.title(), phone='0811', user=user)
+            self.client.force_login(user)
+            res = self.client.patch(ME, {'phone': '0899'}, content_type='application/json')
+            self.assertEqual(res.status_code, 200, res.content)
+            emp.refresh_from_db()
+            self.assertEqual(emp.phone, '0899')
+            res = self.client.post(MY_CR, {'changes': json.dumps({'religion': 'HINDU'})})
+            self.assertEqual(res.status_code, 201, res.content)
+            # Decision bell links to their own profile route.
+            cr = EmployeeChangeRequest.objects.get(employee=emp)
+            hr = make_user('HR_LEAD', f'lead.{key.lower()}@test.com')
+            self.client.force_login(hr)
+            self.client.post(f'{HR_CR}{cr.pk}/approve/')
+            n = Notification.objects.get(kind='PROFILE_CHANGE_APPROVED', recipient=user)
+            self.assertEqual(n.link, '/dashboard/management/profile')

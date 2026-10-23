@@ -236,7 +236,15 @@ export const managementNavGroups: NavGroup[] = [
     label: 'Personal',
     items: [
       {
-        title: 'Profile',
+        // Own employee profile: direct contact edits + data change requests.
+        title: 'Profil Karyawan',
+        url: '/dashboard/management/profile',
+        icon: 'profile',
+        isActive: false,
+        items: []
+      },
+      {
+        title: 'Pengaturan Akun',
         url: '/dashboard/settings/account',
         icon: 'account',
         isActive: false,

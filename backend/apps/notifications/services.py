@@ -540,6 +540,7 @@ def notify_reimbursement_submitted(reimbursement) -> dict:
 
 PROFILE_CHANGE_HR_LINK = '/dashboard/perubahan-data'
 PROFILE_CHANGE_EMPLOYEE_LINK = '/dashboard/employee/profile'
+PROFILE_CHANGE_MANAGEMENT_LINK = '/dashboard/management/profile'
 PROFILE_CHANGE_APPROVER_ROLES = ('ADMIN', 'HR_STAFF', 'HR_LEAD')
 
 
@@ -547,6 +548,14 @@ def _change_fields_text(cr) -> str:
     from apps.personnel.profile_changes import REQUEST_FIELDS
 
     return ', '.join(REQUEST_FIELDS.get(f, f) for f in cr.changes)
+
+
+def _own_profile_link(user):
+    """Requester's own profile page (Management / GM have their own route)."""
+    role = getattr(getattr(user, 'role', None), 'key', None)
+    if role in ('MANAGEMENT', 'GENERAL_MANAGER'):
+        return PROFILE_CHANGE_MANAGEMENT_LINK
+    return PROFILE_CHANGE_EMPLOYEE_LINK
 
 
 def notify_profile_change_submitted(cr) -> dict:
@@ -580,7 +589,7 @@ def notify_profile_change_decided(cr) -> dict:
         if _deliver_inapp(f'profile-change-{"approved" if approved else "rejected"}:{cr.pk}', event,
                           getattr(cr.employee, 'user', None),
                           'Perubahan Data Disetujui' if approved else 'Perubahan Data Ditolak', text,
-                          link=PROFILE_CHANGE_EMPLOYEE_LINK, object_id=cr.pk):
+                          link=_own_profile_link(getattr(cr.employee, 'user', None)), object_id=cr.pk):
             result['inapp'] += 1
     except Exception as exc:
         log_event(None, 'update', obj=None, description=f'PROFILE_CHANGE decision notification error id={cr.pk}: {exc}')
