@@ -1,3 +1,5 @@
+from io import StringIO
+
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.urls import reverse
@@ -450,3 +452,21 @@ class PasswordStrengthTests(TestCase):
         self.assertEqual(res.status_code, 200, res.data)
         self.emp.refresh_from_db()
         self.assertTrue(self.emp.check_password('Baru#Feraco2026'))
+
+
+class SeedRolesAdminPasswordTests(TestCase):
+    """seed_roles runs on every container start: it must not reset a
+    password the admin changed."""
+
+    def test_seed_keeps_changed_admin_password(self):
+        from django.core.management import call_command
+
+        call_command('seed_roles', stdout=StringIO())
+        admin = User.objects.get(username='admin@feraco.id')
+        self.assertTrue(admin.check_password('password'))  # initial password on create
+        admin.set_password('Admin#Feraco2026')
+        admin.save()
+        call_command('seed_roles', stdout=StringIO())
+        admin.refresh_from_db()
+        self.assertTrue(admin.check_password('Admin#Feraco2026'))
+        self.assertEqual(admin.role.key, 'ADMIN')

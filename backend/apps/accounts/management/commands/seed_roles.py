@@ -19,7 +19,7 @@ class Command(BaseCommand):
         parser.add_argument(
             '--password',
             default='password',
-            help='Password for the demo admin (default: password).',
+            help='Initial password for the demo admin, used only when it is created (default: password).',
         )
 
     def handle(self, *args, **options):
@@ -34,7 +34,9 @@ class Command(BaseCommand):
             username='admin@feraco.id',
             defaults={'email': 'admin@feraco.id', 'is_staff': True, 'is_superuser': True},
         )
-        if created or not user.check_password(password):
+        # Runs on every container start: set the password ONLY when the admin
+        # is first created — never overwrite a password changed afterwards.
+        if created:
             user.set_password(password)
         user.role = Role.objects.get(key='ADMIN')
         user.save()
