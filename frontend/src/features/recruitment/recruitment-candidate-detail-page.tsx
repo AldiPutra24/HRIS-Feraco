@@ -7,7 +7,8 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
-import { acceptCandidateFreelance, getCandidate, getCandidateCv, transitionCandidate, hardDeleteCandidate, type Candidate } from '@/lib/recruitment';
+import { Icons } from '@/components/icons';
+import { acceptCandidateFreelance, candidateCvFileUrl, getCandidate, transitionCandidate, hardDeleteCandidate, type Candidate } from '@/lib/recruitment';
 import { PIPELINE, statusLabel } from '@/features/recruitment/candidate-pipeline';
 import { useAuth } from '@/lib/auth/auth-provider';
 
@@ -62,7 +63,6 @@ export function RecruitmentCandidateDetailPage({ id }: { id: string }) {
   const [candidate, setCandidate] = useState<Candidate | null>(null);
   const [notFoundState, setNotFoundState] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [cvLoading, setCvLoading] = useState(false);
   const [transitioning, setTransitioning] = useState(false);
   const [movingToPool, setMovingToPool] = useState(false);
   const [note, setNote] = useState('');
@@ -80,18 +80,6 @@ export function RecruitmentCandidateDetailPage({ id }: { id: string }) {
 
   if (notFoundState) notFound();
 
-  async function downloadCv() {
-    if (!candidate) return;
-    setCvLoading(true);
-    try {
-      const { url } = await getCandidateCv(candidate.id);
-      window.open(url, '_blank', 'noopener');
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Gagal memuat CV.');
-    } finally {
-      setCvLoading(false);
-    }
-  }
 
   async function handleTransition(toStatus: string) {
     if (!candidate) return;
@@ -297,9 +285,16 @@ export function RecruitmentCandidateDetailPage({ id }: { id: string }) {
         </CardHeader>
         <CardContent>
           {candidate.cv_url ? (
-            <Button onClick={downloadCv} disabled={cvLoading}>
-              {cvLoading ? 'Memuat...' : 'Unduh CV'}
-            </Button>
+            <a
+              href={candidateCvFileUrl(candidate) ?? undefined}
+              target='_blank'
+              rel='noreferrer'
+              title={candidate.cv_name || 'CV'}
+              className='text-primary inline-flex items-center gap-1 text-xs font-medium hover:underline'
+            >
+              <Icons.paperclip className='size-3.5' />
+              Lampiran
+            </a>
           ) : (
             <p className='text-muted-foreground text-sm'>Kandidat belum mengunggah CV.</p>
           )}

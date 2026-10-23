@@ -514,8 +514,9 @@ export function EmployeeDetail({ id }: { id: number }) {
                       {current.document && (
                         <div>
                           <Label className='text-muted-foreground text-xs'>Dokumen</Label>
-                          <a href={current.document} target='_blank' rel='noreferrer' className='text-primary text-sm font-medium hover:underline'>
-                            View / Download
+                          <a href={current.document} target='_blank' rel='noreferrer' className='text-primary inline-flex items-center gap-1 text-xs font-medium hover:underline flex w-fit'>
+                            <Icons.paperclip className='size-3.5' />
+                            Lampiran
                           </a>
                         </div>
                       )}
@@ -662,8 +663,9 @@ export function EmployeeDetail({ id }: { id: number }) {
                       </TableCell>
                       <TableCell>
                         {c.document ? (
-                          <a href={c.document} target='_blank' rel='noreferrer' className='text-primary text-sm font-medium hover:underline'>
-                            View
+                          <a href={c.document} target='_blank' rel='noreferrer' className='text-primary inline-flex items-center gap-1 text-xs font-medium hover:underline'>
+                            <Icons.paperclip className='size-3.5' />
+                            Lampiran
                           </a>
                         ) : (
                           '-'
@@ -870,8 +872,9 @@ export function EmployeeDetail({ id }: { id: number }) {
                   <TableCell className='text-right'>
                     <div className='flex items-center justify-end gap-2'>
                       {d.url && (
-                        <a href={d.url} target='_blank' rel='noreferrer' className='text-primary text-sm font-medium hover:underline'>
-                          View
+                        <a href={d.url} target='_blank' rel='noreferrer' title={d.name} className='text-primary inline-flex items-center gap-1 text-xs font-medium hover:underline'>
+                          <Icons.paperclip className='size-3.5' />
+                          Lampiran
                         </a>
                       )}
                       {isAdmin && (

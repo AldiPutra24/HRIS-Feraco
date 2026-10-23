@@ -233,6 +233,11 @@ export function hardDeleteCandidate(id: number): Promise<void> {
   return request<void>(`/candidates/${id}/hard-delete/`, { method: 'DELETE' });
 }
 
+/** Direct link that streams the candidate's CV from the backend (`?raw=1`). */
+export function candidateCvFileUrl(c: { cv_url?: string | null }): string | null {
+  return c.cv_url ? `${c.cv_url}?raw=1` : null;
+}
+
 export function getCandidateCv(id: number): Promise<{ url: string; name: string }> {
   return request<{ url: string; name: string }>(`/candidates/${id}/cv/`);
 }

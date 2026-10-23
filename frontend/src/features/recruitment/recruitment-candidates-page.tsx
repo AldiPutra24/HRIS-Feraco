@@ -9,8 +9,10 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import { TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Icons } from '@/components/icons';
 import {
   acceptCandidateFreelance,
+  candidateCvFileUrl,
   listCandidates,
   listJobs,
   hardDeleteCandidate,
@@ -244,10 +246,14 @@ export function RecruitmentCandidatesPage({
                       <TableCell>
                         {c.cv_url ? (
                           <a
-                            href={`/dashboard/recruitment/candidates/${c.id}`}
-                            className='text-primary text-sm font-medium hover:underline'
+                            href={candidateCvFileUrl(c) ?? undefined}
+                            target='_blank'
+                            rel='noreferrer'
+                            title={c.cv_name || 'CV'}
+                            className='text-primary inline-flex items-center gap-1 text-xs font-medium hover:underline'
                           >
-                            {c.cv_name || 'CV'}
+                            <Icons.paperclip className='size-3.5' />
+                            Lampiran
                           </a>
                         ) : (
                           '-'
