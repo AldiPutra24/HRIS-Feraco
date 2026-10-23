@@ -130,6 +130,15 @@ else:
 # Supabase — storage + auth metadata (service key is backend-only).
 SUPABASE_URL = os.environ.get('SUPABASE_URL', '')
 SUPABASE_SECRET_KEY = os.environ.get('SUPABASE_SECRET_KEY', '')
+
+# Object storage backend (apps.personnel.storage): 'supabase' or 'r2'.
+# R2 uses ONE bucket; the logical bucket names below become key prefixes.
+STORAGE_BACKEND = os.environ.get('STORAGE_BACKEND', 'supabase').strip().lower()
+R2_ACCOUNT_ID = os.environ.get('R2_ACCOUNT_ID', '')
+R2_ACCESS_KEY_ID = os.environ.get('R2_ACCESS_KEY_ID', '')
+R2_SECRET_ACCESS_KEY = os.environ.get('R2_SECRET_ACCESS_KEY', '')
+R2_BUCKET = os.environ.get('R2_BUCKET', '')
+
 SUPABASE_STORAGE_BUCKET = os.environ.get(
     'SUPABASE_STORAGE_BUCKET',
     'employee-documents' if APP_ENV == 'production' else 'employee-documents-dev',

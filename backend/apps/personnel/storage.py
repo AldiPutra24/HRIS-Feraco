@@ -1,7 +1,15 @@
-"""Supabase Storage client for private employee documents.
+"""Private object storage for HRIS files (documents, photos, attachments).
 
-Uses the service-role key server-side only. Binary files live in a private
-bucket; the DB stores only metadata (path, content_type, size, version).
+Two backends, chosen by settings.STORAGE_BACKEND:
+  - 'supabase': Supabase Storage REST API with the service-role key.
+  - 'r2': Cloudflare R2 (S3 API). One R2 bucket; the logical bucket name
+    used by the apps ('employee-documents', 'employee-photos', ...) becomes
+    the key prefix, so stored paths stay identical after migration
+    (`migrate_storage_to_r2` copies Supabase -> R2 with the same keys).
+
+Credentials are server-side only. The DB stores only metadata (path,
+content_type, size, version); files are served by the backend
+(stream_file_response) or, for photos, via short-lived signed URLs.
 """
 import os
 import string
@@ -58,8 +66,19 @@ def _storage_base():
     return f"{settings.SUPABASE_URL.rstrip('/')}/storage/v1/object"
 
 
-def upload_bytes(bucket, path, data: bytes, content_type='application/octet-stream'):
-    """Upload raw bytes to a private bucket path. Returns storage path."""
+def _backend():
+    return (getattr(settings, 'STORAGE_BACKEND', 'supabase') or 'supabase').lower()
+
+
+# ---------------------------------------------------------------------------
+# Supabase Storage (REST)
+# ---------------------------------------------------------------------------
+
+def supabase_configured():
+    return bool(settings.SUPABASE_URL and settings.SUPABASE_SECRET_KEY)
+
+
+def _sb_upload(bucket, path, data, content_type):
     url = f'{_storage_base()}/{bucket}/{_quoted_path(path)}'
     res = requests.post(
         url,
@@ -69,22 +88,15 @@ def upload_bytes(bucket, path, data: bytes, content_type='application/octet-stre
     )
     if res.status_code not in (200, 201):
         raise RuntimeError(f'Storage upload failed ({res.status_code}): {res.text[:200]}')
-    return path
 
 
-def delete_object(bucket, path):
+def _sb_delete(bucket, path):
     url = f'{_storage_base()}/{bucket}/{_quoted_path(path)}'
     res = requests.delete(url, headers=_headers(), timeout=30)
     return res.status_code in (200, 204)
 
 
-def signed_url(bucket, path, expires_in=3600, download=None):
-    """Create a short-lived signed URL for private object access.
-
-    `download` (optional filename) asks Supabase to send Content-Disposition
-    attachment so the browser downloads the ORIGINAL file under that name
-    instead of rendering it.
-    """
+def _sb_signed_url(bucket, path, expires_in, download):
     url = f'{_storage_base()}/sign/{bucket}/{_quoted_path(path)}'
     payload = {'expiresIn': expires_in}
     if download:
@@ -100,16 +112,16 @@ def signed_url(bucket, path, expires_in=3600, download=None):
     return signed
 
 
-def open_object(bucket, path):
-    """Stream an object server-side with the service key.
+def supabase_open_object(bucket, path):
+    """Stream a Supabase object server-side with the service key.
 
-    Same `/object/<bucket>/<key>` route and key encoding as `upload_bytes`, so
+    Same `/object/<bucket>/<key>` route and key encoding as the upload, so
     it reaches exactly the stored object. Unlike signed URLs there is no
     signature check, which Supabase fails for keys with reserved characters
     such as ',' or '&' (the sign endpoint signs '%2C' literally while the
     visited link decodes it to ',' -> 400 InvalidSignature).
     Returns a streaming `requests.Response` (caller must close it); raises
-    RuntimeError on failure.
+    RuntimeError on failure. Also the source of `migrate_storage_to_r2`.
     """
     url = f'{_storage_base()}/{bucket}/{_quoted_path(path)}'
     res = requests.get(url, headers=_headers(), timeout=120, stream=True)
@@ -118,6 +130,190 @@ def open_object(bucket, path):
         res.close()
         raise RuntimeError(f'Storage download failed ({res.status_code}): {detail}')
     return res
+
+
+def supabase_list_buckets():
+    res = requests.get(f"{settings.SUPABASE_URL.rstrip('/')}/storage/v1/bucket", headers=_headers(), timeout=30)
+    if res.status_code != 200:
+        raise RuntimeError(f'Bucket list failed ({res.status_code}): {res.text[:200]}')
+    return [b['name'] for b in res.json()]
+
+
+def supabase_list_objects(bucket, prefix=''):
+    """Yield (key, size) of every object under `prefix`, walking folders."""
+    url = f'{_storage_base()}/list/{bucket}'
+    offset = 0
+    while True:
+        res = requests.post(url, headers=_headers(), timeout=60, json={
+            'prefix': prefix, 'limit': 1000, 'offset': offset,
+            'sortBy': {'column': 'name', 'order': 'asc'},
+        })
+        if res.status_code != 200:
+            raise RuntimeError(f'List failed {bucket}/{prefix} ({res.status_code}): {res.text[:200]}')
+        items = res.json()
+        for item in items:
+            key = f"{prefix}/{item['name']}" if prefix else item['name']
+            if item.get('id') is None:  # folder placeholder -> recurse
+                yield from supabase_list_objects(bucket, key)
+            else:
+                yield key, int((item.get('metadata') or {}).get('size') or 0)
+        if len(items) < 1000:
+            return
+        offset += 1000
+
+
+# ---------------------------------------------------------------------------
+# Cloudflare R2 (S3 API)
+# ---------------------------------------------------------------------------
+
+_r2_client_cache = {}
+
+
+def r2_configured():
+    return bool(settings.R2_ACCOUNT_ID and settings.R2_ACCESS_KEY_ID and settings.R2_SECRET_ACCESS_KEY
+                and settings.R2_BUCKET)
+
+
+def r2_client():
+    cache_key = (settings.R2_ACCOUNT_ID, settings.R2_ACCESS_KEY_ID)
+    if cache_key not in _r2_client_cache:
+        import boto3
+        from botocore.config import Config
+
+        _r2_client_cache[cache_key] = boto3.client(
+            's3',
+            endpoint_url=f'https://{settings.R2_ACCOUNT_ID}.r2.cloudflarestorage.com',
+            aws_access_key_id=settings.R2_ACCESS_KEY_ID,
+            aws_secret_access_key=settings.R2_SECRET_ACCESS_KEY,
+            region_name='auto',
+            config=Config(signature_version='s3v4', retries={'max_attempts': 3, 'mode': 'standard'},
+                          connect_timeout=10, read_timeout=120),
+        )
+    return _r2_client_cache[cache_key]
+
+
+def r2_key(bucket, path):
+    """R2 key for a logical bucket + stored path (same key Supabase used)."""
+    return f'{bucket}/{object_key(path)}'
+
+
+def _r2_error(exc):
+    response = getattr(exc, 'response', None) or {}
+    code = response.get('Error', {}).get('Code', '')
+    status = response.get('ResponseMetadata', {}).get('HTTPStatusCode', '')
+    return f'{status} {code or exc.__class__.__name__}'.strip()
+
+
+def r2_head(bucket, path):
+    """Object size in R2, or None when it does not exist."""
+    from botocore.exceptions import BotoCoreError, ClientError
+
+    try:
+        head = r2_client().head_object(Bucket=settings.R2_BUCKET, Key=r2_key(bucket, path))
+        return int(head.get('ContentLength', 0))
+    except ClientError as exc:
+        if exc.response.get('ResponseMetadata', {}).get('HTTPStatusCode') == 404:
+            return None
+        raise RuntimeError(f'Storage check failed ({_r2_error(exc)})') from exc
+    except BotoCoreError as exc:
+        raise RuntimeError(f'Storage check failed ({_r2_error(exc)})') from exc
+
+
+def _r2_upload(bucket, path, data, content_type):
+    from botocore.exceptions import BotoCoreError, ClientError
+
+    # Same semantics as Supabase `x-upsert: false`: never overwrite silently.
+    if r2_head(bucket, path) is not None:
+        raise RuntimeError('Storage upload failed (409): The resource already exists')
+    try:
+        r2_client().put_object(Bucket=settings.R2_BUCKET, Key=r2_key(bucket, path), Body=data,
+                               ContentType=content_type or 'application/octet-stream')
+    except (BotoCoreError, ClientError) as exc:
+        raise RuntimeError(f'Storage upload failed ({_r2_error(exc)})') from exc
+
+
+def _r2_delete(bucket, path):
+    from botocore.exceptions import BotoCoreError, ClientError
+
+    try:
+        r2_client().delete_object(Bucket=settings.R2_BUCKET, Key=r2_key(bucket, path))
+        return True
+    except (BotoCoreError, ClientError):
+        return False
+
+
+def _r2_signed_url(bucket, path, expires_in, download):
+    from urllib.parse import quote as urlquote
+
+    params = {'Bucket': settings.R2_BUCKET, 'Key': r2_key(bucket, path)}
+    if download:
+        params['ResponseContentDisposition'] = (
+            f'attachment; filename="{download}"; ' + "filename*=UTF-8''" + urlquote(download)
+        )
+    return r2_client().generate_presigned_url('get_object', Params=params, ExpiresIn=expires_in)
+
+
+class _R2Stream:
+    """Minimal `requests.Response`-like wrapper (iter_content/close) so
+    stream_file_response works unchanged for both backends."""
+
+    def __init__(self, body):
+        self._body = body
+
+    def iter_content(self, chunk_size=64 * 1024):
+        return self._body.iter_chunks(chunk_size=chunk_size)
+
+    def close(self):
+        self._body.close()
+
+
+def _r2_open(bucket, path):
+    from botocore.exceptions import BotoCoreError, ClientError
+
+    try:
+        obj = r2_client().get_object(Bucket=settings.R2_BUCKET, Key=r2_key(bucket, path))
+    except (BotoCoreError, ClientError) as exc:
+        raise RuntimeError(f'Storage download failed ({_r2_error(exc)})') from exc
+    return _R2Stream(obj['Body'])
+
+
+# ---------------------------------------------------------------------------
+# Public API (used by every app) - dispatches to the configured backend
+# ---------------------------------------------------------------------------
+
+def upload_bytes(bucket, path, data: bytes, content_type='application/octet-stream'):
+    """Upload raw bytes to a private bucket path. Returns storage path.
+    Raises RuntimeError on failure (incl. an existing object: no overwrite)."""
+    if _backend() == 'r2':
+        _r2_upload(bucket, path, data, content_type)
+    else:
+        _sb_upload(bucket, path, data, content_type)
+    return path
+
+
+def delete_object(bucket, path):
+    if _backend() == 'r2':
+        return _r2_delete(bucket, path)
+    return _sb_delete(bucket, path)
+
+
+def signed_url(bucket, path, expires_in=3600, download=None):
+    """Short-lived signed URL for private object access (profile photos).
+
+    `download` (optional filename) sends Content-Disposition attachment so
+    the browser downloads the ORIGINAL file under that name.
+    """
+    if _backend() == 'r2':
+        return _r2_signed_url(bucket, path, expires_in, download)
+    return _sb_signed_url(bucket, path, expires_in, download)
+
+
+def open_object(bucket, path):
+    """Stream an object server-side. Returns an object with
+    `iter_content(chunk_size)` and `close()`; raises RuntimeError."""
+    if _backend() == 'r2':
+        return _r2_open(bucket, path)
+    return supabase_open_object(bucket, path)
 
 
 # Types safe to render INLINE on our own origin, detected from the file's
@@ -141,7 +337,7 @@ def inline_content_type(head: bytes):
 
 
 def is_configured():
-    return bool(settings.SUPABASE_URL and settings.SUPABASE_SECRET_KEY)
+    return r2_configured() if _backend() == 'r2' else supabase_configured()
 
 
 def stream_file_response(bucket, path, filename):
