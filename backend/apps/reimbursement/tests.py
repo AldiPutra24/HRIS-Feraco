@@ -1,5 +1,6 @@
 from datetime import date
 
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.urls import reverse
@@ -1066,3 +1067,70 @@ class ReimbursementKpiExportTests(TestCase):
 
     def test_export_requires_login(self):
         self.assertEqual(self.client.get('/api/reimbursements/export/').status_code, 403)
+
+
+class ReimbursementFileStreamTests(TestCase):
+    """Attachment / payment proof are streamed by the backend (no Supabase
+    signed URL -> no InvalidSignature for names with ',' or '&')."""
+
+    NAME = 'Invoice Hotel, Makan & Taksi.pdf'
+
+    def setUp(self):
+        self.hr = make_user('HR_STAFF', 'hr.file@test.com')
+        self.owner_user = make_user('EMPLOYEE', 'owner.file@test.com')
+        self.other_user = make_user('EMPLOYEE', 'other.file@test.com')
+        self.owner = Employee.objects.create(employee_id='F001', full_name='Owner', employment_status='ACTIVE',
+                                             user=self.owner_user)
+        Employee.objects.create(employee_id='F002', full_name='Other', employment_status='ACTIVE', user=self.other_user)
+        cat = ReimbursementCategory.objects.create(name='Hotel', code='HTL')
+        self.obj = Reimbursement.objects.create(
+            employee=self.owner, category=cat, transaction_date=date(2026, 10, 1), amount=100000,
+            status='PAID', description='x', **BANK,
+            attachment_name=self.NAME, attachment_path=f'reimbursements/1/attachments/{self.NAME}',
+            payment_proof_name='bukti.png', payment_proof_path='reimbursements/1/payment-proofs/bukti.png',
+        )
+
+    def _get(self, user, kind='attachment', data=b'%PDF-1.4 data'):
+        from unittest import mock
+
+        upstream = mock.Mock()
+        upstream.iter_content.return_value = iter([data])
+        self.client.force_login(user)
+        with mock.patch('apps.reimbursement.views.is_configured', return_value=True), \
+             mock.patch('apps.personnel.storage.open_object', return_value=upstream) as op:
+            res = self.client.get(f'/api/reimbursements/{self.obj.id}/{kind}/')
+            body = b''.join(res.streaming_content) if getattr(res, 'streaming', False) else res.content
+        return res, body, op
+
+    def test_attachment_streams_inline_with_original_name(self):
+        res, body, op = self._get(self.owner_user)
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(body, b'%PDF-1.4 data')
+        self.assertEqual(res['Content-Type'], 'application/pdf')
+        self.assertTrue(res['Content-Disposition'].startswith('inline;'))
+        self.assertIn('Invoice%20Hotel%2C%20Makan%20%26%20Taksi.pdf', res['Content-Disposition'])
+        op.assert_called_once_with(settings.REIMBURSEMENT_STORAGE_BUCKET, self.obj.attachment_path)
+
+    def test_payment_proof_streams_for_hr(self):
+        res, body, op = self._get(self.hr, kind='payment_proof', data=b'\x89PNG\r\n\x1a\n' + b'0' * 10)
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res['Content-Type'], 'image/png')
+
+    def test_non_pdf_image_downloads_as_octet_stream(self):
+        res, _, _ = self._get(self.owner_user, data=b'<html><script>x</script>')
+        self.assertEqual(res['Content-Type'], 'application/octet-stream')
+        self.assertTrue(res['Content-Disposition'].startswith('attachment;'))
+
+    def test_other_employee_cannot_download(self):
+        res, _, op = self._get(self.other_user)
+        self.assertEqual(res.status_code, 404)
+        op.assert_not_called()
+
+    def test_storage_error_returns_502(self):
+        from unittest import mock
+
+        self.client.force_login(self.owner_user)
+        with mock.patch('apps.reimbursement.views.is_configured', return_value=True), \
+             mock.patch('apps.personnel.storage.open_object', side_effect=RuntimeError('boom')):
+            res = self.client.get(f'/api/reimbursements/{self.obj.id}/attachment/')
+        self.assertEqual(res.status_code, 502)

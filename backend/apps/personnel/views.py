@@ -537,47 +537,15 @@ class DocumentDownloadView(generics.GenericAPIView):
         # Served through the backend instead of redirecting to a Supabase
         # signed URL: signed URLs fail (InvalidSignature) for filenames with
         # ',' or '&', e.g. "Admin Finance, Accounting, and Tax".
-        from itertools import chain
-        from urllib.parse import quote as urlquote
-
-        from django.http import StreamingHttpResponse
-
-        from .storage import inline_content_type, open_object
+        from .storage import stream_file_response
 
         try:
-            upstream = open_object('employee-documents', doc.storage_path)
+            response = stream_file_response('employee-documents', doc.storage_path, doc.name)
         except Exception as exc:
             return Response(
                 {'detail': f'Gagal mengambil dokumen dari storage: {str(exc)[:150]}'},
                 status=status.HTTP_502_BAD_GATEWAY,
             )
-        chunks = upstream.iter_content(chunk_size=64 * 1024)
-        # Buffer enough leading bytes to detect the real type, even if the
-        # upstream delivers tiny first chunks.
-        head = b''
-        for chunk in chunks:
-            head += chunk
-            if len(head) >= 16:
-                break
-        # Inline only for PDF/images detected from the real bytes; any other
-        # type downloads as octet-stream so it can't run in the HRIS origin.
-        inline_type = inline_content_type(head)
-
-        def body():
-            try:
-                yield from chain([head], chunks)
-            finally:
-                upstream.close()
-
-        response = StreamingHttpResponse(body(), content_type=inline_type or 'application/octet-stream')
-        safe_name = ''.join(ch for ch in doc.name if ch.isprintable() and ch not in '"\\') or 'dokumen'
-        ascii_name = safe_name.encode('ascii', 'ignore').decode() or 'dokumen'
-        response['Content-Disposition'] = (
-            f'{"inline" if inline_type else "attachment"}; filename="{ascii_name}"; '
-            f"filename*=UTF-8''{urlquote(safe_name)}"
-        )
-        response['X-Content-Type-Options'] = 'nosniff'
-        response['Cache-Control'] = 'private, no-store'
         log_event(request, 'download', obj=doc, description=f'Document {doc.name} downloaded')
         return response
 

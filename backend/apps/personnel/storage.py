@@ -142,3 +142,47 @@ def inline_content_type(head: bytes):
 
 def is_configured():
     return bool(settings.SUPABASE_URL and settings.SUPABASE_SECRET_KEY)
+
+
+def stream_file_response(bucket, path, filename):
+    """Serve a private storage object through the backend (no signed URL).
+
+    Signed URLs fail with 400 InvalidSignature for keys containing reserved
+    characters such as ',' or '&'; streaming with the service key does not.
+    PDF/PNG/JPEG/WEBP (detected from the real bytes, never the stored type)
+    render inline; anything else downloads as octet-stream so an uploaded
+    file can never execute in the HRIS origin. Raises RuntimeError when the
+    object cannot be fetched.
+    """
+    from itertools import chain
+    from urllib.parse import quote as urlquote
+
+    from django.http import StreamingHttpResponse
+
+    upstream = open_object(bucket, path)
+    chunks = upstream.iter_content(chunk_size=64 * 1024)
+    # Buffer enough leading bytes to detect the real type, even if the
+    # upstream delivers tiny first chunks.
+    head = b''
+    for chunk in chunks:
+        head += chunk
+        if len(head) >= 16:
+            break
+    inline_type = inline_content_type(head)
+
+    def body():
+        try:
+            yield from chain([head], chunks)
+        finally:
+            upstream.close()
+
+    response = StreamingHttpResponse(body(), content_type=inline_type or 'application/octet-stream')
+    safe_name = ''.join(ch for ch in (filename or '') if ch.isprintable() and ch not in '"\\') or 'dokumen'
+    ascii_name = safe_name.encode('ascii', 'ignore').decode() or 'dokumen'
+    response['Content-Disposition'] = (
+        f'{"inline" if inline_type else "attachment"}; filename="{ascii_name}"; '
+        f"filename*=UTF-8''{urlquote(safe_name)}"
+    )
+    response['X-Content-Type-Options'] = 'nosniff'
+    response['Cache-Control'] = 'private, no-store'
+    return response

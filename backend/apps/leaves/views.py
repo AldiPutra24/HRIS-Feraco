@@ -9,7 +9,7 @@ from rest_framework.permissions import SAFE_METHODS
 
 from apps.audit.services import log_event
 from apps.personnel.permissions import _role
-from apps.personnel.storage import is_configured, signed_url, upload_bytes
+from apps.personnel.storage import is_configured, upload_bytes
 
 from .models import LeaveBalance, LeaveNotification, LeaveQuotaAdjustment, LeaveRequest, LeaveType
 from .permissions import (
@@ -480,10 +480,19 @@ class LeaveRequestViewSet(viewsets.ModelViewSet):
             return Response({'detail': 'Tidak ada lampiran.'}, status=status.HTTP_404_NOT_FOUND)
         if not is_configured():
             return Response({'detail': 'Storage tidak dikonfigurasi.'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
-        from django.shortcuts import redirect
+        from apps.personnel.storage import stream_file_response
 
+        # Streamed by the backend: Supabase signed URLs fail (InvalidSignature)
+        # for file names with ',' or '&'.
+        try:
+            response = stream_file_response('employee-documents', leave.attachment_path, leave.attachment_name)
+        except Exception as exc:
+            return Response(
+                {'detail': f'Gagal mengambil lampiran dari storage: {str(exc)[:150]}'},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
         log_event(request, 'download', obj=leave, description=f'Leave request {leave.id} attachment downloaded')
-        return redirect(signed_url('employee-documents', leave.attachment_path))
+        return response
 
     @action(detail=False, methods=['get'])
     def notifications(self, request):

@@ -1668,3 +1668,37 @@ class TeamQuotaSummaryScopeTests(TestCase):
             'year': 2026, 'amount': '1', 'reason': 'x',
         }, format='json')
         self.assertEqual(res.status_code, 403)
+
+
+class LeaveAttachmentStreamTests(TestCase):
+    """Leave attachment streamed by the backend (no signed-URL redirect)."""
+
+    def setUp(self):
+        self.user = make_user('EMPLOYEE', 'att.owner@test.com')
+        self.emp = Employee.objects.create(employee_id='A001', full_name='Att', employment_status='ACTIVE', user=self.user)
+        lt = LeaveType.objects.create(name='Izin Sakit', code='SICK', kind='PERMISSION')
+        self.leave = LeaveRequest.objects.create(
+            employee=self.emp, leave_type=lt, start_date=date(2026, 3, 2), end_date=date(2026, 3, 2), total_days=1,
+            attachment_name='Surat Dokter, RS & Klinik.pdf', attachment_path='leaves/1/1-Surat Dokter, RS & Klinik.pdf',
+        )
+
+    def test_owner_gets_streamed_file(self):
+        from unittest import mock
+
+        upstream = mock.Mock()
+        upstream.iter_content.return_value = iter([b'%PDF-1.4 surat'])
+        self.client.force_login(self.user)
+        with mock.patch('apps.leaves.views.is_configured', return_value=True), \
+             mock.patch('apps.personnel.storage.open_object', return_value=upstream) as op:
+            res = self.client.get(f'/api/leaves/requests/{self.leave.id}/attachment/')
+            body = b''.join(res.streaming_content)
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(body, b'%PDF-1.4 surat')
+        self.assertEqual(res['Content-Type'], 'application/pdf')
+        op.assert_called_once_with('employee-documents', self.leave.attachment_path)
+
+    def test_other_employee_cannot_download(self):
+        other = make_user('EMPLOYEE', 'att.other@test.com')
+        Employee.objects.create(employee_id='A002', full_name='Other', employment_status='ACTIVE', user=other)
+        self.client.force_login(other)
+        self.assertEqual(self.client.get(f'/api/leaves/requests/{self.leave.id}/attachment/').status_code, 404)

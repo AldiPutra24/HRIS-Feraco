@@ -10,7 +10,7 @@ from rest_framework.response import Response
 
 from apps.audit.services import log_event
 from apps.personnel.permissions import _role
-from apps.personnel.storage import is_configured, signed_url, upload_bytes
+from apps.personnel.storage import is_configured, upload_bytes
 
 from .models import Reimbursement, ReimbursementCategory, ReimbursementNotification
 from .permissions import (
@@ -465,9 +465,19 @@ class ReimbursementViewSet(viewsets.ModelViewSet):
             return Response({'detail': 'Tidak ada ' + ('lampiran' if kind == 'attachment' else 'bukti transfer') + '.'}, status=status.HTTP_404_NOT_FOUND)
         if not is_configured():
             return Response({'detail': 'Storage tidak dikonfigurasi.'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
-        from django.shortcuts import redirect
+        from apps.personnel.storage import stream_file_response
+
+        # Streamed by the backend: Supabase signed URLs fail (InvalidSignature)
+        # for file names with ',' or '&'.
+        try:
+            response = stream_file_response(_bucket(), getattr(obj, path_field), getattr(obj, name_field))
+        except Exception as exc:
+            return Response(
+                {'detail': f'Gagal mengambil file dari storage: {str(exc)[:150]}'},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
         log_event(request, 'download', obj=obj, description=f'Reimbursement {obj.id} {name_field} downloaded')
-        return redirect(signed_url(_bucket(), getattr(obj, path_field)))
+        return response
 
     @action(detail=False, methods=['get'])
     def summary(self, request):
