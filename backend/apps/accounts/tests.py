@@ -111,7 +111,7 @@ class UserEmployeeRoleValidationTests(TestCase):
         return self.client.post(reverse('user-list'), {
             'username': f'{role_key.lower()}x@test.com',
             'email': f'{role_key.lower()}x@test.com',
-            'password': 'password123',
+            'password': 'Feraco#2026x',
             'role': Role.objects.get(key=role_key).id,
             'employee': employee_id,
         }, content_type='application/json')
@@ -170,7 +170,7 @@ class GeneralManagerUserBindingTests(TestCase):
         return self.client.post(reverse('user-list'), {
             'username': f'{role_key.lower()}{employee_id}@test.com',
             'email': f'{role_key.lower()}{employee_id}@test.com',
-            'password': 'password123',
+            'password': 'Feraco#2026x',
             'role': Role.objects.get(key=role_key).id,
             'employee': employee_id,
         }, content_type='application/json')
@@ -190,7 +190,7 @@ class GeneralManagerUserBindingTests(TestCase):
         res = self.client.post(reverse('user-list'), {
             'username': 'gmnoemp@test.com',
             'email': 'gmnoemp@test.com',
-            'password': 'password123',
+            'password': 'Feraco#2026x',
             'role': Role.objects.get(key='GENERAL_MANAGER').id,
         }, content_type='application/json')
         self.assertEqual(res.status_code, 400)
@@ -397,3 +397,56 @@ class EmployeeSelfAccountTests(TestCase):
 
     def test_employee_still_denied_admin_users_api(self):
         self.assertEqual(self.client.get(reverse('user-list')).status_code, 403)
+
+
+class PasswordStrengthTests(TestCase):
+    """AUTH_PASSWORD_VALIDATORS apply on every password change path."""
+
+    def setUp(self):
+        admin_role, _ = Role.objects.get_or_create(key='ADMIN', defaults={'name': 'Admin'})
+        emp_role, _ = Role.objects.get_or_create(key='EMPLOYEE', defaults={'name': 'Employee'})
+        self.admin = User.objects.create_user(username='adm.pw@feraco.id', email='adm.pw@feraco.id', password='Lama#2026x')
+        self.admin.role = admin_role
+        self.admin.save()
+        self.emp = User.objects.create_user(username='emp.pw@feraco.id', email='emp.pw@feraco.id', password='Lama#2026x')
+        self.emp.role = emp_role
+        self.emp.save()
+        self.emp_role = emp_role
+
+    def test_self_service_rejects_weak_passwords(self):
+        self.client.force_login(self.emp)
+        for weak, msg in (('abc12', 'minimal 8'), ('password', 'terlalu umum'), ('12345678', 'terlalu umum')):
+            with self.subTest(weak=weak):
+                res = self.client.patch(reverse('me-account'), {'password': weak, 'current_password': 'Lama#2026x'},
+                                        content_type='application/json')
+                self.assertEqual(res.status_code, 400)
+                self.assertTrue(any(msg in m for m in res.data['password']), res.data)
+        self.emp.refresh_from_db()
+        self.assertTrue(self.emp.check_password('Lama#2026x'))
+
+    def test_admin_reset_and_create_reject_weak_password(self):
+        self.client.force_login(self.admin)
+        res = self.client.patch(reverse('user-detail', args=[self.emp.pk]), {'password': 'password'},
+                                content_type='application/json')
+        self.assertEqual(res.status_code, 400)
+        self.assertIn('password', res.data)
+        res = self.client.post(reverse('user-list'), {
+            'username': 'new.pw@feraco.id', 'email': 'new.pw@feraco.id', 'password': '123',
+            'role': self.emp_role.id,
+        }, content_type='application/json')
+        self.assertEqual(res.status_code, 400)
+        self.assertIn('password', res.data)
+
+    def test_strong_password_and_blank_edit_still_work(self):
+        self.client.force_login(self.admin)
+        res = self.client.patch(reverse('user-detail', args=[self.emp.pk]), {'password': 'Baru#Feraco2026'},
+                                content_type='application/json')
+        self.assertEqual(res.status_code, 200, res.data)
+        self.emp.refresh_from_db()
+        self.assertTrue(self.emp.check_password('Baru#Feraco2026'))
+        # Blank password on edit = unchanged.
+        res = self.client.patch(reverse('user-detail', args=[self.emp.pk]), {'first_name': 'X', 'password': ''},
+                                content_type='application/json')
+        self.assertEqual(res.status_code, 200, res.data)
+        self.emp.refresh_from_db()
+        self.assertTrue(self.emp.check_password('Baru#Feraco2026'))

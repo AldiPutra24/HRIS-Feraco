@@ -370,6 +370,7 @@ export function UserList() {
                 <div className='space-y-1.5'>
                   <Label>Password {editing ? '(kosongkan jika tidak diubah)' : ''}</Label>
                   <Input type='password' value={form.password} onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))} />
+                  <p className='text-muted-foreground text-xs'>Minimal 8 karakter, hindari password umum seperti "password" atau "12345678".</p>
                 </div>
                 <div className='flex items-center gap-2'>
                   <Switch checked={form.is_active} onCheckedChange={(v) => setForm((f) => ({ ...f, is_active: v }))} />

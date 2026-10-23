@@ -1,11 +1,34 @@
 import re
 
 from django.contrib.auth import authenticate
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
 
 from apps.personnel.models import Employee
 
 from .models import Role, User
+
+# Indonesian messages for the AUTH_PASSWORD_VALIDATORS error codes.
+_PASSWORD_MESSAGES = {
+    'password_too_short': 'Password minimal 8 karakter.',
+    'password_too_common': 'Password terlalu umum/mudah ditebak. Gunakan kombinasi yang lebih unik.',
+    'password_entirely_numeric': 'Password tidak boleh hanya angka.',
+    'password_too_similar': 'Password terlalu mirip dengan data akun.',
+}
+
+
+def check_new_password(password, user=None):
+    """Run AUTH_PASSWORD_VALIDATORS on a new password (every change path:
+    admin create/reset and self-service). Returns the password or raises a
+    DRF ValidationError with Indonesian messages."""
+    try:
+        validate_password(password, user=user)
+    except DjangoValidationError as exc:
+        raise serializers.ValidationError(
+            [_PASSWORD_MESSAGES.get(e.code, ' '.join(e.messages)) for e in exc.error_list]
+        )
+    return password
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -73,6 +96,10 @@ class UserAdminSerializer(serializers.ModelSerializer):
         extra_kwargs = {
             'email': {'required': True},
         }
+
+    def validate_password(self, value):
+        # Blank = keep the current password (edit) / unusable (create).
+        return check_new_password(value, self.instance) if value else value
 
     def validate_employee(self, employee):
         # One active user per employee; one employee per user.
@@ -170,6 +197,9 @@ class SelfAccountSerializer(serializers.ModelSerializer):
             'username': {'required': True},
             'email': {'required': True},
         }
+
+    def validate_password(self, value):
+        return check_new_password(value, self.instance) if value else value
 
     def validate(self, attrs):
         if attrs.get('password'):

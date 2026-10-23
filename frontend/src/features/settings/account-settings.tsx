@@ -104,6 +104,7 @@ export function AccountSettings() {
                   onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
                   placeholder='Kosongkan jika tidak diubah'
                 />
+                <p className='text-muted-foreground text-xs'>Minimal 8 karakter, hindari password umum seperti "password" atau "12345678".</p>
               </div>
               <div className='space-y-1.5'>
                 <Label>Password Saat Ini</Label>
