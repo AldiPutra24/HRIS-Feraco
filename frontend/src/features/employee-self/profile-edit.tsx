@@ -4,12 +4,13 @@ import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'react-toastify';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Icons } from '@/components/icons';
+import { cn } from '@/lib/utils';
 import type { Employee } from '@/lib/employees';
 import {
   CHANGE_STATUS_VARIANT,
@@ -28,6 +29,12 @@ const LINK_CLASS = 'text-primary inline-flex items-center gap-1 text-xs font-med
 // Same rule as the backend: PDF or image, max 5 MB (real bytes are checked server-side).
 const ATTACHMENT_ACCEPT = 'application/pdf,.pdf,image/jpeg,.jpg,.jpeg,image/png,.png,image/webp,.webp';
 const ATTACHMENT_MAX_BYTES = 5 * 1024 * 1024;
+const STATUS_DOT: Record<ChangeRequest['status'], string> = {
+  PENDING: 'bg-amber-500',
+  APPROVED: 'bg-emerald-500',
+  REJECTED: 'bg-red-500',
+  CANCELLED: 'bg-slate-400'
+};
 
 function fmtDateTime(iso: string): string {
   return new Date(iso).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' });
@@ -325,42 +332,65 @@ export function ChangeRequestHistory({ items, onChanged }: { items: ChangeReques
 
   if (items.length === 0) return null;
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Riwayat Pengajuan Perubahan Data</CardTitle>
-      </CardHeader>
-      <CardContent className='divide-y'>
-        {items.map((cr) => (
-          <div key={cr.id} className='flex flex-col gap-2 py-3 sm:flex-row sm:items-start sm:justify-between'>
-            <div className='min-w-0 space-y-1'>
-              <div className='flex flex-wrap items-center gap-2'>
-                <Badge variant={CHANGE_STATUS_VARIANT[cr.status]}>{cr.status_display}</Badge>
-                <span className='text-muted-foreground text-xs'>{fmtDateTime(cr.created_at)}</span>
+    <Card className='gap-0 py-0'>
+      <div className='flex items-center gap-2.5 border-b px-5 py-3.5'>
+        <span className='bg-primary/10 text-primary flex size-8 items-center justify-center rounded-lg'>
+          <Icons.clock className='size-4' />
+        </span>
+        <div>
+          <h3 className='text-sm font-semibold'>Riwayat Pengajuan Perubahan Data</h3>
+          <p className='text-muted-foreground text-xs'>{items.length} pengajuan terakhir</p>
+        </div>
+      </div>
+      <CardContent className='px-5 py-4'>
+        <ol className='relative space-y-4 border-l pl-5'>
+          {items.map((cr) => (
+            <li key={cr.id} className='relative'>
+              <span
+                className={cn(
+                  'ring-background absolute top-1.5 -left-[25px] size-2.5 rounded-full ring-4',
+                  STATUS_DOT[cr.status]
+                )}
+              />
+              <div className='flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between'>
+                <div className='min-w-0 space-y-1.5'>
+                  <div className='flex flex-wrap items-center gap-2'>
+                    <Badge variant={CHANGE_STATUS_VARIANT[cr.status]}>{cr.status_display}</Badge>
+                    <span className='text-muted-foreground text-xs'>
+                      Diajukan {fmtDateTime(cr.created_at)}
+                      {cr.reviewed_at ? ` · diproses ${fmtDateTime(cr.reviewed_at)}` : ''}
+                    </span>
+                  </div>
+                  {cr.items.map((it) => (
+                    <p key={it.field} className='text-sm break-words'>
+                      <span className='text-muted-foreground'>{it.label}:</span>{' '}
+                      <span className='text-muted-foreground line-through decoration-1'>{it.old || '-'}</span>{' '}
+                      <Icons.arrowRight className='text-muted-foreground inline size-3' />{' '}
+                      <span className='font-medium'>{it.new || '-'}</span>
+                    </p>
+                  ))}
+                  {cr.note && <p className='text-muted-foreground text-xs'>Catatan: {cr.note}</p>}
+                  {cr.status === 'REJECTED' && cr.rejection_reason && (
+                    <p className='text-destructive text-xs'>Alasan ditolak: {cr.rejection_reason}</p>
+                  )}
+                </div>
+                <div className='flex shrink-0 items-center gap-3'>
+                  {cr.attachment_url && (
+                    <a href={cr.attachment_url} target='_blank' rel='noreferrer' title={cr.attachment_name} className={LINK_CLASS}>
+                      <Icons.paperclip className='size-3.5' />
+                      Lampiran
+                    </a>
+                  )}
+                  {cr.status === 'PENDING' && (
+                    <Button size='sm' variant='outline' disabled={busy === cr.id} onClick={() => cancel(cr)}>
+                      Batalkan
+                    </Button>
+                  )}
+                </div>
               </div>
-              {cr.items.map((it) => (
-                <p key={it.field} className='text-sm break-words'>
-                  <span className='text-muted-foreground'>{it.label}:</span> {it.old || '-'} → <span className='font-medium'>{it.new || '-'}</span>
-                </p>
-              ))}
-              {cr.status === 'REJECTED' && cr.rejection_reason && (
-                <p className='text-destructive text-xs'>Alasan ditolak: {cr.rejection_reason}</p>
-              )}
-            </div>
-            <div className='flex shrink-0 items-center gap-3'>
-              {cr.attachment_url && (
-                <a href={cr.attachment_url} target='_blank' rel='noreferrer' title={cr.attachment_name} className={LINK_CLASS}>
-                  <Icons.paperclip className='size-3.5' />
-                  Lampiran
-                </a>
-              )}
-              {cr.status === 'PENDING' && (
-                <Button size='sm' variant='ghost' disabled={busy === cr.id} onClick={() => cancel(cr)}>
-                  Batalkan
-                </Button>
-              )}
-            </div>
-          </div>
-        ))}
+            </li>
+          ))}
+        </ol>
       </CardContent>
     </Card>
   );
