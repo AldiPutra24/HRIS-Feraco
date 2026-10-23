@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import { TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { LinkifiedText } from '@/components/linkified-text';
 import { Icons } from '@/components/icons';
 import {
   approveReimbursement,
@@ -436,7 +437,11 @@ export function ReimbursementPage() {
                 )}
               </p>
             </div>
-            {focused.description && <p className='text-muted-foreground'>{focused.description}</p>}
+            {focused.description && (
+              <p className='text-muted-foreground whitespace-pre-wrap break-words'>
+                <LinkifiedText text={focused.description} />
+              </p>
+            )}
             {canAct && canRejectStatus(focused) && (
               <div className='flex gap-2'>
                 {focused.status === 'PENDING' ? (
@@ -493,7 +498,7 @@ export function ReimbursementPage() {
                       <TableCell>{r.project_category === 'OTHER' ? r.project_category_other : r.project_category.replace(/_/g, ' ')}</TableCell>
                       <TableCell className='max-w-64 min-w-40 whitespace-normal break-words text-xs' title={r.description || undefined}>
                         {r.description ? (
-                          <span className='line-clamp-3'>{r.description}</span>
+                          <LinkifiedText text={r.description} className='line-clamp-3' />
                         ) : (
                           <span className='text-muted-foreground'>-</span>
                         )}

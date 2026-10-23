@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import { TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { LinkifiedText } from '@/components/linkified-text';
 import { cn } from '@/lib/utils';
 import {
   approveReimbursement,
@@ -153,7 +154,7 @@ export function GmReimbursementApproval() {
                       <TableCell>{r.category_name}</TableCell>
                       <TableCell className='max-w-64 min-w-40 whitespace-normal break-words text-xs' title={r.description || undefined}>
                         {r.description ? (
-                          <span className='line-clamp-3'>{r.description}</span>
+                          <LinkifiedText text={r.description} className='line-clamp-3' />
                         ) : (
                           <span className='text-muted-foreground'>-</span>
                         )}
