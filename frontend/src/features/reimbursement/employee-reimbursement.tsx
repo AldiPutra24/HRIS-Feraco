@@ -10,8 +10,8 @@ import { TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/compon
 import {
   cancelReimbursement,
   getReimbursementSummary,
-  REIMBURSEMENT_STATUS_LABELS,
   listReimbursements,
+  reimbursementStatusLabel,
   type Reimbursement,
   type ReimbursementSummary
 } from '@/lib/reimbursements';
@@ -28,8 +28,8 @@ const STATUS_VARIANT: Record<string, 'default' | 'secondary' | 'destructive' | '
   CANCELLED: 'outline'
 };
 
-function StatusBadge({ status }: { status: string }) {
-  return <Badge variant={STATUS_VARIANT[status] ?? 'secondary'}>{REIMBURSEMENT_STATUS_LABELS[status] ?? status}</Badge>;
+function StatusBadge({ r }: { r: Reimbursement }) {
+  return <Badge variant={STATUS_VARIANT[r.status] ?? 'secondary'}>{reimbursementStatusLabel(r)}</Badge>;
 }
 
 function formatAmount(n: number): string {
@@ -154,7 +154,7 @@ export function EmployeeReimbursement() {
                       <TableCell className='text-right'>{formatAmount(r.amount)}</TableCell>
                       <TableCell className='text-right'>{r.approved_amount != null ? formatAmount(r.approved_amount) : '-'}</TableCell>
                       <TableCell>
-                        <StatusBadge status={r.status} />
+                        <StatusBadge r={r} />
                       </TableCell>
                       <TableCell>
                         {r.attachment_url ? (

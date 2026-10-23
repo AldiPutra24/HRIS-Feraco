@@ -195,6 +195,14 @@ export const managementNavGroups: NavGroup[] = [
             url: '/dashboard/management/reimbursement/new',
             isActive: false,
             items: []
+          },
+          // GM only: final approval of HR Lead reimbursements.
+          {
+            title: 'Persetujuan HR Lead',
+            url: '/dashboard/management/reimbursement/approval',
+            isActive: false,
+            access: { roles: ['general_manager'] },
+            items: []
           }
         ]
       }

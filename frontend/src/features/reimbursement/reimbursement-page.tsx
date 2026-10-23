@@ -22,7 +22,7 @@ import {
   markReimbursementPaid,
   rejectReimbursement,
   reviewReimbursement,
-  REIMBURSEMENT_STATUS_LABELS,
+  reimbursementStatusLabel,
   type Reimbursement,
   type ReimbursementCategory,
   type ReimbursementSummary
@@ -42,8 +42,8 @@ const STATUS_VARIANT: Record<string, 'default' | 'secondary' | 'destructive' | '
 
 const STATUS_OPTIONS = ['DRAFT', 'PENDING', 'WAITING_HR_LEAD', 'APPROVED', 'REJECTED', 'PAID', 'CANCELLED'];
 
-function StatusBadge({ status }: { status: string }) {
-  return <Badge variant={STATUS_VARIANT[status] ?? 'secondary'}>{REIMBURSEMENT_STATUS_LABELS[status] ?? status}</Badge>;
+function StatusBadge({ r }: { r: Reimbursement }) {
+  return <Badge variant={STATUS_VARIANT[r.status] ?? 'secondary'}>{reimbursementStatusLabel(r)}</Badge>;
 }
 
 function formatAmount(n: number): string {
@@ -105,12 +105,12 @@ export function ReimbursementPage() {
     if (user?.role === 'management' || user?.role === 'general_manager') router.replace('/dashboard/management/reimbursement');
   }, [user, router]);
   const canAct = user?.role !== 'management';
-  // Layer 1: HR Staff sets Nominal Disetujui. Layer 2: HR Lead approves payment.
-  // (Admin may act on both; the backend enforces every layer.)
+  // Layer 1: HR Staff sets Nominal Disetujui. Layer 2: HR Lead approves payment
+  // (General Manager for an HR Lead's own request — backend `can_final_approve`).
+  // Admin may act on both; the backend enforces every layer.
   const canReview = user?.role === 'hr_staff' || user?.role === 'admin';
-  const canFinalApprove = user?.role === 'hr_lead' || user?.role === 'admin';
-  const canRejectStatus = (s: string) =>
-    (s === 'PENDING' && canReview) || (s === 'WAITING_HR_LEAD' && canFinalApprove);
+  const canRejectStatus = (r: Reimbursement) =>
+    (r.status === 'PENDING' && canReview) || (r.status === 'WAITING_HR_LEAD' && r.can_final_approve);
   const searchParams = useSearchParams();
   const fStatus = searchParams.get('status') ?? '';
   const fCategory = searchParams.get('category') ?? '';
@@ -409,7 +409,7 @@ export function ReimbursementPage() {
                 <span className='text-muted-foreground'>Nominal:</span> {formatAmount(focused.amount)}
               </p>
               <p>
-                <span className='text-muted-foreground'>Status:</span> <StatusBadge status={focused.status} />
+                <span className='text-muted-foreground'>Status:</span> <StatusBadge r={focused} />
               </p>
               <p>
                 <span className='text-muted-foreground'>Nominal disetujui:</span>{' '}
@@ -437,7 +437,7 @@ export function ReimbursementPage() {
               </p>
             </div>
             {focused.description && <p className='text-muted-foreground'>{focused.description}</p>}
-            {canAct && canRejectStatus(focused.status) && (
+            {canAct && canRejectStatus(focused) && (
               <div className='flex gap-2'>
                 {focused.status === 'PENDING' ? (
                   <Button variant='success' size='sm' onClick={() => approve(focused)}>
@@ -502,7 +502,7 @@ export function ReimbursementPage() {
                       <TableCell className='text-right'>{formatAmount(r.amount)}</TableCell>
                       <TableCell className='text-right'>{r.approved_amount != null ? formatAmount(r.approved_amount) : '-'}</TableCell>
                       <TableCell>
-                        <StatusBadge status={r.status} />
+                        <StatusBadge r={r} />
                       </TableCell>
                       <TableCell className='text-xs'>
                         {r.bank_name ? (
@@ -541,7 +541,7 @@ export function ReimbursementPage() {
                       </TableCell>
                       <TableCell className='sticky right-0 bg-background text-right shadow-[inset_1px_0_0_var(--color-border)]'>
                         <div className='flex justify-end gap-1'>
-                          {canAct && canRejectStatus(r.status) && (
+                          {canAct && canRejectStatus(r) && (
                             <>
                               {r.status === 'PENDING' ? (
                                 <Button variant='success' size='sm' onClick={() => approve(r)}>

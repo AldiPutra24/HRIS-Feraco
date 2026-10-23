@@ -80,6 +80,10 @@ export type Reimbursement = {
   payment_reference: string;
   payment_proof_name: string;
   payment_proof_url: string | null;
+  /** Layer-2 approver: GENERAL_MANAGER for an HR Lead's own request. */
+  final_approver: 'HR_LEAD' | 'GENERAL_MANAGER';
+  /** Caller may approve/reject this request at the final stage now. */
+  can_final_approve: boolean;
   created_at: string;
   updated_at: string;
 };
@@ -111,6 +115,12 @@ export const REIMBURSEMENT_STATUS_LABELS: Record<string, string> = {
   PAID: 'Paid',
   CANCELLED: 'Cancelled'
 };
+
+/** Status label; WAITING_HR_LEAD names the actual final approver. */
+export function reimbursementStatusLabel(r: Pick<Reimbursement, 'status' | 'final_approver'>): string {
+  if (r.status === 'WAITING_HR_LEAD' && r.final_approver === 'GENERAL_MANAGER') return 'Waiting General Manager';
+  return REIMBURSEMENT_STATUS_LABELS[r.status] ?? r.status;
+}
 
 export type ReimbursementSummary = {
   counts: Record<string, number>;
@@ -154,6 +164,11 @@ export function getReimbursement(id: number): Promise<Reimbursement> {
   return request<Reimbursement>(`/${id}/`, { cache: 'no-store' });
 }
 
+/** GM approval queue: HR Lead requests (`approval=1`, backend-scoped). */
+export function listGmApprovalReimbursements(): Promise<Reimbursement[]> {
+  return listReimbursements({ approval: '1' });
+}
+
 export function listReimbursements(params?: Record<string, string>): Promise<Reimbursement[]> {
   const qs = params ? `?${new URLSearchParams(params)}` : '';
   return request<Reimbursement[]>(`/${qs}`).then(unwrapList);
@@ -186,7 +201,7 @@ export function submitReimbursement(id: number): Promise<Reimbursement> {
   return request<Reimbursement>(`/${id}/submit/`, { method: 'POST' });
 }
 
-/** Layer 2 — HR Lead approves payment of the reviewed amount (no amount change). */
+/** Layer 2 — HR Lead (GM for an HR Lead's own request) approves payment of the reviewed amount. */
 export function approveReimbursement(id: number): Promise<Reimbursement> {
   return request<Reimbursement>(`/${id}/approve/`, { method: 'POST' });
 }
