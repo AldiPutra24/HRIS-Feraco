@@ -2,7 +2,16 @@
 from django.utils import timezone
 from rest_framework import serializers
 
-from .models import Department, Employee, EmployeeContract, EmployeeDocument, EmploymentHistory, Position, find_email_clash
+from .models import (
+    Department,
+    Employee,
+    EmployeeChangeRequest,
+    EmployeeContract,
+    EmployeeDocument,
+    EmploymentHistory,
+    Position,
+    find_email_clash,
+)
 
 # Status is system-managed. Only 'activate' is a valid write action; the rest
 # (DRAFT/ACTIVE/EXPIRED/RENEWED/TERMINATED) are derived by services/actions.
@@ -433,3 +442,75 @@ class EmployeeDocumentSerializer(serializers.ModelSerializer):
         if request is None:
             return None
         return request.build_absolute_uri(f'/api/documents/{obj.id}/download/')
+
+class EmployeeChangeRequestSerializer(serializers.ModelSerializer):
+    """Read-only view of a data change request.
+
+    `items` lists each requested field as {field, label, old, new} with choice
+    labels resolved; sensitive values are masked unless the viewer is HR.
+    Context `self_service=True` points the attachment link at the
+    employee's own endpoint.
+    """
+
+    employee_name = serializers.CharField(source='employee.full_name', read_only=True)
+    employee_code = serializers.CharField(source='employee.employee_id', read_only=True)
+    status_display = serializers.CharField(source='get_status_display', read_only=True)
+    requested_by_name = serializers.SerializerMethodField()
+    reviewed_by_name = serializers.SerializerMethodField()
+    items = serializers.SerializerMethodField()
+    attachment_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = EmployeeChangeRequest
+        fields = (
+            'id', 'employee', 'employee_name', 'employee_code', 'items', 'note', 'status', 'status_display',
+            'attachment_name', 'attachment_url', 'requested_by_name', 'reviewed_by_name', 'reviewed_at',
+            'rejection_reason', 'created_at',
+        )
+        read_only_fields = fields
+
+    def _privileged(self):
+        from .profile_changes import APPROVER_ROLES
+
+        request = self.context.get('request')
+        role = getattr(getattr(getattr(request, 'user', None), 'role', None), 'key', None)
+        return role in APPROVER_ROLES and not self.context.get('self_service')
+
+    @staticmethod
+    def _user_name(user):
+        if user is None:
+            return None
+        return user.get_full_name() or user.username
+
+    def get_requested_by_name(self, obj):
+        return self._user_name(obj.requested_by)
+
+    def get_reviewed_by_name(self, obj):
+        return self._user_name(obj.reviewed_by)
+
+    def get_items(self, obj):
+        from .profile_changes import REQUEST_FIELDS, mask
+
+        privileged = self._privileged()
+        items = []
+        for field, values in obj.changes.items():
+            choices = dict(Employee._meta.get_field(field).choices or [])
+
+            def show(value, field=field, choices=choices):
+                return choices.get(value, value) if choices else mask(field, value, privileged)
+
+            items.append({
+                'field': field,
+                'label': REQUEST_FIELDS.get(field, field),
+                'old': show(values.get('old', '')),
+                'new': show(values.get('new', '')),
+            })
+        return items
+
+    def get_attachment_url(self, obj):
+        request = self.context.get('request')
+        if not obj.attachment_path or request is None:
+            return None
+        if self.context.get('self_service'):
+            return request.build_absolute_uri(f'/api/auth/me/employee/change-requests/{obj.id}/attachment/')
+        return request.build_absolute_uri(f'/api/employee-change-requests/{obj.id}/attachment/')

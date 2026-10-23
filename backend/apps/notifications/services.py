@@ -50,6 +50,10 @@ CONFIG_KIND = {
     'CONTRACT': 'CONTRACT',
     'BIRTHDAY_HR': 'BIRTHDAY',
     'BIRTHDAY_EMPLOYEE': 'BIRTHDAY',
+    'PROFILE_CHANGE_SUBMITTED': 'PROFILE_CHANGE_SUBMITTED',
+    'PROFILE_CHANGE_APPROVED': 'PROFILE_CHANGE_APPROVED',
+    'PROFILE_CHANGE_REJECTED': 'PROFILE_CHANGE_REJECTED',
+    'PROFILE_SECURITY': 'PROFILE_SECURITY',
 }
 
 LEAVE_LINK = '/dashboard/leave'
@@ -528,6 +532,73 @@ def notify_reimbursement_submitted(reimbursement) -> dict:
         reimbursement, 'REIMBURSEMENT_SUBMITTED', 'Pengajuan Reimbursement Baru',
         REIMBURSEMENT_REVIEW_ROLES,
     )
+
+
+# ---------------------------------------------------------------------------
+# Employee data change requests (self-service profile; never raises)
+# ---------------------------------------------------------------------------
+
+PROFILE_CHANGE_HR_LINK = '/dashboard/perubahan-data'
+PROFILE_CHANGE_EMPLOYEE_LINK = '/dashboard/employee/profile'
+PROFILE_CHANGE_APPROVER_ROLES = ('ADMIN', 'HR_STAFF', 'HR_LEAD')
+
+
+def _change_fields_text(cr) -> str:
+    from apps.personnel.profile_changes import REQUEST_FIELDS
+
+    return ', '.join(REQUEST_FIELDS.get(f, f) for f in cr.changes)
+
+
+def notify_profile_change_submitted(cr) -> dict:
+    """New data change request -> bell for HR Staff / HR Lead / Admin
+    (not the requester). Idempotent via key `profile-change-submitted:{id}`."""
+    result = {'inapp': 0}
+    try:
+        key = f'profile-change-submitted:{cr.pk}'
+        text = f'{cr.employee.full_name} mengajukan perubahan data: {_change_fields_text(cr)}.'
+        own_user_id = getattr(getattr(cr.employee, 'user', None), 'pk', None)
+        for hr_user in hr_notify_users(PROFILE_CHANGE_APPROVER_ROLES, include_superusers=True):
+            if hr_user.pk == own_user_id:
+                continue
+            if _deliver_inapp(key, 'PROFILE_CHANGE_SUBMITTED', hr_user, 'Pengajuan Perubahan Data', text,
+                              link=f'{PROFILE_CHANGE_HR_LINK}?id={cr.pk}', object_id=cr.pk):
+                result['inapp'] += 1
+    except Exception as exc:
+        log_event(None, 'update', obj=None, description=f'PROFILE_CHANGE_SUBMITTED notification error id={cr.pk}: {exc}')
+    return result
+
+
+def notify_profile_change_decided(cr) -> dict:
+    """Approved / rejected -> bell for the employee."""
+    result = {'inapp': 0}
+    try:
+        approved = cr.status == 'APPROVED'
+        event = 'PROFILE_CHANGE_APPROVED' if approved else 'PROFILE_CHANGE_REJECTED'
+        fields = _change_fields_text(cr)
+        text = (f'Perubahan data Anda ({fields}) telah disetujui dan diperbarui.' if approved
+                else f'Perubahan data Anda ({fields}) ditolak. Alasan: {cr.rejection_reason or "-"}')
+        if _deliver_inapp(f'profile-change-{"approved" if approved else "rejected"}:{cr.pk}', event,
+                          getattr(cr.employee, 'user', None),
+                          'Perubahan Data Disetujui' if approved else 'Perubahan Data Ditolak', text,
+                          link=PROFILE_CHANGE_EMPLOYEE_LINK, object_id=cr.pk):
+            result['inapp'] += 1
+    except Exception as exc:
+        log_event(None, 'update', obj=None, description=f'PROFILE_CHANGE decision notification error id={cr.pk}: {exc}')
+    return result
+
+
+def notify_profile_security(key: str, emails, subject: str, body: str) -> dict:
+    """Security notice email (bank account / personal email changed), so
+    the employee notices an unauthorized change. Idempotent per key+email."""
+    result = {'sent': 0, 'skipped': 0, 'failed': 0}
+    for email in sorted({(e or '').strip().lower() for e in emails if e}):
+        try:
+            outcome = _queue_email(key, 'PROFILE_SECURITY', email, subject, body)
+            result[outcome] = result.get(outcome, 0) + 1
+        except Exception as exc:
+            result['failed'] += 1
+            log_event(None, 'update', obj=None, description=f'PROFILE_SECURITY email error {key}: {exc}')
+    return result
 
 
 # ---------------------------------------------------------------------------

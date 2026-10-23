@@ -17,4 +17,7 @@ urlpatterns = [
     path('me/employee/', views.CurrentEmployeeView.as_view(), name='me-employee'),
     path('me/employee/contracts/', views.CurrentEmployeeContractsView.as_view(), name='me-employee-contracts'),
     path('me/employee/photo/', views.CurrentEmployeePhotoView.as_view(), name='me-employee-photo'),
+    path('me/employee/change-requests/', views.MyChangeRequestListView.as_view(), name='me-change-requests'),
+    path('me/employee/change-requests/<int:pk>/<str:action>/', views.MyChangeRequestDetailView.as_view(),
+         name='me-change-request-action'),
 ]

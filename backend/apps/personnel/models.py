@@ -356,6 +356,46 @@ class EmployeeDocument(models.Model):
         return self.name
 
 
+class EmployeeChangeRequest(models.Model):
+    """Employee's request to change protected personal data (NIK, bank, tax,
+    ...), applied only after HR Staff / HR Lead / Admin approval.
+
+    `changes` = {field: {'old': str, 'new': str}} (fields from
+    apps.personnel.profile_changes.REQUEST_FIELDS). Low-risk contact fields
+    are edited directly by the employee and never go through here.
+    """
+
+    STATUS_CHOICES = [
+        ('PENDING', 'Menunggu Persetujuan'),
+        ('APPROVED', 'Disetujui'),
+        ('REJECTED', 'Ditolak'),
+        ('CANCELLED', 'Dibatalkan'),
+    ]
+
+    employee = models.ForeignKey(Employee, on_delete=models.CASCADE, related_name='change_requests')
+    changes = models.JSONField(default=dict)
+    note = models.TextField(blank=True)
+    # Supporting document (KTP / buku tabungan / kartu NPWP-BPJS / buku nikah).
+    attachment_name = models.CharField(max_length=255, blank=True)
+    attachment_path = models.CharField(max_length=512, blank=True)
+    attachment_content_type = models.CharField(max_length=128, blank=True)
+    status = models.CharField(max_length=16, choices=STATUS_CHOICES, default='PENDING', db_index=True)
+    requested_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True,
+                                     related_name='employee_change_requests')
+    reviewed_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True,
+                                    related_name='reviewed_employee_change_requests')
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    rejection_reason = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'{self.employee} {sorted(self.changes)} ({self.status})'
+
+
 class Freelancer(Personnel):
     """External freelance/talent-pool worker. No login/account at this stage."""
 

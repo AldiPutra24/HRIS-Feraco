@@ -272,6 +272,15 @@ export const navGroups: NavGroup[] = [
         items: []
       },
       {
+        // Employee data change requests (approved by HR Staff / HR Lead / Admin).
+        title: 'Perubahan Data',
+        url: '/dashboard/perubahan-data',
+        icon: 'edit',
+        isActive: false,
+        access: { roles: ['admin', 'hr_staff', 'hr_lead'] },
+        items: []
+      },
+      {
         title: 'Freelance / Talent Pool',
         url: '/dashboard/freelance',
         icon: 'freelancer',

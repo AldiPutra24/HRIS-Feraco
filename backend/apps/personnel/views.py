@@ -15,7 +15,15 @@ from apps.announcements.models import Announcement
 from apps.audit.services import log_event
 from apps.softdelete import SoftHardDeleteMixin
 
-from .models import Department, Employee, EmployeeContract, EmployeeDocument, EmploymentHistory, Position
+from .models import (
+    Department,
+    Employee,
+    EmployeeChangeRequest,
+    EmployeeContract,
+    EmployeeDocument,
+    EmploymentHistory,
+    Position,
+)
 from .permissions import IsHRStaff, IsManagementViewer, _role, team_scope_ids
 from .services import set_current_contract, sync_contract_status
 from .serializers import (
@@ -943,3 +951,105 @@ class DashboardManagementView(APIView):
             'contracts_ending_30d': ending_qs.filter(end_date__lte=today + datetime.timedelta(days=30)).count(),
             'latest_employees': latest,
         }
+
+
+class IsChangeRequestApprover(IsAuthenticated):
+    """HR Staff / HR Lead / Admin review employee data change requests."""
+
+    def has_permission(self, request, view):
+        from .profile_changes import APPROVER_ROLES
+
+        return super().has_permission(request, view) and _role(request.user) in APPROVER_ROLES
+
+
+class EmployeeChangeRequestViewSet(viewsets.ReadOnlyModelViewSet):
+    """HR review of employee data change requests: list/detail, approve
+    (applies the values), reject (reason required), attachment (stream)."""
+
+    queryset = EmployeeChangeRequest.objects.select_related('employee', 'requested_by', 'reviewed_by').all()
+    permission_classes = [IsChangeRequestApprover]
+    filterset_fields = ['status', 'employee']
+    search_fields = ['employee__full_name', 'employee__employee_id']
+
+    def get_serializer_class(self):
+        from .serializers import EmployeeChangeRequestSerializer
+
+        return EmployeeChangeRequestSerializer
+
+    def _pending_for_review(self, request, pk):
+        from rest_framework.exceptions import ValidationError
+
+        from .permissions import employee_for
+
+        cr = self.get_queryset().select_for_update(of=('self',)).get(pk=self.get_object().pk)
+        if cr.status != 'PENDING':
+            raise ValidationError({'detail': 'Pengajuan ini sudah diproses.'})
+        own = employee_for(request.user)
+        if own is not None and own.pk == cr.employee_id:
+            raise ValidationError({'detail': 'Tidak dapat memproses pengajuan perubahan data sendiri.'})
+        return cr
+
+    @action(detail=True, methods=['post'])
+    def approve(self, request, pk=None):
+        from django.db import transaction
+
+        from apps.notifications.services import notify_profile_change_decided, notify_profile_security
+
+        from .profile_changes import BANK_FIELDS, REQUEST_FIELDS, approve_change_request
+
+        with transaction.atomic():
+            cr = self._pending_for_review(request, pk)
+            before, after = approve_change_request(cr, request.user)
+        employee = cr.employee
+        log_event(request, 'approve', obj=employee,
+                  description=f'Data change request {cr.pk} approved for {employee.employee_id}: '
+                              f'{", ".join(REQUEST_FIELDS[f] for f in after)}',
+                  changes_before=before, changes_after=after)
+        notify_profile_change_decided(cr)
+        if BANK_FIELDS & set(after):
+            notify_profile_security(
+                f'profile-bank-change:{cr.pk}',
+                [employee.personal_email, employee.company_email],
+                'Rekening bank HRIS Anda diperbarui',
+                f'Halo {employee.full_name},\n\nData rekening bank Anda di HRIS telah diperbarui '
+                f'(pengajuan #{cr.pk}, disetujui {request.user.get_full_name() or request.user.username}). '
+                'Rekening ini dipakai untuk pembayaran gaji dan reimbursement.\n\n'
+                'Jika Anda tidak mengajukan perubahan ini, segera hubungi HR.\n\nHRIS Feraco',
+            )
+        return Response(self.get_serializer(cr).data)
+
+    @action(detail=True, methods=['post'])
+    def reject(self, request, pk=None):
+        from django.db import transaction
+
+        from apps.notifications.services import notify_profile_change_decided
+
+        reason = (request.data.get('rejection_reason') or '').strip()
+        if not reason:
+            return Response({'rejection_reason': 'Alasan penolakan wajib diisi.'}, status=status.HTTP_400_BAD_REQUEST)
+        with transaction.atomic():
+            cr = self._pending_for_review(request, pk)
+            cr.status = 'REJECTED'
+            cr.rejection_reason = reason
+            cr.reviewed_by = request.user
+            cr.reviewed_at = timezone.now()
+            cr.save(update_fields=['status', 'rejection_reason', 'reviewed_by', 'reviewed_at', 'updated_at'])
+        log_event(request, 'reject', obj=cr, description=f'Data change request {cr.pk} rejected: {reason[:200]}')
+        notify_profile_change_decided(cr)
+        return Response(self.get_serializer(cr).data)
+
+    @action(detail=True, methods=['get'])
+    def attachment(self, request, pk=None):
+        from .profile_changes import ATTACHMENT_BUCKET
+        from .storage import stream_file_response
+
+        cr = self.get_object()
+        if not cr.attachment_path:
+            return Response({'detail': 'Tidak ada lampiran.'}, status=status.HTTP_404_NOT_FOUND)
+        try:
+            response = stream_file_response(ATTACHMENT_BUCKET, cr.attachment_path, cr.attachment_name)
+        except Exception as exc:
+            return Response({'detail': f'Gagal mengambil file dari storage: {str(exc)[:150]}'},
+                            status=status.HTTP_502_BAD_GATEWAY)
+        log_event(request, 'download', obj=cr, description=f'Data change request {cr.pk} attachment viewed')
+        return response

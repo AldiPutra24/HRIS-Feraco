@@ -238,7 +238,11 @@ export const DELIVERY_EVENT_LABELS: Record<string, string> = {
   CONTRACT: 'End of Contract',
   BIRTHDAY_HR: 'Birthday — Info ke HR (email)',
   BIRTHDAY_EMPLOYEE: 'Birthday — Ucapan ke Karyawan (email)',
-  BIRTHDAY: 'Birthday — Notifikasi Aplikasi'
+  BIRTHDAY: 'Birthday — Notifikasi Aplikasi',
+  PROFILE_CHANGE_SUBMITTED: 'Perubahan Data — Pengajuan Baru',
+  PROFILE_CHANGE_APPROVED: 'Perubahan Data — Disetujui',
+  PROFILE_CHANGE_REJECTED: 'Perubahan Data — Ditolak',
+  PROFILE_SECURITY: 'Perubahan Data — Pemberitahuan Keamanan (email)'
 };
 
 /** Every event recorded in the delivery log (filter dropdown order). */

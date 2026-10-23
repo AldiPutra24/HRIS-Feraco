@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -8,6 +8,8 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Icons } from '@/components/icons';
 import { useRouter } from 'next/navigation';
 import { deleteMyPhoto, uploadMyPhoto } from '@/lib/employee-self';
+import { listMyChangeRequests, type ChangeRequest } from '@/lib/profile-changes';
+import { ChangeRequestHistory, ChangeRequestSheet, ContactEditSheet } from './profile-edit';
 import { useMyEmployee } from './use-my-employee';
 
 const ALLOWED = ['image/jpeg', 'image/png', 'image/webp'];
@@ -27,12 +29,28 @@ async function toSquare(file: File): Promise<File> {
   return new File([blob], 'photo.jpg', { type: 'image/jpeg' });
 }
 
-function Row({ label, value }: { label: string; value?: string | null }) {
+function Row({ label, value, pending }: { label: string; value?: string | null; pending?: boolean }) {
   return (
     <div className='flex justify-between gap-4 py-2'>
       <span className='text-muted-foreground text-sm'>{label}</span>
-      <span className='text-right text-sm font-medium break-all'>{value || '-'}</span>
+      <span className='flex flex-col items-end gap-1 text-right text-sm font-medium break-all'>
+        {value || '-'}
+        {pending && (
+          <Badge variant='secondary' className='font-normal'>
+            Menunggu persetujuan
+          </Badge>
+        )}
+      </span>
     </div>
+  );
+}
+
+function CardHead({ title, action }: { title: string; action?: React.ReactNode }) {
+  return (
+    <CardHeader className='flex flex-row items-center justify-between gap-2 space-y-0'>
+      <CardTitle>{title}</CardTitle>
+      {action}
+    </CardHeader>
   );
 }
 
@@ -55,6 +73,26 @@ export function EmployeeProfile() {
   const fileRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [photoError, setPhotoError] = useState('');
+  const [editOpen, setEditOpen] = useState(false);
+  const [requestOpen, setRequestOpen] = useState(false);
+  const [requests, setRequests] = useState<ChangeRequest[]>([]);
+
+  const loadRequests = useCallback(() => {
+    listMyChangeRequests()
+      .then(setRequests)
+      .catch(() => setRequests([]));
+  }, []);
+
+  useEffect(() => {
+    loadRequests();
+  }, [loadRequests]);
+
+  // Fields with a request still waiting for HR (badge + cannot be re-requested).
+  const pendingFields = useMemo(
+    () => new Set(requests.filter((r) => r.status === 'PENDING').flatMap((r) => r.items.map((it) => it.field))),
+    [requests]
+  );
+  const pending = (field: string) => pendingFields.has(field);
 
   async function onPickFile(file: File) {
     setPhotoError('');
@@ -119,10 +157,16 @@ export function EmployeeProfile() {
             <h2 className='text-2xl font-bold tracking-tight'>Profile</h2>
             <p className='text-muted-foreground text-sm'>Data profil Anda.</p>
           </div>
-          <Button variant='outline' onClick={() => router.push('/dashboard/settings/account')}>
-            <Icons.account className='size-4' />
-            Pengaturan Akun
-          </Button>
+          <div className='flex flex-wrap justify-end gap-2'>
+            <Button variant='outline' onClick={() => setRequestOpen(true)}>
+              <Icons.edit className='size-4' />
+              Ajukan Perubahan Data
+            </Button>
+            <Button variant='outline' onClick={() => router.push('/dashboard/settings/account')}>
+              <Icons.account className='size-4' />
+              Pengaturan Akun
+            </Button>
+          </div>
         </div>
       </div>
 
@@ -190,25 +234,37 @@ export function EmployeeProfile() {
 
       <div className='grid grid-cols-1 gap-4 lg:grid-cols-2'>
         <Card>
-          <CardHeader>
-            <CardTitle>Data Pribadi</CardTitle>
-          </CardHeader>
+          <CardHead
+            title='Data Pribadi'
+            action={
+              <Button size='sm' variant='ghost' onClick={() => setRequestOpen(true)}>
+                Ajukan Perubahan
+              </Button>
+            }
+          />
           <CardContent className='divide-y'>
-            <Row label='NIK' value={employee.nik} />
-            <Row label='Tempat Lahir' value={employee.birth_place} />
-            <Row label='Tanggal Lahir' value={fmtDate(employee.birth_date)} />
-            <Row label='Jenis Kelamin' value={employee.gender_display} />
-            <Row label='Agama' value={employee.religion_display} />
-            <Row label='Status Pernikahan' value={employee.marital_status_display} />
-            <Row label='Alamat' value={employee.address} />
+            <Row label='Nama Lengkap' value={employee.full_name} pending={pending('full_name')} />
+            <Row label='NIK' value={employee.nik} pending={pending('nik')} />
+            <Row label='Tempat Lahir' value={employee.birth_place} pending={pending('birth_place')} />
+            <Row label='Tanggal Lahir' value={fmtDate(employee.birth_date)} pending={pending('birth_date')} />
+            <Row label='Jenis Kelamin' value={employee.gender_display} pending={pending('gender')} />
+            <Row label='Agama' value={employee.religion_display} pending={pending('religion')} />
+            <Row label='Status Pernikahan' value={employee.marital_status_display} pending={pending('marital_status')} />
           </CardContent>
         </Card>
 
         <Card>
-          <CardHeader>
-            <CardTitle>Kontak</CardTitle>
-          </CardHeader>
+          <CardHead
+            title='Kontak & Alamat'
+            action={
+              <Button size='sm' variant='ghost' onClick={() => setEditOpen(true)}>
+                <Icons.edit className='size-4' />
+                Edit
+              </Button>
+            }
+          />
           <CardContent className='divide-y'>
+            <Row label='Alamat' value={employee.address} />
             <Row label='Nomor Telepon' value={employee.phone} />
             <Row label='Email Pribadi' value={employee.personal_email} />
             <Row label='Email Kantor' value={employee.company_email} />
@@ -235,18 +291,34 @@ export function EmployeeProfile() {
         </Card>
 
         <Card>
-          <CardHeader>
-            <CardTitle>Bank & Pajak</CardTitle>
-          </CardHeader>
+          <CardHead
+            title='Bank & Pajak'
+            action={
+              <Button size='sm' variant='ghost' onClick={() => setRequestOpen(true)}>
+                Ajukan Perubahan
+              </Button>
+            }
+          />
           <CardContent className='divide-y'>
-            <Row label='Nomor Rekening' value={employee.bank_account_number} />
-            <Row label='Nama Rekening' value={employee.bank_account_name} />
-            <Row label='NPWP' value={employee.npwp} />
-            <Row label='BPJS Kesehatan' value={employee.bpjs_kesehatan} />
-            <Row label='BPJS Ketenagakerjaan' value={employee.bpjs_ketenagakerjaan} />
+            <Row label='Nomor Rekening' value={employee.bank_account_number} pending={pending('bank_account_number')} />
+            <Row label='Nama Rekening' value={employee.bank_account_name} pending={pending('bank_account_name')} />
+            <Row label='NPWP' value={employee.npwp} pending={pending('npwp')} />
+            <Row label='BPJS Kesehatan' value={employee.bpjs_kesehatan} pending={pending('bpjs_kesehatan')} />
+            <Row label='BPJS Ketenagakerjaan' value={employee.bpjs_ketenagakerjaan} pending={pending('bpjs_ketenagakerjaan')} />
           </CardContent>
         </Card>
       </div>
+
+      <ChangeRequestHistory items={requests} onChanged={loadRequests} />
+
+      <ContactEditSheet employee={employee} open={editOpen} onOpenChange={setEditOpen} onSaved={refresh} />
+      <ChangeRequestSheet
+        employee={employee}
+        pendingFields={pendingFields}
+        open={requestOpen}
+        onOpenChange={setRequestOpen}
+        onSubmitted={loadRequests}
+      />
     </div>
   );
 }

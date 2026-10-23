@@ -1,7 +1,7 @@
 from django.contrib.auth import login as auth_login, logout as auth_logout, update_session_auth_hash
 from django.utils import timezone
 from rest_framework import status, viewsets
-from rest_framework.parsers import FormParser, MultiPartParser
+from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -119,6 +119,132 @@ class CurrentEmployeeView(APIView):
         if employee is None:
             return Response({'detail': 'Akun tidak terhubung ke data karyawan.'}, status=status.HTTP_404_NOT_FOUND)
         return Response(EmployeeReadSerializer(employee, context={'request': request}).data)
+
+    def patch(self, request):
+        """Direct self-edit of low-risk contact data (profile_changes.
+        SELF_EDIT_FIELDS). Protected fields must go through a change request."""
+        from apps.notifications.services import notify_profile_security
+        from apps.personnel.profile_changes import SELF_EDIT_FIELDS, apply_self_edit
+        from apps.personnel.serializers import EmployeeReadSerializer
+
+        employee = getattr(getattr(request.user, 'personnel', None), 'employee', None)
+        if employee is None:
+            return Response({'detail': 'Akun tidak terhubung ke data karyawan.'}, status=status.HTTP_404_NOT_FOUND)
+        old_personal_email = employee.personal_email
+        data = request.data.dict() if hasattr(request.data, 'dict') else dict(request.data)
+        changed = apply_self_edit(employee, data)
+        if changed:
+            log_event(
+                request, 'update', obj=employee,
+                description=f'{employee.employee_id} updated own contact data: '
+                            f'{", ".join(SELF_EDIT_FIELDS[f] for f in changed)}',
+                changes_before={f: old for f, (old, _) in changed.items()},
+                changes_after={f: new for f, (_, new) in changed.items()},
+            )
+            if 'personal_email' in changed:
+                # Notify both addresses so an unauthorized change is noticed.
+                notify_profile_security(
+                    f'profile-email-change:{employee.pk}:{employee.updated_at:%Y%m%d%H%M%S%f}',
+                    [old_personal_email, employee.personal_email],
+                    'Email pribadi HRIS Anda diubah',
+                    f'Halo {employee.full_name},\n\nEmail pribadi pada data HRIS Anda telah diubah dari '
+                    f'"{old_personal_email or "-"}" menjadi "{employee.personal_email or "-"}".\n\n'
+                    'Jika Anda tidak melakukan perubahan ini, segera hubungi HR.\n\nHRIS Feraco',
+                )
+        return Response(EmployeeReadSerializer(employee, context={'request': request}).data)
+
+
+class MyChangeRequestListView(APIView):
+    """Own data change requests: list (GET) and submit (POST multipart:
+    `changes` JSON {field: new value}, optional `note`, `attachment`)."""
+
+    permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
+
+    @staticmethod
+    def _employee(request):
+        return getattr(getattr(request.user, 'personnel', None), 'employee', None)
+
+    def get(self, request):
+        from apps.personnel.serializers import EmployeeChangeRequestSerializer
+
+        employee = self._employee(request)
+        if employee is None:
+            return Response({'detail': 'Akun tidak terhubung ke data karyawan.'}, status=status.HTTP_404_NOT_FOUND)
+        qs = employee.change_requests.select_related('requested_by', 'reviewed_by')[:50]
+        return Response(EmployeeChangeRequestSerializer(
+            qs, many=True, context={'request': request, 'self_service': True}).data)
+
+    def post(self, request):
+        import json
+
+        from rest_framework.exceptions import ValidationError
+
+        from apps.notifications.services import notify_profile_change_submitted
+        from apps.personnel.profile_changes import REQUEST_FIELDS, create_change_request
+        from apps.personnel.serializers import EmployeeChangeRequestSerializer
+
+        employee = self._employee(request)
+        if employee is None:
+            return Response({'detail': 'Akun tidak terhubung ke data karyawan.'}, status=status.HTTP_404_NOT_FOUND)
+        changes = request.data.get('changes')
+        if isinstance(changes, str):
+            try:
+                changes = json.loads(changes)
+            except ValueError:
+                raise ValidationError({'changes': 'Format data perubahan tidak valid.'})
+        cr = create_change_request(employee, request.user, changes, request.data.get('note', ''),
+                                   request.FILES.get('attachment'))
+        notify_profile_change_submitted(cr)
+        log_event(request, 'create', obj=cr,
+                  description=f'{employee.employee_id} requested data change: '
+                              f'{", ".join(REQUEST_FIELDS[f] for f in cr.changes)}')
+        return Response(EmployeeChangeRequestSerializer(cr, context={'request': request, 'self_service': True}).data,
+                        status=status.HTTP_201_CREATED)
+
+
+class MyChangeRequestDetailView(APIView):
+    """Own request: POST .../cancel/ (PENDING only), GET .../attachment/."""
+
+    permission_classes = [IsAuthenticated]
+
+    def _get(self, request, pk):
+        from django.http import Http404
+
+        employee = getattr(getattr(request.user, 'personnel', None), 'employee', None)
+        cr = employee.change_requests.filter(pk=pk).first() if employee is not None else None
+        if cr is None:
+            raise Http404
+        return cr
+
+    def post(self, request, pk, action):
+        from apps.personnel.serializers import EmployeeChangeRequestSerializer
+
+        if action != 'cancel':
+            return Response(status=status.HTTP_405_METHOD_NOT_ALLOWED)
+        cr = self._get(request, pk)
+        if cr.status != 'PENDING':
+            return Response({'detail': 'Hanya pengajuan yang menunggu persetujuan yang dapat dibatalkan.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+        cr.status = 'CANCELLED'
+        cr.save(update_fields=['status', 'updated_at'])
+        log_event(request, 'update', obj=cr, description=f'Data change request {cr.pk} cancelled by employee')
+        return Response(EmployeeChangeRequestSerializer(cr, context={'request': request, 'self_service': True}).data)
+
+    def get(self, request, pk, action):
+        from apps.personnel.profile_changes import ATTACHMENT_BUCKET
+        from apps.personnel.storage import stream_file_response
+
+        if action != 'attachment':
+            return Response(status=status.HTTP_405_METHOD_NOT_ALLOWED)
+        cr = self._get(request, pk)
+        if not cr.attachment_path:
+            return Response({'detail': 'Tidak ada lampiran.'}, status=status.HTTP_404_NOT_FOUND)
+        try:
+            return stream_file_response(ATTACHMENT_BUCKET, cr.attachment_path, cr.attachment_name)
+        except Exception as exc:
+            return Response({'detail': f'Gagal mengambil file dari storage: {str(exc)[:150]}'},
+                            status=status.HTTP_502_BAD_GATEWAY)
 
 class CurrentEmployeeContractsView(APIView):
     """Contracts of the Employee linked to the logged-in user (self-service)."""

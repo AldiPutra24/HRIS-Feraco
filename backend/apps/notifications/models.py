@@ -20,6 +20,10 @@ class Notification(models.Model):
         ('REIMBURSEMENT_PAID', 'Reimbursement - Dibayar'),
         ('CONTRACT', 'End of Contract'),
         ('BIRTHDAY', 'Birthday'),
+        ('PROFILE_CHANGE_SUBMITTED', 'Perubahan Data - Pengajuan Baru'),
+        ('PROFILE_CHANGE_APPROVED', 'Perubahan Data - Disetujui'),
+        ('PROFILE_CHANGE_REJECTED', 'Perubahan Data - Ditolak'),
+        ('PROFILE_SECURITY', 'Perubahan Data - Pemberitahuan Keamanan'),
     ]
 
     recipient = models.ForeignKey(
