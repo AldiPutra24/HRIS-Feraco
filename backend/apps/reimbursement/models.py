@@ -65,6 +65,9 @@ class Reimbursement(models.Model):
     attachment_name = models.CharField(max_length=255, blank=True)
     attachment_path = models.CharField(max_length=512, blank=True)
     attachment_content_type = models.CharField(max_length=128, blank=True)
+    # Alternative to the uploaded file: a link (Drive/Sheets/...) to the
+    # Bukti Payment/Tagihan/Invoice. Exactly one of file or link is used.
+    attachment_link = models.URLField(max_length=1000, blank=True, default='')
     status = models.CharField(max_length=16, choices=STATUS_CHOICES, default='DRAFT')
     submitted_at = models.DateTimeField(null=True, blank=True)
     approved_at = models.DateTimeField(null=True, blank=True)

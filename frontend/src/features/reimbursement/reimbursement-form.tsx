@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
+import { cn } from '@/lib/utils';
 import {
   createReimbursement,
   listReimbursementCategories,
@@ -50,7 +51,10 @@ export function ReimbursementForm({ redirectTo = '/dashboard/employee/reimbursem
     bank_account_number: '',
     contact_email: ''
   });
+  // Bukti Payment/Tagihan/Invoice: upload a file OR give a link (one of).
+  const [evidenceMode, setEvidenceMode] = useState<'file' | 'link'>('file');
   const [file, setFile] = useState<File | null>(null);
+  const [link, setLink] = useState('');
   const [saving, setSaving] = useState(false);
 
   const load = useCallback(async () => {
@@ -99,14 +103,21 @@ export function ReimbursementForm({ redirectTo = '/dashboard/employee/reimbursem
       toast.error('Deskripsi wajib diisi.');
       return;
     }
-    if (!file) {
-      toast.error('Bukti Payment/Tagihan/Invoice wajib diunggah.');
-      return;
-    }
-    const fileError = attachmentError(file);
-    if (fileError) {
-      toast.error(fileError);
-      return;
+    if (evidenceMode === 'link') {
+      if (!/^https?:\/\/\S+$/i.test(link.trim())) {
+        toast.error('Link Bukti Payment/Tagihan/Invoice wajib diisi dan diawali http:// atau https://.');
+        return;
+      }
+    } else {
+      if (!file) {
+        toast.error('Bukti Payment/Tagihan/Invoice wajib diunggah.');
+        return;
+      }
+      const fileError = attachmentError(file);
+      if (fileError) {
+        toast.error(fileError);
+        return;
+      }
     }
     setSaving(true);
     try {
@@ -120,9 +131,10 @@ export function ReimbursementForm({ redirectTo = '/dashboard/employee/reimbursem
         bank_name: form.bank_name.trim(),
         bank_account_name: form.bank_account_name.trim(),
         bank_account_number: form.bank_account_number.trim(),
-        contact_email: form.contact_email.trim()
+        contact_email: form.contact_email.trim(),
+        ...(evidenceMode === 'link' ? { attachment_link: link.trim() } : {})
       });
-      await uploadReimbursementAttachment(created.id, file);
+      if (evidenceMode === 'file' && file) await uploadReimbursementAttachment(created.id, file);
       await submitReimbursement(created.id);
       toast.success('Pengajuan terkirim.');
       router.push(redirectTo);
@@ -274,26 +286,64 @@ export function ReimbursementForm({ redirectTo = '/dashboard/employee/reimbursem
               <Label className='text-xs'>
                 Bukti Payment/Tagihan/Invoice <span className='text-destructive'>*</span>
               </Label>
-              <input
-                type='file'
-                required
-                accept='application/pdf,.pdf,image/jpeg,.jpg,.jpeg,image/png,.png,image/webp,.webp'
-                className='mt-1 block w-full text-sm text-muted-foreground file:mr-3 file:rounded-md file:border-0 file:bg-primary file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-primary-foreground hover:file:bg-primary/80'
-                onChange={(e) => {
-                  const picked = e.target.files?.[0] || null;
-                  const error = picked ? attachmentError(picked) : null;
-                  if (error) {
-                    toast.error(error);
-                    e.target.value = '';
-                    setFile(null);
-                    return;
-                  }
-                  setFile(picked);
-                }}
-              />
-              <p className='text-muted-foreground mt-1 text-xs font-medium'>
-                Format file: PDF, JPG, PNG, WEBP · Ukuran maks. 5 MB
-              </p>
+              <div className='mt-1 inline-flex rounded-lg border p-0.5'>
+                {(
+                  [
+                    ['file', 'Upload File'],
+                    ['link', 'Link']
+                  ] as const
+                ).map(([mode, label]) => (
+                  <button
+                    key={mode}
+                    type='button'
+                    onClick={() => setEvidenceMode(mode)}
+                    className={cn(
+                      'rounded-md px-3 py-1 text-xs font-medium transition-colors',
+                      evidenceMode === mode ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'
+                    )}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              {evidenceMode === 'link' ? (
+                <>
+                  <Input
+                    type='url'
+                    required
+                    className='mt-2'
+                    placeholder='https://drive.google.com/...'
+                    value={link}
+                    onChange={(e) => setLink(e.target.value)}
+                  />
+                  <p className='text-muted-foreground mt-1 text-xs'>
+                    Tempel link Google Drive/Sheets/Docs berisi bukti transaksi. Pastikan akses link dapat dibuka oleh HR.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <input
+                    type='file'
+                    required
+                    accept='application/pdf,.pdf,image/jpeg,.jpg,.jpeg,image/png,.png,image/webp,.webp'
+                    className='mt-2 block w-full text-sm text-muted-foreground file:mr-3 file:rounded-md file:border-0 file:bg-primary file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-primary-foreground hover:file:bg-primary/80'
+                    onChange={(e) => {
+                      const picked = e.target.files?.[0] || null;
+                      const error = picked ? attachmentError(picked) : null;
+                      if (error) {
+                        toast.error(error);
+                        e.target.value = '';
+                        setFile(null);
+                        return;
+                      }
+                      setFile(picked);
+                    }}
+                  />
+                  <p className='text-muted-foreground mt-1 text-xs font-medium'>
+                    Format file: PDF, JPG, PNG, WEBP · Ukuran maks. 5 MB
+                  </p>
+                </>
+              )}
               <p className='text-muted-foreground mt-1 text-xs'>
                 Lampirkan bukti transaksi untuk pengajuan reimburse. Jika terdapat lebih dari 1 bukti transaksi,
                 silakan duplicate/copy template sesuai jumlah item transaksi, kemudian upload dalam format PDF.

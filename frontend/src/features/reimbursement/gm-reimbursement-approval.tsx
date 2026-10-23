@@ -11,6 +11,7 @@ import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import { TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { LinkifiedText } from '@/components/linkified-text';
+import { AttachmentCell } from './attachment-cell';
 import { cn } from '@/lib/utils';
 import {
   approveReimbursement,
@@ -171,13 +172,7 @@ export function GmReimbursementApproval() {
                         <Badge variant={STATUS_VARIANT[r.status] ?? 'secondary'}>{reimbursementStatusLabel(r)}</Badge>
                       </TableCell>
                       <TableCell>
-                        {r.attachment_url ? (
-                          <a href={r.attachment_url} target='_blank' rel='noreferrer' className='text-primary underline'>
-                            {r.attachment_name}
-                          </a>
-                        ) : (
-                          <span className='text-muted-foreground'>-</span>
-                        )}
+                        <AttachmentCell r={r} />
                       </TableCell>
                       <TableCell className='text-right'>
                         {r.can_final_approve ? (

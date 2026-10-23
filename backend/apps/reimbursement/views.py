@@ -205,10 +205,10 @@ class ReimbursementViewSet(viewsets.ModelViewSet):
             return Response({'detail': 'Tidak berwenang.'}, status=status.HTTP_403_FORBIDDEN)
         if obj.status != 'DRAFT':
             return Response({'detail': 'Hanya pengajuan DRAFT yang dapat dikirim.'}, status=status.HTTP_400_BAD_REQUEST)
-        # Bukti Payment/Tagihan/Invoice (PDF/gambar) wajib untuk SEMUA pengajuan.
-        if not obj.attachment_path:
+        # Bukti Payment/Tagihan/Invoice (file PDF/gambar ATAU link) wajib untuk SEMUA pengajuan.
+        if not obj.attachment_path and not obj.attachment_link:
             return Response(
-                {'attachment': 'Bukti Payment/Tagihan/Invoice wajib diunggah sebelum pengajuan dikirim.'},
+                {'attachment': 'Bukti Payment/Tagihan/Invoice wajib diunggah atau diisi link sebelum pengajuan dikirim.'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
         missing = {f: f'{label} wajib diisi.' for f, label in SUBMIT_REQUIRED if not (getattr(obj, f) or '').strip()}
@@ -468,7 +468,12 @@ class ReimbursementViewSet(viewsets.ModelViewSet):
         setattr(obj, name_field, upload.name)
         setattr(obj, path_field, path)
         setattr(obj, ctype_field, upload.content_type or '')
-        obj.save(update_fields=[name_field, path_field, ctype_field, 'updated_at'])
+        update_fields = [name_field, path_field, ctype_field, 'updated_at']
+        if kind == 'attachment' and obj.attachment_link:
+            # File OR link: an uploaded file replaces the link.
+            obj.attachment_link = ''
+            update_fields.append('attachment_link')
+        obj.save(update_fields=update_fields)
         log_event(request, 'upload', obj=obj, description=f'Reimbursement {obj.id} {kind} uploaded')
         return Response(ReimbursementSerializer(obj, context={'request': request}).data)
 

@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { LinkifiedText } from '@/components/linkified-text';
+import { AttachmentCell } from './attachment-cell';
 import {
   cancelReimbursement,
   getReimbursementSummary,
@@ -158,13 +159,7 @@ export function EmployeeReimbursement() {
                         <StatusBadge r={r} />
                       </TableCell>
                       <TableCell>
-                        {r.attachment_url ? (
-                          <a href={r.attachment_url} target='_blank' rel='noreferrer' className='text-primary underline'>
-                            {r.attachment_name}
-                          </a>
-                        ) : (
-                          <span className='text-muted-foreground'>-</span>
-                        )}
+                        <AttachmentCell r={r} />
                       </TableCell>
                       <TableCell>
                         {r.payment_proof_url ? (

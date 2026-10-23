@@ -11,6 +11,7 @@ import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import { TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { LinkifiedText } from '@/components/linkified-text';
+import { AttachmentCell } from './attachment-cell';
 import { Icons } from '@/components/icons';
 import {
   approveReimbursement,
@@ -428,13 +429,7 @@ export function ReimbursementPage() {
               </p>
               <p>
                 <span className='text-muted-foreground'>Bukti Payment/Invoice:</span>{' '}
-                {focused.attachment_url ? (
-                  <a href={focused.attachment_url} target='_blank' rel='noreferrer' className='text-primary underline'>
-                    {focused.attachment_name}
-                  </a>
-                ) : (
-                  '-'
-                )}
+                <AttachmentCell r={focused} />
               </p>
             </div>
             {focused.description && (
@@ -527,13 +522,7 @@ export function ReimbursementPage() {
                         )}
                       </TableCell>
                       <TableCell>
-                        {r.attachment_url ? (
-                          <a href={r.attachment_url} target='_blank' rel='noreferrer' className='text-primary underline'>
-                            {r.attachment_name}
-                          </a>
-                        ) : (
-                          <span className='text-muted-foreground'>-</span>
-                        )}
+                        <AttachmentCell r={r} />
                       </TableCell>
                       <TableCell>
                         {r.payment_proof_url ? (

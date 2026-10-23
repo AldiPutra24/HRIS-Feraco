@@ -64,6 +64,8 @@ export type Reimbursement = {
   bank_account_number: string;
   contact_email: string;
   attachment_name: string;
+  /** Link alternative to the uploaded file (one of the two is used). */
+  attachment_link: string;
   attachment_url: string | null;
   status: string;
   status_display: string;
@@ -185,6 +187,7 @@ export function createReimbursement(data: {
   bank_account_name: string;
   bank_account_number: string;
   contact_email: string;
+  attachment_link?: string;
 }): Promise<Reimbursement> {
   return request<Reimbursement>('/', { method: 'POST', body: JSON.stringify(data) });
 }

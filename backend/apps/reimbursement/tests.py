@@ -1235,3 +1235,63 @@ class HrLeadGmFinalApprovalTests(TestCase):
         # HR Lead sees the flag false on a fellow HR Lead's request.
         self.client.force_login(self.lead2)
         self.assertFalse(self.client.get(f'/api/reimbursements/{lead_rid}/').json()['can_final_approve'])
+
+
+class ReimbursementAttachmentLinkTests(TestCase):
+    """Bukti Payment/Tagihan/Invoice: an uploaded file OR a link (one of)."""
+
+    def setUp(self):
+        self.emp_user = make_user('EMPLOYEE', 'emp@test.com')
+        self.emp = Employee.objects.create(employee_id='E001', full_name='John', employment_status='ACTIVE')
+        self.emp.user = self.emp_user
+        self.emp.save()
+        self.cat = ReimbursementCategory.objects.create(name='Meal', code='MEAL')
+        self.client.force_login(self.emp_user)
+
+    def _create(self, **over):
+        data = {'category': self.cat.id, 'transaction_date': '2026-09-01', 'amount': 100000,
+                'description': 'Makan klien', **BANK, **over}
+        return self.client.post('/api/reimbursements/', data, content_type='application/json')
+
+    def test_submit_with_link_only(self):
+        link = 'https://docs.google.com/spreadsheets/d/abc/edit'
+        res = self._create(attachment_link=link)
+        self.assertEqual(res.status_code, 201, res.content)
+        self.assertEqual(res.json()['attachment_link'], link)
+        res = self.client.post(f"/api/reimbursements/{res.json()['id']}/submit/")
+        self.assertEqual(res.status_code, 200, res.content)
+        self.assertEqual(res.json()['status'], 'PENDING')
+
+    def test_submit_without_file_or_link_rejected(self):
+        rid = self._create().json()['id']
+        res = self.client.post(f'/api/reimbursements/{rid}/submit/')
+        self.assertEqual(res.status_code, 400)
+        self.assertIn('attachment', res.json())
+
+    def test_non_http_link_rejected(self):
+        for bad in ('javascript:alert(1)', 'ftp://x.com/a', 'docs.google.com/x'):
+            res = self._create(attachment_link=bad)
+            self.assertEqual(res.status_code, 400, bad)
+            self.assertIn('attachment_link', res.json())
+
+    def test_link_replaces_file_and_file_replaces_link(self):
+        from unittest import mock
+
+        rid = self._create().json()['id']
+        _attach(rid)
+        res = self.client.patch(f'/api/reimbursements/{rid}/', {'attachment_link': 'https://drive.google.com/x'},
+                                content_type='application/json')
+        self.assertEqual(res.status_code, 200, res.content)
+        r = Reimbursement.objects.get(pk=rid)
+        self.assertEqual((r.attachment_path, r.attachment_name), ('', ''))
+        self.assertIsNone(res.json()['attachment_url'])
+
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        with mock.patch('apps.reimbursement.views.is_configured', return_value=True), \
+                mock.patch('apps.reimbursement.views.upload_bytes'):
+            res = self.client.post(f'/api/reimbursements/{rid}/attachment/',
+                                   {'file': SimpleUploadedFile('nota.pdf', PDF_BYTES, content_type='application/pdf')})
+        self.assertEqual(res.status_code, 200, res.content)
+        r.refresh_from_db()
+        self.assertEqual(r.attachment_link, '')
+        self.assertEqual(r.attachment_name, 'nota.pdf')

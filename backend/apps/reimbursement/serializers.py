@@ -32,7 +32,7 @@ class ReimbursementSerializer(serializers.ModelSerializer):
             'transaction_date', 'amount', 'approved_amount',
             'project_category', 'project_category_other',
             'description', 'bank_name', 'bank_account_name', 'bank_account_number', 'contact_email',
-            'attachment_name',
+            'attachment_name', 'attachment_link',
             'attachment_url', 'status', 'status_display', 'submitted_at', 'approved_at',
             'rejected_at', 'paid_at', 'amount_set_by', 'amount_set_by_name', 'amount_set_at',
             'reviewer', 'reviewer_name',
@@ -75,6 +75,12 @@ class ReimbursementSerializer(serializers.ModelSerializer):
             return False
         employee = _employee_for(request.user)
         return employee is None or obj.employee_id != employee.id
+
+    def validate_attachment_link(self, value):
+        value = (value or '').strip()
+        if value and not re.match(r'^https?://', value, re.IGNORECASE):
+            raise serializers.ValidationError('Link harus diawali http:// atau https://.')
+        return value
 
     def validate_amount(self, value):
         if value <= 0:
@@ -164,6 +170,16 @@ class ReimbursementSerializer(serializers.ModelSerializer):
             attrs['project_category_other'] = ''
         return attrs
 
+    def _link_replaces_file(self, validated_data):
+        # Bukti Payment: file OR link — a link replaces an uploaded file.
+        if validated_data.get('attachment_link'):
+            validated_data.update(attachment_name='', attachment_path='', attachment_content_type='')
+
+    def update(self, instance, validated_data):
+        self._link_replaces_file(validated_data)
+        return super().update(instance, validated_data)
+
     def create(self, validated_data):
+        self._link_replaces_file(validated_data)
         validated_data.setdefault('status', 'DRAFT')
         return super().create(validated_data)
