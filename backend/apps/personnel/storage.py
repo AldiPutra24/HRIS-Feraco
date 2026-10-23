@@ -186,3 +186,25 @@ def stream_file_response(bucket, path, filename):
     response['X-Content-Type-Options'] = 'nosniff'
     response['Cache-Control'] = 'private, no-store'
     return response
+
+
+def stream_link_or_file(request, bucket, path, filename, **extra):
+    """For download endpoints whose frontend expects JSON `{url, ...}` and
+    opens it with window.open: without `?raw=1` return a link back to this
+    same endpoint; with `?raw=1` stream the file (stream_file_response).
+
+    Replaces Supabase signed URLs (InvalidSignature on names with ',' / '&').
+    The endpoint's own permission checks run on both requests.
+    """
+    from rest_framework import status
+    from rest_framework.response import Response
+
+    if request.query_params.get('raw') == '1':
+        try:
+            return stream_file_response(bucket, path, filename)
+        except Exception as exc:
+            return Response(
+                {'detail': f'Gagal mengambil file dari storage: {str(exc)[:150]}'},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+    return Response({'url': request.build_absolute_uri(f'{request.path}?raw=1'), **extra})

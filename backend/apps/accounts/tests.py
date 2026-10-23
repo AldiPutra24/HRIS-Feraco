@@ -470,3 +470,73 @@ class SeedRolesAdminPasswordTests(TestCase):
         admin.refresh_from_db()
         self.assertTrue(admin.check_password('Admin#Feraco2026'))
         self.assertEqual(admin.role.key, 'ADMIN')
+
+
+class LoginLockoutTests(TestCase):
+    """Max 5 failed logins per 15 minutes per email and per IP."""
+
+    def setUp(self):
+        role, _ = Role.objects.get_or_create(key='EMPLOYEE', defaults={'name': 'Employee'})
+        self.user = User.objects.create_user(username='lock@feraco.id', email='lock@feraco.id', password='Benar#2026x')
+        self.user.role = role
+        self.user.save()
+
+    def _login(self, password, email='lock@feraco.id', ip='10.0.0.1'):
+        return self.client.post(reverse('login'), {'email': email, 'password': password},
+                                content_type='application/json', HTTP_X_REAL_IP=ip)
+
+    def test_remaining_attempts_message_then_lock(self):
+        for left in (4, 3, 2, 1):
+            res = self._login('salah')
+            self.assertEqual(res.status_code, 400)
+            self.assertEqual(res.data['remaining_attempts'], left)
+            self.assertIn(f'Sisa {left} percobaan', res.data['detail'])
+        res = self._login('salah')  # 5th failure -> locked
+        self.assertEqual(res.status_code, 429)
+        self.assertIn('coba lagi dalam 15 menit', res.data['detail'])
+        self.assertEqual(res['Retry-After'], str(res.data['retry_after']))
+        # Even the correct password is refused while locked.
+        res = self._login('Benar#2026x')
+        self.assertEqual(res.status_code, 429)
+        self.assertNotIn('_auth_user_id', self.client.session)
+
+    def test_lock_expires_after_window(self):
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        from .models import LoginAttempt
+
+        for _ in range(5):
+            self._login('salah')
+        self.assertEqual(self._login('Benar#2026x').status_code, 429)
+        LoginAttempt.objects.update(created_at=timezone.now() - timedelta(minutes=16))
+        self.assertEqual(self._login('Benar#2026x').status_code, 200)
+
+    def test_lock_per_ip_across_emails(self):
+        for i in range(5):
+            self._login('salah', email=f'x{i}@feraco.id', ip='10.0.0.9')
+        # Same IP, another (valid) account: locked by IP.
+        self.assertEqual(self._login('Benar#2026x', ip='10.0.0.9').status_code, 429)
+        # Different IP: allowed.
+        self.assertEqual(self._login('Benar#2026x', ip='10.0.0.2').status_code, 200)
+
+    def test_lock_per_email_across_ips(self):
+        for i in range(5):
+            self._login('salah', ip=f'10.0.1.{i}')
+        self.assertEqual(self._login('Benar#2026x', ip='10.0.2.1').status_code, 429)
+
+    def test_success_clears_email_failures(self):
+        for _ in range(4):
+            self._login('salah')
+        self.assertEqual(self._login('Benar#2026x').status_code, 200)
+        self.client.logout()
+        res = self._login('salah', ip='10.0.0.3')
+        self.assertEqual(res.data['remaining_attempts'], 4)
+
+    def test_spoofed_forwarded_for_does_not_bypass(self):
+        for i in range(5):
+            self.client.post(reverse('login'), {'email': 'lock@feraco.id', 'password': 'salah'},
+                             content_type='application/json', HTTP_X_FORWARDED_FOR=f'1.2.3.{i}')
+        res = self._login('Benar#2026x', ip='10.9.9.9')
+        self.assertEqual(res.status_code, 429)  # email limit still applies

@@ -231,9 +231,18 @@ export const DELIVERY_EVENT_LABELS: Record<string, string> = {
   LEAVE_APPROVED: 'Izin/Cuti — Disetujui',
   LEAVE_REJECTED: 'Izin/Cuti — Ditolak',
   REIMBURSEMENT_SUBMITTED: 'Reimbursement — Pengajuan Baru',
+  REIMBURSEMENT_REVIEWED: 'Reimbursement — Menunggu Approval Final',
+  REIMBURSEMENT_APPROVED: 'Reimbursement — Disetujui',
+  REIMBURSEMENT_REJECTED: 'Reimbursement — Ditolak',
+  REIMBURSEMENT_PAID: 'Reimbursement — Dibayar',
   CONTRACT: 'End of Contract',
-  BIRTHDAY: 'Birthday',
+  BIRTHDAY_HR: 'Birthday — Info ke HR (email)',
+  BIRTHDAY_EMPLOYEE: 'Birthday — Ucapan ke Karyawan (email)',
+  BIRTHDAY: 'Birthday — Notifikasi Aplikasi'
 };
+
+/** Every event recorded in the delivery log (filter dropdown order). */
+export const DELIVERY_EVENT_OPTIONS = Object.keys(DELIVERY_EVENT_LABELS);
 
 export function listDeliveryLogs(params: DeliveryLogFilters = {}): Promise<DeliveryLogPage> {
   const q = new URLSearchParams();

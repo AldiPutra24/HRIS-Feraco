@@ -13,7 +13,6 @@ from apps.audit.services import log_event
 from apps.personnel.storage import (
     delete_object,
     is_configured,
-    signed_url,
     upload_bytes,
 )
 
@@ -317,7 +316,7 @@ class OnboardingViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['get'], url_path='documents/(?P<document_id>[0-9]+)/download')
     def document_download(self, request, pk=None, document_id=None):
-        """Redirect to a short-lived signed URL for the stored document."""
+        """JSON `{url}` to this endpoint with `?raw=1`, which streams the file."""
         onboarding = self.get_object()
         try:
             doc = onboarding.documents.get(pk=document_id)
@@ -325,16 +324,18 @@ class OnboardingViewSet(viewsets.ModelViewSet):
             return Response({'detail': 'Dokumen tidak ditemukan.'}, status=status.HTTP_404_NOT_FOUND)
         if not is_configured():
             return Response({'detail': 'Storage tidak dikonfigurasi.'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
-        log_event(
-            request,
-            'read',
-            obj=doc,
-            description=f'Dokumen {doc.document_type} "{doc.original_filename}" dilihat',
-        )
-        # Return signed URL as JSON so the browser can open it in a new tab
-        # without a cross-origin redirect (which fetch cannot follow with
-        # credentials). Bucket stays private; secret never leaves the server.
-        return Response({'url': signed_url(settings.ONBOARDING_STORAGE_BUCKET, doc.storage_path)})
+        from apps.personnel.storage import stream_link_or_file
+
+        if request.query_params.get('raw') == '1':
+            log_event(
+                request,
+                'read',
+                obj=doc,
+                description=f'Dokumen {doc.document_type} "{doc.original_filename}" dilihat',
+            )
+        # JSON link first (the browser opens it in a new tab), then the file is
+        # streamed by the backend: signed URLs fail for names with ',' / '&'.
+        return stream_link_or_file(request, settings.ONBOARDING_STORAGE_BUCKET, doc.storage_path, doc.original_filename)
 
     @action(detail=True, methods=['get'])
     def readiness(self, request, pk=None):

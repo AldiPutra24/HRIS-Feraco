@@ -329,9 +329,7 @@ class KmsAttachmentTests(BaseKmsTests):
 
         p1 = mock.patch('apps.kms.views.upload_attachment', return_value='kms/1/x.pdf')
         p2 = mock.patch('apps.kms.views.delete_attachment', return_value=True)
-        p3 = mock.patch('apps.kms.views.attachment_url',
-                        return_value='https://signed.test/x.pdf')
-        self.patches = [p1, p2, p3]
+        self.patches = [p1, p2]
         for p in self.patches:
             p.start()
         res = self.client.post(
@@ -345,7 +343,8 @@ class KmsAttachmentTests(BaseKmsTests):
         self.assertTrue(res.data['has_attachment'])
         res = self.client.get(f'{ARTICLES_URL}{self.art.id}/attachment-url/')
         self.assertEqual(res.status_code, 200)
-        self.assertIn('https://', res.data['url'])
+        # Link back to the streaming endpoint (no Supabase signed URL).
+        self.assertTrue(res.data['url'].endswith(f'/articles/{self.art.id}/attachment-url/?raw=1'), res.data)
         res = self.client.delete(f'{ARTICLES_URL}{self.art.id}/')
         self.assertIn(res.status_code, (200, 204))
         self.assertFalse(KnowledgeArticle.objects.filter(pk=self.art.pk).exists())

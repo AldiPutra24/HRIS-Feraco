@@ -166,14 +166,22 @@ export function getReimbursement(id: number): Promise<Reimbursement> {
   return request<Reimbursement>(`/${id}/`, { cache: 'no-store' });
 }
 
+/** Page size of the reimbursement lists (backend default, max 100). */
+export const REIMBURSEMENT_PAGE_SIZE = 20;
+
+export type ReimbursementPage = { count: number; results: Reimbursement[] };
+
 /** GM approval queue: HR Lead requests (`approval=1`, backend-scoped). */
-export function listGmApprovalReimbursements(): Promise<Reimbursement[]> {
-  return listReimbursements({ approval: '1' });
+export function listGmApprovalReimbursements(page = 1): Promise<ReimbursementPage> {
+  return listReimbursements({ approval: '1', page: String(page) });
 }
 
-export function listReimbursements(params?: Record<string, string>): Promise<Reimbursement[]> {
+/** One page of reimbursements (`page`, `mine=1`, filters as params). */
+export function listReimbursements(params?: Record<string, string>): Promise<ReimbursementPage> {
   const qs = params ? `?${new URLSearchParams(params)}` : '';
-  return request<Reimbursement[]>(`/${qs}`).then(unwrapList);
+  return request<Reimbursement[] | ReimbursementPage>(`/${qs}`).then((data) =>
+    Array.isArray(data) ? { count: data.length, results: data } : { count: data.count ?? 0, results: data.results ?? [] }
+  );
 }
 
 export function createReimbursement(data: {

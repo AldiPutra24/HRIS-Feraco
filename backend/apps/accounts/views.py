@@ -20,13 +20,47 @@ class LoginView(APIView):
     authentication_classes = []
 
     def post(self, request):
+        from . import throttle
+
+        email = str(request.data.get('email') or '').strip().lower()
+        ip = throttle.client_ip(request)
+        # Brute-force lockout: 5 failures per 15 min per email OR per IP
+        # (checked before the password, so a locked account reveals nothing).
+        wait = throttle.lock_seconds(email, ip)
+        if wait:
+            return self._locked(wait)
         serializer = LoginSerializer(data=request.data, context={'request': request})
-        serializer.is_valid(raise_exception=True)
+        if not serializer.is_valid():
+            if 'non_field_errors' not in serializer.errors:
+                # Missing/malformed fields: not a password guess, not counted.
+                return Response({'detail': 'Email dan password wajib diisi dengan benar.', **serializer.errors},
+                                status=status.HTTP_400_BAD_REQUEST)
+            throttle.record_failure(email, ip)
+            wait = throttle.lock_seconds(email, ip)
+            if wait:
+                log_event(request, 'login', description=f'Login dikunci sementara: {email} (IP {ip})')
+                return self._locked(wait)
+            remaining = throttle.remaining_attempts(email, ip)
+            return Response(
+                {'detail': f'Email atau password salah. Sisa {remaining} percobaan lagi sebelum login dikunci sementara.',
+                 'remaining_attempts': remaining},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         user = serializer.validated_data['user']
+        throttle.clear_failures(email)
         auth_login(request, user)
         touch_last_seen(user, force=True)
         log_event(request, 'login', user=user)
         return Response(UserSerializer(user).data, status=status.HTTP_200_OK)
+
+    @staticmethod
+    def _locked(seconds):
+        from .throttle import lock_message
+
+        response = Response({'detail': lock_message(seconds), 'retry_after': seconds},
+                            status=status.HTTP_429_TOO_MANY_REQUESTS)
+        response['Retry-After'] = str(seconds)
+        return response
 
 
 class LogoutView(APIView):

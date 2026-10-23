@@ -37,7 +37,7 @@ from .serializers import (
     TaskEscalationPolicySerializer,
 )
 from .services import send_due_reminders
-from .storage import _bucket, delete_object, is_configured, signed_url, upload_bytes
+from .storage import _bucket, delete_object, is_configured, upload_bytes
 
 
 class SkillCategoryViewSet(viewsets.ModelViewSet):
@@ -214,11 +214,10 @@ class FreelancerViewSet(viewsets.ModelViewSet):
             return Response({'url': doc.url, 'name': doc.name})
         if not doc.storage_path or not is_configured():
             return Response({'detail': 'Document tidak tersedia.'}, status=status.HTTP_404_NOT_FOUND)
-        try:
-            signed = signed_url(_bucket(), doc.storage_path)
-            return Response({'url': signed, 'name': doc.name})
-        except Exception as e:
-            return Response({'detail': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        from apps.personnel.storage import stream_link_or_file
+
+        # Streamed by the backend: signed URLs fail for names with ',' / '&'.
+        return stream_link_or_file(request, _bucket(), doc.storage_path, doc.name, name=doc.name)
 
     @action(detail=True, methods=['delete'], url_path='documents/(?P<doc_id>[^/.]+)')
     def document_delete(self, request, pk=None, doc_id=None):

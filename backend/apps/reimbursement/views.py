@@ -5,6 +5,7 @@ from django.db import transaction
 from django.utils import timezone
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
+from rest_framework.pagination import PageNumberPagination
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
 
@@ -116,17 +117,28 @@ class ReimbursementCategoryViewSet(viewsets.ModelViewSet):
         log_event(self.request, 'update', obj=obj, description=f'Reimbursement category {obj.code} updated')
 
 
+class ReimbursementPagination(PageNumberPagination):
+    page_size = 20
+    page_size_query_param = 'page_size'
+    max_page_size = 100
+
+
 class ReimbursementViewSet(viewsets.ModelViewSet):
     queryset = Reimbursement.objects.select_related('employee__user__role', 'category', 'reviewer').all()
     serializer_class = ReimbursementSerializer
     permission_classes = [ReimbursementPermission]
     filterset_fields = ['status', 'employee', 'category']
     search_fields = ['employee__full_name', 'description', 'payment_reference']
+    pagination_class = ReimbursementPagination
 
     def get_queryset(self):
         qs = super().get_queryset()
         role = _role(self.request.user)
         employee = _employee_for(self.request.user)
+        if self.action == 'list' and self.request.query_params.get('mine') in ('1', 'true'):
+            # "Pengajuan Saya" pages: only the caller's own records (HR in
+            # employee mode included), so pagination counts own rows only.
+            return qs.filter(employee_id=employee.id) if employee is not None else qs.none()
         if role in REIMBURSEMENT_ADMIN_ROLES:
             return qs
         if role == 'MANAGEMENT':

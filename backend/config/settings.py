@@ -200,6 +200,11 @@ HRIS_PUBLIC_URL = (
     os.environ.get('HRIS_PUBLIC_URL') or (CORS_ALLOWED_ORIGINS[0] if CORS_ALLOWED_ORIGINS else '')
 ).rstrip('/')
 
+# Login brute-force lockout (apps.accounts.throttle): max failed logins per
+# email and per IP within the window.
+LOGIN_FAILURE_LIMIT = int(os.environ.get('LOGIN_FAILURE_LIMIT', '5'))
+LOGIN_FAILURE_WINDOW_MINUTES = int(os.environ.get('LOGIN_FAILURE_WINDOW_MINUTES', '15'))
+
 # Email (freelance task reminders). Console backend prints to stderr in dev;
 # set EMAIL_BACKEND=smtp + SMTP_* in production env to actually deliver.
 EMAIL_BACKEND = os.environ.get('EMAIL_BACKEND', 'django.core.mail.backends.console.EmailBackend')

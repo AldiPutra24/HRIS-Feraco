@@ -12,6 +12,7 @@ import { useAuth } from '@/lib/auth/auth-provider';
 import {
   DELIVERY_CHANNEL_LABELS,
   DELIVERY_EVENT_LABELS,
+  DELIVERY_EVENT_OPTIONS,
   DELIVERY_STATUS_LABELS,
   getDeliverySummary,
   listDeliveryLogs,
@@ -23,7 +24,6 @@ import {
 
 const HR_ROLES = ['admin', 'hr_staff', 'hr_lead'];
 const PAGE_SIZE = 20;
-const EVENT_OPTIONS = ['LEAVE_SUBMITTED', 'LEAVE_APPROVED', 'LEAVE_REJECTED', 'REIMBURSEMENT_SUBMITTED', 'CONTRACT', 'BIRTHDAY'];
 
 const SELECT_CLASS = 'border-input h-8 rounded-lg border bg-transparent px-2.5 text-sm';
 
@@ -172,7 +172,7 @@ export function DeliveryLogList() {
             <label htmlFor='dl-event' className='text-muted-foreground text-xs'>Event</label>
             <select id='dl-event' className={SELECT_CLASS} value={event} onChange={(e) => setEvent(e.target.value)}>
               <option value=''>Semua</option>
-              {EVENT_OPTIONS.map((e) => (
+              {DELIVERY_EVENT_OPTIONS.map((e) => (
                 <option key={e} value={e}>{DELIVERY_EVENT_LABELS[e] ?? e}</option>
               ))}
             </select>

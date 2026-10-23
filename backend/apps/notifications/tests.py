@@ -632,6 +632,21 @@ class DeliveryLogApiTests(TestCase):
         self.assertEqual(res.status_code, 200)
         self.assertEqual(res.data, {'total': 2, 'sent': 1, 'failed': 1, 'skipped': 0})
 
+    def test_filter_by_birthday_events_and_summary_follows_filters(self):
+        for key, event, status in (
+            ('b1', 'BIRTHDAY_HR', 'SENT'), ('b2', 'BIRTHDAY_EMPLOYEE', 'SENT'),
+            ('b3', 'BIRTHDAY_EMPLOYEE', 'FAILED'), ('r1', 'REIMBURSEMENT_REVIEWED', 'SENT'),
+        ):
+            NotificationDeliveryLog.objects.create(key=key, channel='EMAIL', event=event,
+                                                   recipient_email=f'{key}@x.com', status=status)
+        self.login_hr()
+        for event, expected in (('BIRTHDAY_HR', 1), ('BIRTHDAY_EMPLOYEE', 2), ('REIMBURSEMENT_REVIEWED', 1)):
+            res = self.client.get(DELIVERY_URL, {'event': event})
+            self.assertEqual(res.status_code, 200, (event, res.content))  # was 400
+            self.assertEqual(res.data['count'], expected, event)
+        res = self.client.get(f'{DELIVERY_URL}summary/', {'event': 'BIRTHDAY_EMPLOYEE'})
+        self.assertEqual(res.data, {'total': 2, 'sent': 1, 'failed': 1, 'skipped': 0})
+
 
 class CommandTests(TestCase):
     def test_dry_run_and_idempotent(self):

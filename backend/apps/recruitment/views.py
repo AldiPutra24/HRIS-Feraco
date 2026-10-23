@@ -11,7 +11,7 @@ from rest_framework.response import Response
 from apps.audit.services import log_event
 from apps.freelance.models import Skill, SkillCategory
 from apps.personnel.permissions import _role
-from apps.personnel.storage import is_configured, signed_url, upload_bytes
+from apps.personnel.storage import is_configured, upload_bytes
 
 from .models import Candidate, FreelanceApplyForm, Job
 from .permissions import IsRecruitmentAdmin, RECRUITMENT_ADMIN_ROLES
@@ -353,11 +353,10 @@ class CandidateViewSet(viewsets.ModelViewSet):
     def _download_cv(self, request, obj):
         if not obj.cv_path or not is_configured():
             return Response({'detail': 'CV not found.'}, status=status.HTTP_404_NOT_FOUND)
-        try:
-            url = signed_url(_bucket(), obj.cv_path)
-            return Response({'url': url, 'name': obj.cv_name})
-        except Exception as e:
-            return Response({'detail': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        from apps.personnel.storage import stream_link_or_file
+
+        # Streamed by the backend: signed URLs fail for names with ',' / '&'.
+        return stream_link_or_file(request, _bucket(), obj.cv_path, obj.cv_name, name=obj.cv_name)
 
     def destroy(self, request, *args, **kwargs):
         """Permanent delete — admin/superuser only."""

@@ -9,15 +9,16 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { LinkifiedText } from '@/components/linkified-text';
 import { AttachmentCell } from './attachment-cell';
+import { ListPagination } from '@/components/list-pagination';
 import {
   cancelReimbursement,
   getReimbursementSummary,
   listReimbursements,
+  REIMBURSEMENT_PAGE_SIZE,
   reimbursementStatusLabel,
   type Reimbursement,
   type ReimbursementSummary
 } from '@/lib/reimbursements';
-import { getMyEmployee } from '@/lib/employee-self';
 import { toast } from 'react-toastify';
 
 const STATUS_VARIANT: Record<string, 'default' | 'secondary' | 'destructive' | 'outline'> = {
@@ -41,21 +42,23 @@ function formatAmount(n: number): string {
 export function EmployeeReimbursement() {
   const router = useRouter();
   const [items, setItems] = useState<Reimbursement[]>([]);
+  const [count, setCount] = useState(0);
+  const [page, setPage] = useState(1);
   const [summary, setSummary] = useState<ReimbursementSummary | null>(null);
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
     setLoading(true);
-    const [r, me, s] = await Promise.all([
-      listReimbursements(),
-      getMyEmployee().catch(() => null),
+    const [r, s] = await Promise.all([
+      // `mine=1`: own records only (also for HR in employee mode), paginated.
+      listReimbursements({ mine: '1', page: String(page) }),
       getReimbursementSummary(true).catch(() => null)
     ]);
-    // HR staff sees all data server-side; scope to own employee when linked.
-    setItems(me ? r.filter((x) => x.employee === me.id) : r);
+    setItems(r.results);
+    setCount(r.count);
     setSummary(s);
     setLoading(false);
-  }, []);
+  }, [page]);
 
   useEffect(() => {
     load();
@@ -191,6 +194,7 @@ export function EmployeeReimbursement() {
               </table>
             </div>
           )}
+          <ListPagination page={page} pageSize={REIMBURSEMENT_PAGE_SIZE} count={count} loading={loading} onPage={setPage} />
         </CardContent>
       </Card>
     </div>

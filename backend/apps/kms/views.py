@@ -17,7 +17,7 @@ from .serializers import (
     KnowledgeArticleWriteSerializer,
     KnowledgeCategorySerializer,
 )
-from .storage import attachment_url, delete_attachment, storage_ready, upload_attachment
+from .storage import bucket, delete_attachment, storage_ready, upload_attachment
 
 
 class KnowledgeCategoryViewSet(viewsets.ModelViewSet):
@@ -261,7 +261,10 @@ class KnowledgeArticleViewSet(viewsets.ModelViewSet):
         article = self.get_object()
         if not article.attachment_path:
             return Response({'detail': 'Tidak ada attachment.'}, status=404)
-        return Response({'url': attachment_url(article.attachment_path)})
+        from apps.personnel.storage import stream_link_or_file
+
+        # Streamed by the backend: signed URLs fail for names with ',' / '&'.
+        return stream_link_or_file(request, bucket(), article.attachment_path, article.attachment_name)
 
     @action(detail=True, methods=['get'], url_path='related')
     def related(self, request, pk=None):

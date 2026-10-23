@@ -2,9 +2,9 @@
 private bucket (kms-documents / kms-documents-dev per APP_ENV)."""
 from django.conf import settings
 
-from apps.personnel.storage import delete_object, is_configured, signed_url, upload_bytes
+from apps.personnel.storage import delete_object, is_configured, upload_bytes
 
-__all__ = ['bucket', 'upload_attachment', 'attachment_url', 'delete_attachment', 'storage_ready']
+__all__ = ['bucket', 'upload_attachment', 'delete_attachment', 'storage_ready']
 
 
 def bucket() -> str:
@@ -15,10 +15,6 @@ def bucket() -> str:
 
 def upload_attachment(path: str, data: bytes, content_type: str) -> str:
     return upload_bytes(bucket(), path, data, content_type)
-
-
-def attachment_url(path: str, expires_in: int = 3600) -> str:
-    return signed_url(bucket(), path, expires_in)
 
 
 def delete_attachment(path: str) -> bool:

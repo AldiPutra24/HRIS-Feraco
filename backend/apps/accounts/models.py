@@ -67,3 +67,20 @@ class User(AbstractUser):
                 self.groups.set([group])
         else:
             self.groups.clear()
+
+
+class LoginAttempt(models.Model):
+    """Failed login attempts, for brute-force lockout (apps.accounts.throttle).
+
+    Only failures are stored; a successful login clears that email's rows.
+    """
+
+    email = models.CharField(max_length=254, db_index=True)  # lower-cased
+    ip = models.GenericIPAddressField(null=True, blank=True, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'{self.email} @ {self.ip} ({self.created_at:%Y-%m-%d %H:%M})'

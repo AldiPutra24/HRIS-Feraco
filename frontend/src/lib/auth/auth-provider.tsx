@@ -19,6 +19,14 @@ type AuthContextValue = {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
+// auth-client throws plain `{ message, code }` objects (not Error instances),
+// e.g. the backend's lockout / remaining-attempts message on login.
+function toAuthError(err: unknown): AuthError {
+  if (err instanceof Error) return { message: err.message };
+  if (err && typeof err === 'object' && typeof (err as AuthError).message === 'string') return err as AuthError;
+  return { message: 'Unknown error' };
+}
+
 export function useAuth() {
   const context = useContext(AuthContext);
   if (!context) {
@@ -63,7 +71,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setUser(authenticated);
       setIsAuthenticated(true);
     } catch (err) {
-      const authError = err instanceof Error ? { message: err.message } : { message: 'Unknown error' };
+      const authError = toAuthError(err);
       setError(authError);
       throw err;
     } finally {
@@ -96,7 +104,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const current = await getCurrentUser();
       if (current) setUser(current);
     } catch (err) {
-      const authError = err instanceof Error ? { message: err.message } : { message: 'Unknown error' };
+      const authError = toAuthError(err);
       setError(authError);
       throw err;
     }

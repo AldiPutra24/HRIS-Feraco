@@ -1,3 +1,4 @@
+import django_filters
 from rest_framework import permissions, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -110,6 +111,17 @@ class NotificationSettingViewSet(viewsets.ModelViewSet):
         ])
 
 
+class DeliveryLogFilter(django_filters.FilterSet):
+    # Plain text match: the log also records events outside the model's
+    # choices (BIRTHDAY_HR / BIRTHDAY_EMPLOYEE), which a ChoiceFilter
+    # rejected with 400.
+    event = django_filters.CharFilter(field_name='event')
+
+    class Meta:
+        model = NotificationDeliveryLog
+        fields = ['channel', 'status', 'event']
+
+
 class NotificationDeliveryLogViewSet(viewsets.ReadOnlyModelViewSet):
     """Delivery history (HR/Admin): email + in-app delivery outcomes.
 
@@ -120,7 +132,7 @@ class NotificationDeliveryLogViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = NotificationDeliveryLog.objects.select_related('recipient').all()
     serializer_class = NotificationDeliveryLogSerializer
     permission_classes = [IsHRAdmin]
-    filterset_fields = ['channel', 'status', 'event']
+    filterset_class = DeliveryLogFilter
     search_fields = ['recipient_email', 'subject', 'key']
     ordering_fields = ['created_at']
     ordering = ['-created_at']
@@ -137,8 +149,9 @@ class NotificationDeliveryLogViewSet(viewsets.ReadOnlyModelViewSet):
 
     @action(detail=False, methods=['get'])
     def summary(self, request):
-        """Per-status counts, optionally scoped to the same filters."""
-        qs = self.get_queryset()
+        """Per-status counts, scoped to the same filters as the list
+        (channel/status/event/search + date range)."""
+        qs = self.filter_queryset(self.get_queryset())
         return Response({
             'total': qs.count(),
             'sent': qs.filter(status='SENT').count(),

@@ -12,6 +12,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { LinkifiedText } from '@/components/linkified-text';
 import { AttachmentCell } from './attachment-cell';
+import { ListPagination } from '@/components/list-pagination';
 import { Icons } from '@/components/icons';
 import {
   approveReimbursement,
@@ -24,6 +25,7 @@ import {
   markReimbursementPaid,
   rejectReimbursement,
   reviewReimbursement,
+  REIMBURSEMENT_PAGE_SIZE,
   reimbursementStatusLabel,
   type Reimbursement,
   type ReimbursementCategory,
@@ -119,15 +121,19 @@ export function ReimbursementPage() {
   const fEmployee = searchParams.get('employee') ?? '';
   // Deep link from the notification bell: /dashboard/reimbursements?id=<id>
   const focusId = Number(searchParams.get('id')) || null;
+  const page = Math.max(1, Number(searchParams.get('page')) || 1);
 
   function setFilter(key: string, value: string) {
     const params = new URLSearchParams(searchParams);
     if (value) params.set(key, value);
     else params.delete(key);
+    // A new filter starts from the first page.
+    if (key !== 'page' && key !== 'id') params.delete('page');
     router.replace(`/dashboard/reimbursements${params.size ? `?${params}` : ''}`);
   }
 
   const [items, setItems] = useState<Reimbursement[]>([]);
+  const [count, setCount] = useState(0);
   const [categories, setCategories] = useState<ReimbursementCategory[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [loading, setLoading] = useState(true);
@@ -144,7 +150,7 @@ export function ReimbursementPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const params: Record<string, string> = {};
+    const params: Record<string, string> = { page: String(page) };
     if (fStatus) params.status = fStatus;
     if (fCategory) params.category = fCategory;
     if (fEmployee) params.employee = fEmployee;
@@ -154,12 +160,13 @@ export function ReimbursementPage() {
       // KPI: backend scopes to what this user may see (not the list filters).
       getReimbursementSummary(false).catch(() => null)
     ]);
-    setItems(r);
+    setItems(r.results);
+    setCount(r.count);
     setCategories(c);
     setSummary(s);
     setFocused(focusId ? await getReimbursement(focusId).catch(() => null) : null);
     setLoading(false);
-  }, [fStatus, fCategory, fEmployee, focusId]);
+  }, [fStatus, fCategory, fEmployee, focusId, page]);
 
   useEffect(() => {
     load();
@@ -575,6 +582,12 @@ export function ReimbursementPage() {
               </table>
             </div>
           )}
+          <ListPagination
+            page={page}
+            pageSize={REIMBURSEMENT_PAGE_SIZE}
+            count={count}
+            onPage={(p) => setFilter('page', p > 1 ? String(p) : '')}
+          />
         </CardContent>
       </Card>
 

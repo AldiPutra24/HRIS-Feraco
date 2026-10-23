@@ -12,10 +12,13 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { LinkifiedText } from '@/components/linkified-text';
 import { AttachmentCell } from './attachment-cell';
+import { ListPagination } from '@/components/list-pagination';
 import { cn } from '@/lib/utils';
 import {
   approveReimbursement,
   listGmApprovalReimbursements,
+  listReimbursements,
+  REIMBURSEMENT_PAGE_SIZE,
   reimbursementStatusLabel,
   rejectReimbursement,
   type Reimbursement
@@ -43,6 +46,9 @@ export function GmReimbursementApproval() {
   // Deep link from the notification bell: ?id=<id>
   const focusId = Number(searchParams.get('id')) || null;
   const [items, setItems] = useState<Reimbursement[]>([]);
+  const [count, setCount] = useState(0);
+  const [page, setPage] = useState(1);
+  const [waiting, setWaiting] = useState(0);
   const [loading, setLoading] = useState(true);
   const [acting, setActing] = useState<number | null>(null);
   const [rejecting, setRejecting] = useState<Reimbursement | null>(null);
@@ -51,13 +57,20 @@ export function GmReimbursementApproval() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      setItems(await listGmApprovalReimbursements());
+      const [data, waitingPage] = await Promise.all([
+        listGmApprovalReimbursements(page),
+        // Total waiting for the GM across all pages (count only).
+        listReimbursements({ approval: '1', status: 'WAITING_HR_LEAD', page_size: '1' })
+      ]);
+      setItems(data.results);
+      setCount(data.count);
+      setWaiting(waitingPage.count);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Gagal memuat pengajuan.');
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [page]);
 
   useEffect(() => {
     load();
@@ -106,8 +119,6 @@ export function GmReimbursementApproval() {
       </div>
     );
   }
-
-  const waiting = items.filter((r) => r.status === 'WAITING_HR_LEAD').length;
 
   return (
     <div className='flex flex-1 flex-col gap-4 p-4 md:p-6'>
@@ -198,6 +209,7 @@ export function GmReimbursementApproval() {
               </table>
             </div>
           )}
+          <ListPagination page={page} pageSize={REIMBURSEMENT_PAGE_SIZE} count={count} loading={loading} onPage={setPage} />
         </CardContent>
       </Card>
 

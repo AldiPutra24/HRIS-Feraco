@@ -1295,3 +1295,32 @@ class ReimbursementAttachmentLinkTests(TestCase):
         r.refresh_from_db()
         self.assertEqual(r.attachment_link, '')
         self.assertEqual(r.attachment_name, 'nota.pdf')
+
+
+class ReimbursementPaginationTests(TestCase):
+    """List is paginated (20 default, page_size up to 100); `mine=1` = own rows."""
+
+    def setUp(self):
+        self.hr = make_user('HR_STAFF', 'hr.page@test.com')
+        self.hr_emp = Employee.objects.create(employee_id='P000', full_name='HR', employment_status='ACTIVE', user=self.hr)
+        cat = ReimbursementCategory.objects.create(name='Meal', code='MEAL')
+        other = Employee.objects.create(employee_id='P001', full_name='Other', employment_status='ACTIVE')
+        Reimbursement.objects.bulk_create([
+            Reimbursement(employee=other, category=cat, transaction_date=date(2026, 10, 1), amount=1000, status='PENDING')
+            for _ in range(25)
+        ])
+        Reimbursement.objects.create(employee=self.hr_emp, category=cat, transaction_date=date(2026, 10, 1),
+                                     amount=1000, status='DRAFT')
+        self.client.force_login(self.hr)
+
+    def test_pages_and_page_size(self):
+        data = self.client.get('/api/reimbursements/').json()
+        self.assertEqual(data['count'], 26)
+        self.assertEqual(len(data['results']), 20)
+        self.assertEqual(len(self.client.get('/api/reimbursements/?page=2').json()['results']), 6)
+        self.assertEqual(len(self.client.get('/api/reimbursements/?page_size=500').json()['results']), 26)  # max 100
+
+    def test_mine_lists_only_own_rows(self):
+        data = self.client.get('/api/reimbursements/?mine=1').json()
+        self.assertEqual(data['count'], 1)
+        self.assertEqual(data['results'][0]['employee'], self.hr_emp.id)

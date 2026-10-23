@@ -36,6 +36,8 @@ services:
       EMAIL_USE_TLS: ${EMAIL_USE_TLS:-false}
       EMAIL_USE_SSL: ${EMAIL_USE_SSL:-true}
       DEFAULT_FROM_EMAIL: ${DEFAULT_FROM_EMAIL:-HRIS Feraco <hris.noreply@feraco.co.id>}
+      LOGIN_FAILURE_LIMIT: ${LOGIN_FAILURE_LIMIT:-5}
+      LOGIN_FAILURE_WINDOW_MINUTES: ${LOGIN_FAILURE_WINDOW_MINUTES:-15}
     ports:
       - '127.0.0.1:8000:8000'
 
