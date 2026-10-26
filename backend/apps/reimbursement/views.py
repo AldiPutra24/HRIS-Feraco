@@ -15,13 +15,12 @@ from apps.personnel.storage import is_configured, upload_bytes
 
 from .models import Reimbursement, ReimbursementCategory, ReimbursementNotification
 from .permissions import (
+    FINAL_APPROVER_ROLES,
     REIMBURSEMENT_ADMIN_ROLES,
     REVIEW_ROLES,
     ReimbursementPermission,
     _employee_for,
-    final_approver_key,
-    final_approver_roles,
-    gm_approval_q,
+    may_self_finalize,
 )
 from .serializers import ReimbursementCategorySerializer, ReimbursementSerializer
 from .services import notify
@@ -146,14 +145,6 @@ class ReimbursementViewSet(viewsets.ModelViewSet):
             if employee is None:
                 return qs.none()
             return qs.filter(employee_id=employee.id)
-        if role == 'GENERAL_MANAGER':
-            # Own reimbursements + HR Lead requests (GM is their final approver).
-            # `?approval=1` (GM approval page) limits to the HR Lead requests.
-            if self.request.query_params.get('approval') in ('1', 'true'):
-                return qs.filter(gm_approval_q())
-            from django.db.models import Q
-            own = Q(employee_id=employee.id) if employee is not None else Q(pk__in=[])
-            return qs.filter(own | gm_approval_q())
         if employee is None:
             return qs.none()
         return qs.filter(employee_id=employee.id)
@@ -260,8 +251,8 @@ class ReimbursementViewSet(viewsets.ModelViewSet):
             return Response({'approved_amount': 'Nominal disetujui tidak valid.'}, status=status.HTTP_400_BAD_REQUEST)
         if approved_amount < 0:
             return Response({'approved_amount': 'Nominal disetujui tidak boleh negatif.'}, status=status.HTTP_400_BAD_REQUEST)
-        if approved_amount > obj.amount:
-            return Response({'approved_amount': 'Nominal disetujui tidak boleh melebihi nominal diajukan.'}, status=status.HTTP_400_BAD_REQUEST)
+        # May exceed the requested amount (e.g. HR corrects an under-claimed
+        # receipt); only negative values are rejected.
         with transaction.atomic():
             obj = Reimbursement.objects.select_for_update().select_related('employee', 'category').get(pk=obj.pk)
             if obj.status != 'PENDING':
@@ -285,15 +276,15 @@ class ReimbursementViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'])
     def approve(self, request, pk=None):
         """Layer 2 — HR Lead approves payment of the amount set by HR Staff
-        (General Manager when the requester is an HR Lead)."""
+        (an HR Lead also gives the final approval of their own request)."""
         self._block_management_write()
         obj = self._load(request, pk)
-        if _role(request.user) not in final_approver_roles(obj):
-            label = 'General Manager' if final_approver_key(obj) == 'GENERAL_MANAGER' else 'HR Lead'
-            return Response({'detail': f'Hanya {label} yang dapat menyetujui pembayaran.'}, status=status.HTTP_403_FORBIDDEN)
-        blocked = self._self_block(request, obj, 'menyetujui')
-        if blocked:
-            return blocked
+        if _role(request.user) not in FINAL_APPROVER_ROLES:
+            return Response({'detail': 'Hanya HR Lead yang dapat menyetujui pembayaran.'}, status=status.HTTP_403_FORBIDDEN)
+        if not may_self_finalize(request.user, obj):
+            blocked = self._self_block(request, obj, 'menyetujui')
+            if blocked:
+                return blocked
         if 'approved_amount' in request.data:
             return Response(
                 {'approved_amount': 'HR Lead tidak dapat mengubah nominal. Tolak pengajuan bila nominal perlu dikoreksi.'},
@@ -323,17 +314,18 @@ class ReimbursementViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'])
     def reject(self, request, pk=None):
         """HR Staff rejects at review (PENDING); HR Lead rejects at final
-        approval (WAITING_HR_LEAD) — General Manager for an HR Lead's own
-        request. Admin may act on either layer."""
+        approval (WAITING_HR_LEAD), incl. their own request. Admin may act on
+        either layer."""
         self._block_management_write()
         obj = self._load(request, pk)
         role = _role(request.user)
-        final_roles = final_approver_roles(obj)
+        final_roles = FINAL_APPROVER_ROLES
         if role not in REVIEW_ROLES | final_roles:
             return Response({'detail': 'Anda tidak berwenang menolak.'}, status=status.HTTP_403_FORBIDDEN)
-        blocked = self._self_block(request, obj, 'menolak')
-        if blocked:
-            return blocked
+        if not (obj.status == 'WAITING_HR_LEAD' and may_self_finalize(request.user, obj)):
+            blocked = self._self_block(request, obj, 'menolak')
+            if blocked:
+                return blocked
         reason = (request.data.get('rejection_reason') or '').strip()
         with transaction.atomic():
             obj = Reimbursement.objects.select_for_update().select_related('employee', 'category').get(pk=obj.pk)
@@ -344,7 +336,7 @@ class ReimbursementViewSet(viewsets.ModelViewSet):
                 return Response({'detail': 'Hanya pengajuan yang sedang diproses yang dapat ditolak.'}, status=status.HTTP_400_BAD_REQUEST)
             if not allowed:
                 return Response(
-                    {'detail': 'Tahap ini bukan wewenang Anda (PENDING: HR Staff, Waiting HR Lead: HR Lead / General Manager untuk pengajuan HR Lead).'},
+                    {'detail': 'Tahap ini bukan wewenang Anda (PENDING: HR Staff, Waiting HR Lead: HR Lead).'},
                     status=status.HTTP_403_FORBIDDEN,
                 )
             if not reason:

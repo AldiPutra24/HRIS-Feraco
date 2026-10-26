@@ -1,4 +1,5 @@
 from datetime import date
+from decimal import Decimal
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
@@ -455,13 +456,21 @@ class ReimbursementWorkflowTests(TestCase):
         r.refresh_from_db()
         self.assertEqual(r.status, 'PENDING')
 
-    def test_approved_amount_cannot_exceed_amount(self):
+    def test_approved_amount_may_exceed_amount(self):
         r = self._submit_as_emp()
         self._login(self.hr)
         resp = _approve_two_step(self.client, r.id, {'approved_amount': 999999})
-        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(resp.status_code, 200, resp.content)
         r.refresh_from_db()
-        self.assertEqual(r.status, 'PENDING')
+        self.assertEqual((r.status, r.approved_amount), ('APPROVED', Decimal('999999')))
+        self.assertGreater(r.approved_amount, r.amount)
+
+    def test_approved_amount_cannot_be_negative(self):
+        r = self._submit_as_emp()
+        self._login(self.hr)
+        resp = self.client.post(f'/api/reimbursements/{r.id}/review/', {'approved_amount': -1},
+                                content_type='application/json')
+        self.assertEqual(resp.status_code, 400)
 
     def test_project_category_valid_choices(self):
         self._login(self.emp_user)
@@ -1137,15 +1146,14 @@ class ReimbursementFileStreamTests(TestCase):
 
 
 @override_settings(EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend')
-class HrLeadGmFinalApprovalTests(TestCase):
-    """An HR Lead's own reimbursement: HR Staff reviews, the General Manager
-    (not HR Lead) gives the final approval; other requests are unchanged."""
+class HrLeadSelfFinalApprovalTests(TestCase):
+    """An HR Lead's own reimbursement: HR Staff reviews the amount, then the
+    HR Lead gives the final approval themself (no General Manager)."""
 
     def setUp(self):
         self.admin = make_user('ADMIN', 'admin@test.com')
         self.hr = make_user('HR_STAFF', 'hr@test.com')
         self.lead = make_user('HR_LEAD', 'lead@test.com')
-        self.lead2 = make_user('HR_LEAD', 'lead2@test.com')
         self.gm = make_user('GENERAL_MANAGER', 'gm@test.com')
         self.emp_user = make_user('EMPLOYEE', 'emp@test.com')
         self.cat = ReimbursementCategory.objects.create(name='Meal', code='MEAL')
@@ -1159,16 +1167,15 @@ class HrLeadGmFinalApprovalTests(TestCase):
         emp.save()
         return emp
 
-    def _reviewed(self, employee):
-        r = Reimbursement.objects.create(employee=employee, category=self.cat, transaction_date=date(2026, 9, 1),
-                                         amount=100000, approved_amount=90000, status='WAITING_HR_LEAD', **BANK)
-        return r.id
+    def _create(self, employee, status, **extra):
+        return Reimbursement.objects.create(employee=employee, category=self.cat, transaction_date=date(2026, 9, 1),
+                                            amount=100000, status=status, **BANK, **extra).id
 
     def _post(self, user, url, data=None):
         self.client.force_login(user)
         return self.client.post(url, data or {}, content_type='application/json')
 
-    def test_full_flow_hr_lead_request_final_approved_by_gm(self):
+    def test_full_flow_hr_lead_approves_own_request(self):
         from apps.notifications.models import Notification
 
         self.client.force_login(self.lead)
@@ -1178,63 +1185,45 @@ class HrLeadGmFinalApprovalTests(TestCase):
         }, content_type='application/json').json()['id']
         _attach(rid)
         self.assertEqual(self.client.post(f'/api/reimbursements/{rid}/submit/').status_code, 200)
+        # Layer 1 still by HR Staff; the HR Lead cannot set their own amount.
+        self.assertEqual(self._post(self.lead, f'/api/reimbursements/{rid}/review/', {'approved_amount': 1}).status_code, 403)
         res = self._post(self.hr, f'/api/reimbursements/{rid}/review/', {'approved_amount': 90000})
         self.assertEqual(res.status_code, 200, res.content)
-        self.assertEqual(res.json()['final_approver'], 'GENERAL_MANAGER')
-        # Bell goes to GM (+Admin), not to HR Lead.
+        # Bell to HR Lead (incl. the requester) + Admin; never the GM.
         recipients = set(Notification.objects.filter(kind='REIMBURSEMENT_REVIEWED').values_list('recipient_id', flat=True))
-        self.assertEqual(recipients, {self.gm.id, self.admin.id})
-        gm_notif = Notification.objects.get(kind='REIMBURSEMENT_REVIEWED', recipient=self.gm)
-        self.assertEqual(gm_notif.link, f'/dashboard/management/reimbursement/approval?id={rid}')
-
-        self.assertEqual(self._post(self.lead, f'/api/reimbursements/{rid}/approve/').status_code, 403)  # own
-        self.assertEqual(self._post(self.lead2, f'/api/reimbursements/{rid}/approve/').status_code, 403)
-        res = self._post(self.gm, f'/api/reimbursements/{rid}/approve/')
+        self.assertEqual(recipients, {self.lead.id, self.admin.id})
+        self.client.force_login(self.lead)
+        self.assertTrue(self.client.get(f'/api/reimbursements/{rid}/').json()['can_final_approve'])
+        res = self._post(self.lead, f'/api/reimbursements/{rid}/approve/')
         self.assertEqual(res.status_code, 200, res.content)
-        self.assertEqual(Reimbursement.objects.get(pk=rid).status, 'APPROVED')
-        self.assertEqual(Reimbursement.objects.get(pk=rid).reviewer, self.gm)
+        r = Reimbursement.objects.get(pk=rid)
+        self.assertEqual((r.status, r.reviewer), ('APPROVED', self.lead))
 
-    def test_gm_can_reject_hr_lead_request_at_final_stage(self):
-        rid = self._reviewed(self.lead_emp)
-        self.assertEqual(self._post(self.lead2, f'/api/reimbursements/{rid}/reject/', {'rejection_reason': 'x'}).status_code, 403)
-        res = self._post(self.gm, f'/api/reimbursements/{rid}/reject/', {'rejection_reason': 'Nota tidak jelas'})
+    def test_hr_lead_can_reject_own_request_at_final_stage_only(self):
+        rid = self._create(self.lead_emp, 'WAITING_HR_LEAD', approved_amount=90000)
+        res = self._post(self.lead, f'/api/reimbursements/{rid}/reject/', {'rejection_reason': 'Salah input'})
         self.assertEqual(res.status_code, 200, res.content)
-        self.assertEqual(Reimbursement.objects.get(pk=rid).status, 'REJECTED')
+        pending = self._create(self.lead_emp, 'PENDING')
+        # PENDING (review stage) is HR Staff's: the HR Lead cannot reject it.
+        self.assertIn(self._post(self.lead, f'/api/reimbursements/{pending}/reject/', {'rejection_reason': 'x'}).status_code,
+                      (400, 403))
 
-    def test_gm_cannot_act_on_review_stage_or_other_requests(self):
-        rid = self._reviewed(self.emp)
-        # Regular employee request: still HR Lead; GM cannot see it.
-        self.assertEqual(self._post(self.gm, f'/api/reimbursements/{rid}/approve/').status_code, 404)
-        self.assertEqual(self._post(self.lead, f'/api/reimbursements/{rid}/approve/').status_code, 200)
-        pending = Reimbursement.objects.create(employee=self.lead_emp, category=self.cat, transaction_date=date(2026, 9, 1),
-                                               amount=1000, status='PENDING', **BANK)
-        self.assertEqual(self._post(self.gm, f'/api/reimbursements/{pending.id}/review/', {'approved_amount': 500}).status_code, 403)
-        self.assertEqual(self._post(self.gm, f'/api/reimbursements/{pending.id}/approve/').status_code, 400)  # not final stage yet
-        self.assertEqual(self._post(self.gm, f'/api/reimbursements/{pending.id}/mark_paid/').status_code, 403)
-
-    def test_admin_fallback_still_approves_hr_lead_request(self):
-        rid = self._reviewed(self.lead_emp)
-        self.assertEqual(self._post(self.admin, f'/api/reimbursements/{rid}/approve/').status_code, 200)
-
-    def test_gm_scope_and_can_final_approve_flag(self):
-        lead_rid = self._reviewed(self.lead_emp)
-        Reimbursement.objects.create(employee=self.lead_emp, category=self.cat, transaction_date=date(2026, 9, 1),
-                                     amount=1000, status='DRAFT', **BANK)
-        self._reviewed(self.emp)
-        own = Reimbursement.objects.create(employee=self.gm_emp, category=self.cat, transaction_date=date(2026, 9, 1),
-                                           amount=1000, status='DRAFT', **BANK)
+    def test_gm_has_no_role_in_hr_lead_requests(self):
+        rid = self._create(self.lead_emp, 'WAITING_HR_LEAD', approved_amount=90000)
+        self.assertEqual(self._post(self.gm, f'/api/reimbursements/{rid}/approve/').status_code, 404)  # not visible
         self.client.force_login(self.gm)
-        rows = self.client.get('/api/reimbursements/?approval=1').json()
+        rows = self.client.get('/api/reimbursements/').json()
         rows = rows['results'] if isinstance(rows, dict) else rows
-        self.assertEqual([r['id'] for r in rows], [lead_rid])  # no draft, no employee request
-        self.assertTrue(rows[0]['can_final_approve'])
-        all_rows = self.client.get('/api/reimbursements/').json()
-        all_rows = all_rows['results'] if isinstance(all_rows, dict) else all_rows
-        self.assertEqual({r['id'] for r in all_rows}, {lead_rid, own.id})
-        self.assertEqual(self.client.get(f'/api/reimbursements/{lead_rid}/').status_code, 200)
-        # HR Lead sees the flag false on a fellow HR Lead's request.
-        self.client.force_login(self.lead2)
-        self.assertFalse(self.client.get(f'/api/reimbursements/{lead_rid}/').json()['can_final_approve'])
+        self.assertEqual(rows, [])  # GM sees only own reimbursements
+
+    def test_other_roles_still_cannot_approve_own(self):
+        # Admin's own / employee's own requests keep the self-block.
+        admin_emp = self._employee('E004', 'Admin', self.admin)
+        rid = self._create(admin_emp, 'WAITING_HR_LEAD', approved_amount=90000)
+        self.assertEqual(self._post(self.admin, f'/api/reimbursements/{rid}/approve/').status_code, 400)
+        # Regular employee request: HR Lead approves as before.
+        rid = self._create(self.emp, 'WAITING_HR_LEAD', approved_amount=90000)
+        self.assertEqual(self._post(self.lead, f'/api/reimbursements/{rid}/approve/').status_code, 200)
 
 
 class ReimbursementAttachmentLinkTests(TestCase):

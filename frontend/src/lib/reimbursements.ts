@@ -82,8 +82,6 @@ export type Reimbursement = {
   payment_reference: string;
   payment_proof_name: string;
   payment_proof_url: string | null;
-  /** Layer-2 approver: GENERAL_MANAGER for an HR Lead's own request. */
-  final_approver: 'HR_LEAD' | 'GENERAL_MANAGER';
   /** Caller may approve/reject this request at the final stage now. */
   can_final_approve: boolean;
   created_at: string;
@@ -118,9 +116,8 @@ export const REIMBURSEMENT_STATUS_LABELS: Record<string, string> = {
   CANCELLED: 'Cancelled'
 };
 
-/** Status label; WAITING_HR_LEAD names the actual final approver. */
-export function reimbursementStatusLabel(r: Pick<Reimbursement, 'status' | 'final_approver'>): string {
-  if (r.status === 'WAITING_HR_LEAD' && r.final_approver === 'GENERAL_MANAGER') return 'Waiting General Manager';
+/** Display label of a reimbursement status. */
+export function reimbursementStatusLabel(r: Pick<Reimbursement, 'status'>): string {
   return REIMBURSEMENT_STATUS_LABELS[r.status] ?? r.status;
 }
 
@@ -170,11 +167,6 @@ export function getReimbursement(id: number): Promise<Reimbursement> {
 export const REIMBURSEMENT_PAGE_SIZE = 20;
 
 export type ReimbursementPage = { count: number; results: Reimbursement[] };
-
-/** GM approval queue: HR Lead requests (`approval=1`, backend-scoped). */
-export function listGmApprovalReimbursements(page = 1): Promise<ReimbursementPage> {
-  return listReimbursements({ approval: '1', page: String(page) });
-}
 
 /** One page of reimbursements (`page`, `mine=1`, filters as params). */
 export function listReimbursements(params?: Record<string, string>): Promise<ReimbursementPage> {

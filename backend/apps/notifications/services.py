@@ -72,9 +72,6 @@ LEAVE_NOTIFY_ROLES = ('ADMIN', 'HR_STAFF', 'HR_LEAD')
 #   submitted -> HR Staff review; reviewed -> HR Lead final approval.
 REIMBURSEMENT_REVIEW_ROLES = ('ADMIN', 'HR_STAFF')
 REIMBURSEMENT_FINAL_ROLES = ('ADMIN', 'HR_LEAD')
-# HR Lead's own reimbursement: final approval by the General Manager.
-REIMBURSEMENT_GM_FINAL_ROLES = ('ADMIN', 'GENERAL_MANAGER')
-REIMBURSEMENT_GM_APPROVAL_LINK = '/dashboard/management/reimbursement/approval'
 
 
 def hr_notify_users(roles=HR_NOTIFY_ROLES, include_superusers=False):
@@ -440,9 +437,10 @@ def _own_reimbursement_link(user):
     return '/dashboard/employee/reimbursement'
 
 
-def _notify_reimbursement_hr(reimbursement, event, title, roles, link_for=None) -> dict:
+def _notify_reimbursement_hr(reimbursement, event, title, roles, include_owner=False) -> dict:
     """Bell for the HR layer that must act now + HR email list (submit only).
-    `link_for(user)` overrides the bell link per recipient."""
+    The requester is skipped unless `include_owner` (an HR Lead finalizing
+    their own request)."""
     result = {'inapp': 0, 'sent': 0, 'skipped': 0, 'failed': 0}
     try:
         cfg, subject_tpl, body_tpl = _template(event)
@@ -454,10 +452,9 @@ def _notify_reimbursement_hr(reimbursement, event, title, roles, link_for=None) 
         link = f'{REIMBURSEMENT_LINK}?id={reimbursement.pk}'
         own_user_id = getattr(getattr(reimbursement.employee, 'user', None), 'pk', None)
         for hr_user in hr_notify_users(roles, include_superusers=True):
-            if hr_user.pk == own_user_id:
+            if hr_user.pk == own_user_id and not include_owner:
                 continue
-            user_link = link_for(hr_user) if link_for else link
-            if _deliver_inapp(key, event, hr_user, title, text_body, link=user_link, object_id=reimbursement.pk):
+            if _deliver_inapp(key, event, hr_user, title, text_body, link=link, object_id=reimbursement.pk):
                 result['inapp'] += 1
         if event == 'REIMBURSEMENT_SUBMITTED':
             for email in hr_recipients():
@@ -494,21 +491,13 @@ def _notify_reimbursement_employee(reimbursement, event, title) -> dict:
 
 
 def notify_reimbursement_reviewed(reimbursement) -> dict:
-    """HR Staff set Nominal Disetujui -> HR Lead (+Admin) bell; for an HR
-    Lead's own request -> General Manager (+Admin)."""
-    from apps.reimbursement.permissions import final_approver_key
-
-    if final_approver_key(reimbursement) == 'GENERAL_MANAGER':
-        gm_link = f'{REIMBURSEMENT_GM_APPROVAL_LINK}?id={reimbursement.pk}'
-        return _notify_reimbursement_hr(
-            reimbursement, 'REIMBURSEMENT_REVIEWED', 'Reimbursement HR Lead Menunggu Approval General Manager',
-            REIMBURSEMENT_GM_FINAL_ROLES,
-            link_for=lambda u: gm_link if getattr(getattr(u, 'role', None), 'key', None) == 'GENERAL_MANAGER'
-            else f'{REIMBURSEMENT_LINK}?id={reimbursement.pk}',
-        )
+    """HR Staff set Nominal Disetujui -> HR Lead (+Admin) bell. An HR Lead
+    gives the final approval of their own request, so they are notified too."""
+    owner = getattr(reimbursement.employee, 'user', None)
+    owner_is_lead = getattr(getattr(owner, 'role', None), 'key', None) == 'HR_LEAD'
     return _notify_reimbursement_hr(
         reimbursement, 'REIMBURSEMENT_REVIEWED', 'Reimbursement Menunggu Approval HR Lead',
-        REIMBURSEMENT_FINAL_ROLES,
+        REIMBURSEMENT_FINAL_ROLES, include_owner=owner_is_lead,
     )
 
 

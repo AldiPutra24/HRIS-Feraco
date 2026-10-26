@@ -190,8 +190,12 @@ export function ReimbursementPage() {
       toast.error('Nominal disetujui wajib diisi dan lebih dari 0.');
       return;
     }
-    if (val > approving.amount) {
-      toast.error('Nominal disetujui tidak boleh melebihi nominal diajukan.');
+    if (
+      val > approving.amount &&
+      !window.confirm(
+        `Nominal disetujui (${formatAmount(val)}) melebihi nominal diajukan (${formatAmount(approving.amount)}). Lanjutkan?`
+      )
+    ) {
       return;
     }
     try {
@@ -612,6 +616,11 @@ export function ReimbursementPage() {
                     value={approveAmount}
                     onChange={(e) => setApproveAmount(e.target.value)}
                   />
+                  {Number(approveAmount) > approving.amount && (
+                    <p className='mt-1 text-xs text-amber-600 dark:text-amber-400'>
+                      Melebihi nominal diajukan sebesar {formatAmount(Number(approveAmount) - approving.amount)}.
+                    </p>
+                  )}
                 </div>
                 <div className='flex justify-end gap-2'>
                   <Button

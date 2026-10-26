@@ -3,7 +3,7 @@ import re
 from rest_framework import serializers
 
 from .models import Reimbursement, ReimbursementCategory
-from .permissions import _employee_for, final_approver_key, final_approver_roles
+from .permissions import FINAL_APPROVER_ROLES, _employee_for, may_self_finalize
 
 class ReimbursementCategorySerializer(serializers.ModelSerializer):
     class Meta:
@@ -20,9 +20,7 @@ class ReimbursementSerializer(serializers.ModelSerializer):
     contact_email = serializers.EmailField(required=False, allow_blank=True)
     attachment_url = serializers.SerializerMethodField()
     payment_proof_url = serializers.SerializerMethodField()
-    # Final approver of layer 2: 'HR_LEAD', or 'GENERAL_MANAGER' when the
-    # requester is an HR Lead. `can_final_approve` = caller may act on it now.
-    final_approver = serializers.SerializerMethodField()
+    # Caller may approve/reject it at the final (HR Lead) stage right now.
     can_final_approve = serializers.SerializerMethodField()
 
     class Meta:
@@ -37,7 +35,7 @@ class ReimbursementSerializer(serializers.ModelSerializer):
             'rejected_at', 'paid_at', 'amount_set_by', 'amount_set_by_name', 'amount_set_at',
             'reviewer', 'reviewer_name',
             'rejection_reason', 'payment_reference', 'created_at', 'updated_at',
-            'payment_proof_name', 'payment_proof_url', 'final_approver', 'can_final_approve',
+            'payment_proof_name', 'payment_proof_url', 'can_final_approve',
         )
         read_only_fields = (
             'id', 'employee', 'status', 'status_display', 'submitted_at', 'approved_at',
@@ -63,16 +61,15 @@ class ReimbursementSerializer(serializers.ModelSerializer):
             return None
         return request.build_absolute_uri(f'/api/reimbursements/{obj.id}/payment_proof/')
 
-    def get_final_approver(self, obj):
-        return final_approver_key(obj)
-
     def get_can_final_approve(self, obj):
         request = self.context.get('request')
         if request is None or obj.status != 'WAITING_HR_LEAD':
             return False
         from apps.personnel.permissions import _role
-        if _role(request.user) not in final_approver_roles(obj):
+        if _role(request.user) not in FINAL_APPROVER_ROLES:
             return False
+        if may_self_finalize(request.user, obj):
+            return True
         employee = _employee_for(request.user)
         return employee is None or obj.employee_id != employee.id
 
@@ -154,11 +151,6 @@ class ReimbursementSerializer(serializers.ModelSerializer):
                 if not value:
                     raise serializers.ValidationError({field: f'{label} wajib diisi.'})
                 attrs[field] = value
-
-        approved = attrs.get('approved_amount', getattr(self.instance, 'approved_amount', None) if self.instance else None)
-        amount = attrs.get('amount', getattr(self.instance, 'amount', None) if self.instance else None)
-        if approved is not None and amount is not None and approved > amount:
-            raise serializers.ValidationError({'approved_amount': 'Nominal disetujui tidak boleh melebihi nominal diajukan.'})
 
         # Project category rules: OTHER requires project_category_other; non-OTHER must clear it.
         project_category = attrs.get('project_category', getattr(self.instance, 'project_category', '') if self.instance else '')
