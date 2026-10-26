@@ -79,6 +79,12 @@ export function ManagementLeave() {
     }
   }
 
+  function closeReject() {
+    if (rejectingSubmit) return;
+    setRejecting(null);
+    setRejectReason('');
+  }
+
   async function confirmReject() {
     if (!rejecting || rejectingSubmit) return;
     if (!rejectReason.trim()) {
@@ -206,30 +212,49 @@ export function ManagementLeave() {
         emptyText={isGm ? 'Tidak ada karyawan aktif.' : 'Belum ada karyawan aktif yang melapor langsung ke Anda.'}
       />
 
+      {/* Reject pop-up (centered modal; click outside / Esc to close) */}
       {rejecting && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Tolak Pengajuan — {rejecting.employee_name}</CardTitle>
-          </CardHeader>
-          <CardContent className='space-y-3'>
-            <div>
-              <Label className='text-xs'>Alasan Penolakan (wajib)</Label>
-              <Input
-                value={rejectReason}
-                onChange={(e) => setRejectReason(e.target.value)}
-                placeholder='Alasan penolakan'
-              />
-            </div>
-            <div className='flex gap-2'>
-              <Button disabled={rejectingSubmit} onClick={confirmReject}>
-                {rejectingSubmit ? 'Memproses...' : 'Konfirmasi Tolak'}
-              </Button>
-              <Button variant='ghost' disabled={rejectingSubmit} onClick={() => setRejecting(null)}>
-                Batal
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
+        <div
+          role='dialog'
+          aria-modal='true'
+          aria-labelledby='reject-title'
+          className='fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4'
+          onClick={closeReject}
+          onKeyDown={(e) => e.key === 'Escape' && closeReject()}
+        >
+          <Card className='w-full max-w-md shadow-xl' onClick={(e) => e.stopPropagation()}>
+            <CardHeader>
+              <CardTitle id='reject-title'>Tolak Pengajuan</CardTitle>
+              <p className='text-muted-foreground text-sm'>
+                {rejecting.employee_name} · {rejecting.leave_type_name} ·{' '}
+                {rejecting.leave_dates_display || `${rejecting.start_date} — ${rejecting.end_date}`}
+              </p>
+            </CardHeader>
+            <CardContent className='space-y-4'>
+              <div className='space-y-1.5'>
+                <Label className='text-xs'>
+                  Alasan Penolakan <span className='text-destructive'>*</span>
+                </Label>
+                <Input
+                  autoFocus
+                  value={rejectReason}
+                  onChange={(e) => setRejectReason(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && confirmReject()}
+                  placeholder='Alasan penolakan'
+                />
+                <p className='text-muted-foreground text-xs'>Alasan akan dikirim ke karyawan melalui notifikasi & email.</p>
+              </div>
+              <div className='flex justify-end gap-2'>
+                <Button variant='ghost' disabled={rejectingSubmit} onClick={closeReject}>
+                  Batal
+                </Button>
+                <Button variant='destructive' disabled={rejectingSubmit} onClick={confirmReject}>
+                  {rejectingSubmit ? 'Memproses...' : 'Tolak Pengajuan'}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
       )}
     </div>
   );
