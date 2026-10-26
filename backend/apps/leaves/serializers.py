@@ -387,15 +387,11 @@ class LeaveRequestSerializer(serializers.ModelSerializer):
                         )}
                     )
 
-                # Attachment rules: mandatory types OR doctor's note above threshold
-                # (e.g. Izin Sakit: 1 hari tanpa surat, >1 hari wajib surat dokter).
-                needs_attachment = leave_type.requires_attachment or (
-                    leave_type.max_days_without_attachment
-                    and total > leave_type.max_days_without_attachment
-                )
-                if needs_attachment and not self.initial_data.get('attachment_name'):
+                # Berkas/Dokumen Pendukung is mandatory for EVERY izin/cuti
+                # request (the name is sent on create, the file right after).
+                if not (self.initial_data.get('attachment_name') or '').strip():
                     raise serializers.ValidationError(
-                        {'attachment_name': 'Lampiran wajib untuk pengajuan ini.'}
+                        {'attachment_name': 'Berkas/Dokumen Pendukung wajib dilampirkan.'}
                     )
 
                 # Quota check against the type that actually gets deducted

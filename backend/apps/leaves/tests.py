@@ -151,6 +151,7 @@ class LeaveWorkflowTests(TestCase):
             'start_date': '2026-01-05',
             'end_date': '2026-01-07',
             'reason': 'Same request',
+            'attachment_name': 'bukti.pdf',
         }
         resp1 = client.post('/api/leaves/requests/', payload, format='json')
         self.assertEqual(resp1.status_code, 201)
@@ -497,7 +498,8 @@ class BusinessRuleTests(TestCase):
         self.req = SimpleNamespace(user=self.emp_user)
 
     def _valid(self, lt, start='2026-01-05', end='2026-01-07', extra=None):
-        data = {'leave_type': lt.id, 'start_date': start, 'end_date': end, 'kind': lt.kind, 'reason': 'x'}
+        data = {'leave_type': lt.id, 'start_date': start, 'end_date': end, 'kind': lt.kind, 'reason': 'x',
+                'attachment_name': 'bukti.pdf'}
         if extra:
             data.update(extra)
         return self.SR(data=data, context={'request': self.req})
@@ -522,30 +524,18 @@ class BusinessRuleTests(TestCase):
         self.assertFalse(s.is_valid())
         self.assertIn('start_date', s.errors)
 
-    def test_sick_doctor_note_required(self):
+    def test_attachment_always_required(self):
+        # Every category, even 1 day of Izin Sakit, needs a supporting document.
         sick = LeaveType.objects.create(
             name='Sick', code='SICK', kind='PERMISSION',
             max_days_without_attachment=1, is_paid=False,
         )
-        # 1 day, no attachment: OK.
-        s = self._valid(sick, '2026-01-05', '2026-01-05')
+        for blank in ('', '   ', None):
+            s = self._valid(sick, '2026-01-05', '2026-01-05', {'attachment_name': blank})
+            self.assertFalse(s.is_valid(), blank)
+            self.assertIn('attachment_name', s.errors)
+        s = self._valid(sick, '2026-01-05', '2026-01-05', {'attachment_name': 'surat_dokter.pdf'})
         self.assertTrue(s.is_valid(), s.errors)
-        # 2 days, no attachment: rejected.
-        s = self._valid(sick, '2026-01-05', '2026-01-06')
-        self.assertFalse(s.is_valid())
-        self.assertIn('attachment_name', s.errors)
-        # 2 days WITH attachment: OK.
-        s = self._valid(sick, '2026-01-05', '2026-01-06', {'attachment_name': 'surat_dokter.pdf'})
-        self.assertTrue(s.is_valid(), s.errors)
-
-    def test_requires_attachment(self):
-        misc = LeaveType.objects.create(
-            name='Miscarriage', code='MISCARRIAGE', kind='LEAVE',
-            requires_attachment=True, is_paid=True,
-        )
-        s = self._valid(misc, '2026-01-05', '2026-01-05')
-        self.assertFalse(s.is_valid())
-        self.assertIn('attachment_name', s.errors)
 
     def test_medical_deducts_from_annual(self):
         annual = LeaveType.objects.create(
@@ -861,7 +851,7 @@ class AnnualQuotaPolicyTests(TestCase):
 
         data = {
             'leave_type': self.annual.id, 'kind': 'LEAVE', 'reason': 'x',
-            'start_date': '2026-03-05', 'end_date': '2026-03-06',
+            'start_date': '2026-03-05', 'end_date': '2026-03-06', 'attachment_name': 'bukti.pdf',
         }
         s = LeaveRequestSerializer(data=data, context={'request': req})
         self.assertFalse(s.is_valid())
@@ -897,7 +887,7 @@ class LeaveRevisionTests(TestCase):
 
     def _submit(self, **payload):
         self.api.force_authenticate(self.emp_user)
-        data = {'leave_type': self.special.id, 'kind': 'LEAVE', 'reason': 'Keperluan'}
+        data = {'leave_type': self.special.id, 'kind': 'LEAVE', 'reason': 'Keperluan', 'attachment_name': 'bukti.pdf'}
         data.update(payload)
         return self.api.post('/api/leaves/requests/', data, format='json')
 
@@ -1091,7 +1081,7 @@ class LeaveQuotaHalfDayAdjustmentTests(TestCase):
 
     def _submit(self, **payload):
         self.api.force_authenticate(self.emp_user)
-        data = {'leave_type': self.annual.id, 'kind': 'LEAVE', 'reason': 'Keperluan'}
+        data = {'leave_type': self.annual.id, 'kind': 'LEAVE', 'reason': 'Keperluan', 'attachment_name': 'bukti.pdf'}
         data.update(payload)
         return self.api.post('/api/leaves/requests/', data, format='json')
 
@@ -1317,6 +1307,7 @@ class HrLeadSelfServiceTests(TestCase):
         # HR Lead submits leave for HIMSELF/HERSELF only.
         res = self.api.post('/api/leaves/requests/', {
             'leave_type': self.annual.id, 'kind': 'LEAVE', 'reason': 'x', 'dates': ['2026-09-01'],
+            'attachment_name': 'bukti.pdf',
         }, format='json')
         self.assertEqual(res.status_code, 201, res.data)
         self.assertEqual(res.data['employee'], self.lead_emp.id)
@@ -1344,7 +1335,7 @@ class ManagementSelfLeaveTests(TestCase):
         )
         self.annual = LeaveType.objects.create(name='Cuti Tahunan', code='ANNUAL', default_quota=12)
         self.payload = {'leave_type': self.annual.id, 'kind': 'LEAVE', 'reason': 'Keperluan keluarga',
-                        'dates': ['2026-09-01']}
+                        'dates': ['2026-09-01'], 'attachment_name': 'bukti.pdf'}
 
     def test_management_can_submit_own_leave(self):
         self.api.force_authenticate(self.mgr_user)
@@ -1419,7 +1410,7 @@ class LeaveMinNoticeTests(TestCase):
 
     def _submit(self, lt, dates, kind='LEAVE'):
         return self.api.post('/api/leaves/requests/', {
-            'leave_type': lt.id, 'kind': kind, 'reason': 'x', 'dates': dates,
+            'leave_type': lt.id, 'kind': kind, 'reason': 'x', 'dates': dates, 'attachment_name': 'bukti.pdf',
         }, format='json')
 
     def test_less_than_h7_rejected(self):

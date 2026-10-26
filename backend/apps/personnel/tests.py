@@ -1120,6 +1120,15 @@ class DashboardHrApiTests(TestCase):
         self.assertIn('recent_activities', res.data)
         self.assertEqual(len(res.data['birthdays']), 1)
 
+    def test_contracts_ending_shows_five_soonest(self):
+        today = timezone.localdate()
+        for i in range(7):
+            emp = Employee.objects.create(employee_id=f'C{i:03d}', full_name=f'Kontrak {i}', nik=f'99000000{i}')
+            EmployeeContract.objects.create(employee=emp, contract_type='PKWT', status='ACTIVE',
+                                            start_date=today - timedelta(days=300), end_date=today + timedelta(days=10 + i))
+        rows = self.client.get('/api/dashboard/hr/').data['contracts_ending']
+        self.assertEqual([r['employee_name'] for r in rows], [f'Kontrak {i}' for i in range(5)])
+
     def test_employee_denied(self):
         self.client.force_login(make_user('EMPLOYEE'))
         res = self.client.get('/api/dashboard/hr/')

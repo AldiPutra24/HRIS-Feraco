@@ -231,14 +231,7 @@ export function LeaveCategoryManager({
                 />
                 Dibayar
               </label>
-              <label className='flex items-center gap-2'>
-                <input
-                  type='checkbox'
-                  checked={form.requires_attachment}
-                  onChange={(e) => setForm((f) => ({ ...f, requires_attachment: e.target.checked }))}
-                />
-                Wajib lampiran
-              </label>
+              {/* "Wajib lampiran" removed: a supporting document is required for every category. */}
               {annual && (
                 <label className='flex items-center gap-2'>
                   <input

@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
+  cancelLeave,
   createLeaveRequest,
   formatDays,
   getMyBalances,
@@ -73,6 +74,10 @@ export function LeaveForm({ redirectTo = '/dashboard/leave' }: { redirectTo?: st
       toast.error('Lengkapi kategori, tanggal (minimal 1 hari), dan alasan pengajuan.');
       return;
     }
+    if (!file) {
+      toast.error('Berkas/Dokumen Pendukung wajib dilampirkan.');
+      return;
+    }
     if (dates.some((d) => d < todayIso)) {
       toast.error('Tidak dapat mengajukan untuk tanggal sebelum hari ini.');
       return;
@@ -93,11 +98,19 @@ export function LeaveForm({ redirectTo = '/dashboard/leave' }: { redirectTo?: st
         dates,
         half_days: halfDayAllowed ? halfDays.filter((d) => dates.includes(d)) : [],
         reason: form.reason,
-        // Sent up front so the "pengajuan baru" email already names the file;
-        // the binary follows in the upload call below.
-        ...(file ? { attachment_name: file.name } : {})
+        // Required. Sent up front so the "pengajuan baru" email already names
+        // the file; the binary follows in the upload call below.
+        attachment_name: file.name
       });
-      if (file) await uploadLeaveAttachment(created.id, file);
+      try {
+        await uploadLeaveAttachment(created.id, file);
+      } catch (err) {
+        // Never leave a request without its document: cancel and let the user retry.
+        await cancelLeave(created.id).catch(() => undefined);
+        throw new Error(
+          `Upload berkas gagal, pengajuan dibatalkan. Silakan ajukan ulang. (${err instanceof Error ? err.message : 'error'})`
+        );
+      }
       toast.success('Pengajuan cuti berhasil dibuat');
       router.push(redirectTo);
     } catch (err) {
@@ -258,10 +271,11 @@ export function LeaveForm({ redirectTo = '/dashboard/leave' }: { redirectTo?: st
             </div>
             <div className='md:col-span-4'>
               <Label className='text-xs'>
-                Berkas/Dokumen Pendukung <span className='text-muted-foreground'>(opsional sesuai jenis pengajuan)</span>
+                Berkas/Dokumen Pendukung <span className='text-destructive'>*</span>
               </Label>
               <input
                 type='file'
+                required
                 className='mt-1 block w-full text-sm text-muted-foreground file:mr-3 file:rounded-md file:border-0 file:bg-primary file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-primary-foreground hover:file:bg-primary/80'
                 onChange={(e) => setFile(e.target.files?.[0] || null)}
               />

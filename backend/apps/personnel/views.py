@@ -699,11 +699,11 @@ class DashboardHrView(APIView):
             }
             for lr in leave_today
         ]
-        # End of contract: active contracts with a future end_date, soonest first.
+        # End of contract: the 5 active contracts ending soonest (future end_date).
         contracts = (
             EmployeeContract.objects.filter(status='ACTIVE', end_date__gte=today)
             .select_related('employee')
-            .order_by('end_date')[:10]
+            .order_by('end_date')[:5]
         )
         contracts_data = [
             {
