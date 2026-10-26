@@ -925,8 +925,9 @@ class ReimbursementTwoLayerTests(TestCase):
     def test_review_amount_validation(self):
         rid = self._submitted()
         self.assertEqual(self._as(self.hr, f'/api/reimbursements/{rid}/review/', {}).status_code, 400)
-        self.assertEqual(self._as(self.hr, f'/api/reimbursements/{rid}/review/', {'approved_amount': 999999}).status_code, 400)
         self.assertEqual(self._as(self.hr, f'/api/reimbursements/{rid}/review/', {'approved_amount': -1}).status_code, 400)
+        # Above the requested amount is allowed.
+        self.assertEqual(self._as(self.hr, f'/api/reimbursements/{rid}/review/', {'approved_amount': 999999}).status_code, 200)
 
     def test_reject_per_layer(self):
         rid = self._submitted()
