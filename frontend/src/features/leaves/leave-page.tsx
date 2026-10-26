@@ -420,8 +420,16 @@ export function LeavePage() {
                           <p className='whitespace-normal'>{r.leave_dates_display || `${r.start_date} — ${r.end_date}`}</p>
                           <p className='text-muted-foreground text-xs'>{formatDays(r.total_days)} hari</p>
                         </TableCell>
-                        <TableCell>
+                        <TableCell className='max-w-48'>
                           <StatusBadge status={r.status} />
+                          {r.status === 'REJECTED' && r.rejection_reason && (
+                            <p
+                              className='text-destructive mt-1 line-clamp-3 text-xs whitespace-normal break-words'
+                              title={r.rejection_reason}
+                            >
+                              Alasan: {r.rejection_reason}
+                            </p>
+                          )}
                         </TableCell>
                         <TableCell className='max-w-56'>
                           <p className='line-clamp-2 whitespace-normal break-words' title={r.reason || undefined}>
