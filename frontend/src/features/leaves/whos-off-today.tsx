@@ -59,11 +59,16 @@ function initials(name: string): string {
 export function WhosOffToday({
   href,
   className,
+  description = 'Izin & cuti yang disetujui hari ini',
+  wide = false,
   scope,
   onLoaded
 }: {
   href?: string;
   className?: string;
+  description?: string;
+  /** Wide card: tabs beside the title and a two-column list. */
+  wide?: boolean;
   /** Department / position filter (HR overview). */
   scope?: OffTodayFilter;
   /** Lets a dashboard reuse the same data (e.g. a "Sedang Cuti" stat card). */
@@ -104,12 +109,32 @@ export function WhosOffToday({
   ];
   const visible = (items ?? []).filter((i) => filter === 'ALL' || i.category === filter);
 
+  const tabBar = (
+    <div className='flex flex-wrap gap-1.5'>
+      {tabs.map((t) => (
+        <button
+          key={t.value}
+          type='button'
+          onClick={() => setFilter(t.value)}
+          className={cn(
+            'rounded-lg border px-3 py-1.5 text-sm whitespace-nowrap transition-colors',
+            filter === t.value
+              ? 'bg-foreground text-background border-foreground font-medium'
+              : 'hover:bg-muted bg-transparent'
+          )}
+        >
+          {t.label} <span className={cn(filter !== t.value && 'text-muted-foreground')}>{items ? count(t.value) : '–'}</span>
+        </button>
+      ))}
+    </div>
+  );
+
   return (
     <Card className={cn('gap-0 py-0', className)}>
-      <div className='flex items-start justify-between gap-2 px-5 pt-5 pb-4'>
+      <div className='flex flex-wrap items-start justify-between gap-x-4 gap-y-3 px-5 pt-5 pb-4'>
         <div>
           <h3 className='text-base font-semibold'>Who&apos;s Off Today</h3>
-          <p className='text-muted-foreground text-sm'>Izin &amp; cuti yang disetujui hari ini</p>
+          <p className='text-muted-foreground text-sm'>{description}</p>
         </div>
         {href && (
           <Link href={href} className='inline-flex shrink-0 items-center gap-1 text-sm font-medium hover:underline'>
@@ -117,25 +142,10 @@ export function WhosOffToday({
             <Icons.arrowRight className='size-4' />
           </Link>
         )}
+        {wide && tabBar}
       </div>
 
-      <div className='flex flex-wrap gap-1.5 px-5 pb-4'>
-        {tabs.map((t) => (
-          <button
-            key={t.value}
-            type='button'
-            onClick={() => setFilter(t.value)}
-            className={cn(
-              'rounded-lg border px-3 py-1.5 text-sm whitespace-nowrap transition-colors',
-              filter === t.value
-                ? 'bg-foreground text-background border-foreground font-medium'
-                : 'hover:bg-muted bg-transparent'
-            )}
-          >
-            {t.label} <span className={cn(filter !== t.value && 'text-muted-foreground')}>{items ? count(t.value) : '–'}</span>
-          </button>
-        ))}
-      </div>
+      {!wide && <div className='px-5 pb-4'>{tabBar}</div>}
 
       <div className='border-t'>
         {error ? (
@@ -152,12 +162,17 @@ export function WhosOffToday({
             {items.length === 0 ? 'Semua hadir hari ini.' : 'Tidak ada untuk kategori ini.'}
           </div>
         ) : (
-          <ul className='max-h-96 divide-y overflow-y-auto border-b'>
+          <ul
+            className={cn(
+              'max-h-96 overflow-y-auto',
+              wide ? 'grid divide-y md:grid-cols-2 md:gap-x-10 md:divide-y-0 md:px-5' : 'divide-y border-b'
+            )}
+          >
             {visible.map((item) => {
               const cat = CATEGORY[item.category];
               const CatIcon = Icons[cat.icon];
               return (
-                <li key={item.id} className='flex items-center gap-3 px-5 py-3.5'>
+                <li key={item.id} className={cn('flex items-center gap-3 py-3.5', wide ? 'px-5 md:px-0' : 'px-5')}>
                   <Tooltip>
                     <TooltipTrigger
                       render={

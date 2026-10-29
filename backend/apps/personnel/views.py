@@ -1061,3 +1061,40 @@ class EmployeeChangeRequestViewSet(viewsets.ReadOnlyModelViewSet):
                             status=status.HTTP_502_BAD_GATEWAY)
         log_event(request, 'download', obj=cr, description=f'Data change request {cr.pk} attachment viewed')
         return response
+class UpcomingBirthdaysView(APIView):
+    """Active employees with a birthday in the next 7 days, for every role's
+    dashboard. Exposes day/month only (``next_birthday``), never the birth year.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        from .storage import employee_photo_url
+
+        today = timezone.localdate()
+        rows = []
+        qs = Employee.objects.filter(birth_date__isnull=False, employment_status='ACTIVE').select_related('department')
+        for e in qs:
+            try:
+                upcoming = e.birth_date.replace(year=today.year)
+            except ValueError:  # 29 Feb in a non-leap year
+                upcoming = datetime.date(today.year, 3, 1)
+            if upcoming < today:
+                try:
+                    upcoming = e.birth_date.replace(year=today.year + 1)
+                except ValueError:
+                    upcoming = datetime.date(today.year + 1, 3, 1)
+            days = (upcoming - today).days
+            if days <= 7:
+                rows.append(
+                    {
+                        'id': e.id,
+                        'full_name': e.full_name,
+                        'department_name': e.department.name if e.department else None,
+                        'photo_url': employee_photo_url(e, request),
+                        'next_birthday': upcoming,
+                        'days_until': days,
+                    }
+                )
+        rows.sort(key=lambda r: (r['days_until'], r['full_name']))
+        return Response({'results': rows})

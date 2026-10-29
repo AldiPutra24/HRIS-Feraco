@@ -1164,6 +1164,34 @@ class DashboardHrApiTests(TestCase):
         self.assertEqual(titles, ['a4', 'a3', 'a2'])  # 3 newest by created_at
 
 
+class UpcomingBirthdaysApiTests(TestCase):
+    """/api/dashboard/birthdays/: next-7-day birthdays for every role, no birth year."""
+
+    def test_employee_sees_upcoming_birthdays_without_year(self):
+        today = timezone.localdate()
+
+        def born(days_ahead, years_ago=30):
+            d = today + timedelta(days=days_ahead)
+            return d.replace(year=d.year - years_ago) if not (d.month == 2 and d.day == 29) else d - timedelta(days=1)
+
+        Employee.objects.create(employee_id='B1', full_name='Lusa', nik='b1', birth_date=born(2))
+        Employee.objects.create(employee_id='B2', full_name='Hari Ini', nik='b2', birth_date=born(0))
+        Employee.objects.create(employee_id='B3', full_name='Jauh', nik='b3', birth_date=born(20))
+        Employee.objects.create(employee_id='B4', full_name='Nonaktif', nik='b4', birth_date=born(1),
+                                employment_status='INACTIVE')
+        self.client.force_login(make_user('EMPLOYEE'))
+        res = self.client.get('/api/dashboard/birthdays/')
+        self.assertEqual(res.status_code, 200)
+        rows = res.data['results']
+        self.assertEqual([r['full_name'] for r in rows], ['Hari Ini', 'Lusa'])
+        self.assertEqual([r['days_until'] for r in rows], [0, 2])
+        self.assertNotIn('birth_date', rows[0])
+        self.assertEqual(rows[0]['next_birthday'], today)
+
+    def test_requires_login(self):
+        self.assertIn(self.client.get('/api/dashboard/birthdays/').status_code, (401, 403))
+
+
 class EmployeePhotoApiTests(TestCase):
     def setUp(self):
         self.user = make_user('EMPLOYEE')

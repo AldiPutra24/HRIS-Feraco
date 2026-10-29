@@ -87,3 +87,17 @@ export function getHrDashboard(filter: { department?: number | null; position?: 
   const qs = q.toString() ? `?${q}` : '';
   return request<HrDashboard>(`/dashboard/hr/${qs}`);
 }
+
+/** Upcoming birthday (next 7 days) — day/month only, visible to every role. */
+export type UpcomingBirthday = {
+  id: number;
+  full_name: string;
+  department_name: string | null;
+  photo_url: string | null;
+  next_birthday: string;
+  days_until: number;
+};
+
+export function getUpcomingBirthdays(): Promise<{ results: UpcomingBirthday[] }> {
+  return request<{ results: UpcomingBirthday[] }>('/dashboard/birthdays/', { cache: 'no-store' });
+}

@@ -9,6 +9,7 @@ from .views import (
     EmployeeChangeRequestViewSet,
     EmployeeViewSet,
     PositionViewSet,
+    UpcomingBirthdaysView,
 )
 
 router = DefaultRouter()
@@ -21,5 +22,6 @@ urlpatterns = [
     path('', include(router.urls)),
     path('dashboard/hr/', DashboardHrView.as_view(), name='dashboard-hr'),
     path('dashboard/management/', DashboardManagementView.as_view(), name='dashboard-management'),
+    path('dashboard/birthdays/', UpcomingBirthdaysView.as_view(), name='dashboard-birthdays'),
     path('documents/<int:pk>/download/', DocumentDownloadView.as_view(), name='document-download'),
 ]
