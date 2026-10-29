@@ -10,7 +10,8 @@ import { Switch } from '@/components/ui/switch';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Icons } from '@/components/icons';
 import { listDepartments, listEmployees, listPositions, type Department, type Employee } from '@/lib/employees';
-import { getHrDashboard, type DashboardBirthday, type DashboardContractEnding, type DashboardLeaveToday, type HrDashboard } from '@/lib/dashboard';
+import { getHrDashboard, type DashboardBirthday, type DashboardContractEnding, type HrDashboard } from '@/lib/dashboard';
+import { WhosOffToday } from '@/features/leaves/whos-off-today';
 import {
   createAnnouncement,
   deleteAnnouncement,
@@ -112,28 +113,6 @@ function ListCard({
         )}
       </CardContent>
     </Card>
-  );
-}
-
-function LeaveRow({ item }: { item: DashboardLeaveToday }) {
-  const period =
-    item.start_date === item.end_date
-      ? fmtDate(item.start_date)
-      : `${fmtDate(item.start_date)} – ${fmtDate(item.end_date)}`;
-  return (
-    <li>
-      <Link href='/dashboard/leave' className='hover:bg-muted flex items-center justify-between gap-2 px-1 py-2'>
-        <div className='min-w-0'>
-          <p className='truncate text-sm font-medium'>{item.employee_name}</p>
-          <p className='text-muted-foreground truncate text-xs'>
-            {item.leave_type_name} · {period}
-          </p>
-        </div>
-        <Badge variant={item.status === 'APPROVED' ? 'default' : 'secondary'} className='shrink-0'>
-          {item.status}
-        </Badge>
-      </Link>
-    </li>
   );
 }
 
@@ -323,16 +302,7 @@ export function OverviewDashboard() {
       )}
 
       <div className='grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4'>
-        <ListCard
-          icon='leave'
-          label='Izin & Cuti Hari Ini'
-          count={dashboard?.leave_today.length ?? 0}
-          href='/dashboard/leave'
-          loading={dashLoading}
-          empty='Tidak ada data hari ini'
-        >
-          {dashboard?.leave_today.map((item) => <LeaveRow key={item.id} item={item} />)}
-        </ListCard>
+        <WhosOffToday href='/dashboard/leave' />
         <ListCard
           icon='calendar'
           label='End of Contract'

@@ -5,7 +5,8 @@ from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
-from rest_framework.permissions import SAFE_METHODS
+from rest_framework.permissions import SAFE_METHODS, IsAuthenticated
+from rest_framework.views import APIView
 
 from apps.audit.services import log_event
 from apps.personnel.permissions import _role
@@ -523,3 +524,52 @@ class LeaveRequestViewSet(viewsets.ModelViewSet):
         if error:
             return Response({'detail': error}, status=status.HTTP_403_FORBIDDEN)
         return None
+
+
+# "Who's Off Today" widget categories (by leave type code).
+_OFF_TODAY_CATEGORY = {'ANNUAL': 'ANNUAL', 'SICK': 'SICK'}
+
+
+class WhosOffTodayView(APIView):
+    """Employees on APPROVED izin/cuti today, company-wide, for every
+    dashboard (HR, GM, Management, Employee).
+
+    Only who / which category / dates are exposed — never the reason,
+    attachment or quota. Non-consecutive requests count only on their
+    actually selected days.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        from apps.personnel.storage import employee_photo_url
+
+        today = timezone.localdate()
+        qs = (
+            LeaveRequest.objects.filter(
+                status='APPROVED', start_date__lte=today, end_date__gte=today,
+                employee__employment_status='ACTIVE',
+            )
+            .select_related('employee__department', 'leave_type')
+            .prefetch_related('dates')
+            .order_by('employee__full_name')
+        )
+        rows = []
+        for lr in qs:
+            day = next((portion for d, portion in lr.selected_days() if d == today), None)
+            if day is None:  # non-consecutive request that skips today
+                continue
+            emp = lr.employee
+            rows.append({
+                'id': lr.id,
+                'employee_id': emp.id,
+                'employee_name': emp.full_name,
+                'department_name': emp.department.name if emp.department else None,
+                'photo_url': employee_photo_url(emp, request),
+                'leave_type_name': lr.leave_type.name,
+                'category': _OFF_TODAY_CATEGORY.get(lr.leave_type.code, 'OTHER'),
+                'start_date': lr.start_date,
+                'end_date': lr.end_date,
+                'half_day': day != 'FULL',
+            })
+        return Response({'date': today, 'results': rows})

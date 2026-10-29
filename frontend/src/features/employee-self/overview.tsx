@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet';
 import { Icons } from '@/components/icons';
+import { WhosOffToday } from '@/features/leaves/whos-off-today';
 import { listAnnouncements, type Announcement } from '@/lib/announcements';
 import { formatDays, getMyBalances, listLeaveRequests, type LeaveRequest, type MyBalance } from '@/lib/leaves';
 import { getReimbursementSummary, type ReimbursementSummary } from '@/lib/reimbursements';
@@ -182,30 +183,33 @@ export function EmployeeOverview() {
         </Card>
       </div>
 
-      {announcements.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className='flex items-center gap-2'>
-              <Icons.notification className='size-4' />
-              Pengumuman
-            </CardTitle>
-          </CardHeader>
-          <CardContent className='space-y-3'>
-            {announcements.map((a) => (
-              <button
-                key={a.id}
-                type='button'
-                onClick={() => setDetail(a)}
-                className='hover:bg-muted block w-full border-b pb-3 text-left last:border-0 last:pb-0'
-              >
-                <p className='text-sm font-medium'>{a.title}</p>
-                <p className='text-muted-foreground text-xs'>{fmtDate(a.created_at)}</p>
-                <p className='text-muted-foreground line-clamp-2 text-sm'>{a.body}</p>
-              </button>
-            ))}
-          </CardContent>
-        </Card>
-      )}
+      <div className='grid grid-cols-1 gap-4 lg:grid-cols-2'>
+        <WhosOffToday />
+        {announcements.length > 0 && (
+          <Card>
+            <CardHeader>
+              <CardTitle className='flex items-center gap-2'>
+                <Icons.notification className='size-4' />
+                Pengumuman
+              </CardTitle>
+            </CardHeader>
+            <CardContent className='space-y-3'>
+              {announcements.map((a) => (
+                <button
+                  key={a.id}
+                  type='button'
+                  onClick={() => setDetail(a)}
+                  className='hover:bg-muted block w-full border-b pb-3 text-left last:border-0 last:pb-0'
+                >
+                  <p className='text-sm font-medium'>{a.title}</p>
+                  <p className='text-muted-foreground text-xs'>{fmtDate(a.created_at)}</p>
+                  <p className='text-muted-foreground line-clamp-2 text-sm'>{a.body}</p>
+                </button>
+              ))}
+            </CardContent>
+          </Card>
+        )}
+      </div>
 
       <Sheet open={detail !== null} onOpenChange={(o) => !o && setDetail(null)}>
         <SheetContent side='right' className='w-full sm:max-w-md'>

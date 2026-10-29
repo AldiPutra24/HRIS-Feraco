@@ -1693,3 +1693,61 @@ class LeaveAttachmentStreamTests(TestCase):
         Employee.objects.create(employee_id='A002', full_name='Other', employment_status='ACTIVE', user=other)
         self.client.force_login(other)
         self.assertEqual(self.client.get(f'/api/leaves/requests/{self.leave.id}/attachment/').status_code, 404)
+
+
+class WhosOffTodayTests(TestCase):
+    """/api/leaves/whos-off-today/: approved leave covering today, visible to
+    every role, without the reason/attachment."""
+
+    URL = '/api/leaves/whos-off-today/'
+
+    def setUp(self):
+        from datetime import timedelta
+
+        from apps.personnel.models import Department
+
+        from .models import LeaveRequestDate
+
+        self.today = timezone.localdate()
+        role, _ = Role.objects.get_or_create(key='EMPLOYEE', defaults={'name': 'Employee'})
+        self.viewer = User.objects.create_user(username='viewer.off@test.com', email='viewer.off@test.com', password='x')
+        self.viewer.role = role
+        self.viewer.save()
+        dept = Department.objects.create(name='Sales')
+        annual = LeaveType.objects.create(name='Cuti Tahunan', code='ANNUAL', kind='LEAVE', default_quota=12)
+        sick = LeaveType.objects.create(name='Izin Sakit', code='SICK', kind='PERMISSION')
+        family = LeaveType.objects.create(name='Izin Keluarga', code='FAMILY', kind='PERMISSION')
+
+        def emp(code, name, status='ACTIVE'):
+            return Employee.objects.create(employee_id=code, full_name=name, department=dept, employment_status=status)
+
+        def leave(employee, lt, start, end, status='APPROVED'):
+            return LeaveRequest.objects.create(employee=employee, leave_type=lt, start_date=start,
+                                               end_date=end, status=status, reason='rahasia', total_days=1)
+
+        day = timedelta(days=1)
+        leave(emp('W1', 'Ani'), annual, self.today - day, self.today + day)
+        half = leave(emp('W2', 'Budi'), sick, self.today, self.today)
+        LeaveRequestDate.objects.create(leave_request=half, date=self.today, portion='HALF')
+        leave(emp('W3', 'Citra'), family, self.today, self.today)
+        leave(emp('W4', 'Pending'), annual, self.today, self.today, status='PENDING')
+        leave(emp('W5', 'Kemarin'), annual, self.today - day, self.today - day)
+        leave(emp('W6', 'Nonaktif', status='INACTIVE'), annual, self.today, self.today)
+        # Non-consecutive request spanning today but not including it.
+        gap = leave(emp('W7', 'Lompat'), annual, self.today - day, self.today + day)
+        LeaveRequestDate.objects.create(leave_request=gap, date=self.today - day)
+        LeaveRequestDate.objects.create(leave_request=gap, date=self.today + day)
+
+    def test_employee_sees_company_wide_who_is_off_today(self):
+        self.client.force_login(self.viewer)
+        res = self.client.get(self.URL)
+        self.assertEqual(res.status_code, 200)
+        rows = res.json()['results']
+        self.assertEqual([r['employee_name'] for r in rows], ['Ani', 'Budi', 'Citra'])
+        self.assertEqual([r['category'] for r in rows], ['ANNUAL', 'SICK', 'OTHER'])
+        self.assertEqual([r['half_day'] for r in rows], [False, True, False])
+        self.assertEqual(rows[0]['department_name'], 'Sales')
+        self.assertNotIn('reason', rows[0])
+
+    def test_requires_login(self):
+        self.assertIn(self.client.get(self.URL).status_code, (401, 403))

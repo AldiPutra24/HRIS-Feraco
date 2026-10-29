@@ -151,6 +151,26 @@ export function listLeaveTypes(): Promise<LeaveType[]> {
   return request<LeaveType[]>('/types/');
 }
 
+/** "Who's Off Today" widget: approved izin/cuti covering today (company-wide). */
+export type OffTodayCategory = 'ANNUAL' | 'SICK' | 'OTHER';
+
+export type OffTodayItem = {
+  id: number;
+  employee_id: number;
+  employee_name: string;
+  department_name: string | null;
+  photo_url: string | null;
+  leave_type_name: string;
+  category: OffTodayCategory;
+  start_date: string;
+  end_date: string;
+  half_day: boolean;
+};
+
+export function getWhosOffToday(): Promise<{ date: string; results: OffTodayItem[] }> {
+  return request<{ date: string; results: OffTodayItem[] }>('/whos-off-today/', { cache: 'no-store' });
+}
+
 export function updateLeaveType(
   id: number,
   data: Partial<Pick<LeaveType, 'min_notice_days' | 'is_active' | 'deducts_from'>>

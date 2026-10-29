@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Icons } from '@/components/icons';
+import { WhosOffToday } from '@/features/leaves/whos-off-today';
 import { useAuth } from '@/lib/auth/auth-provider';
 import { cn } from '@/lib/utils';
 import type { Announcement } from '@/lib/announcements';
@@ -536,8 +537,9 @@ export function GmOverview({
         </CardContent>
       </Card>
 
-      {/* Announcements + activity */}
-      <div className='grid grid-cols-1 gap-4 lg:grid-cols-2'>
+      {/* Who's off today + announcements + activity */}
+      <div className='grid grid-cols-1 gap-4 lg:grid-cols-3'>
+        <WhosOffToday href='/dashboard/management/leave' />
         <Card>
           <CardHeader>
             <CardTitle className='flex items-center gap-2'>
