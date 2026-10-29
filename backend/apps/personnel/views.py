@@ -135,7 +135,8 @@ class EmployeeViewSet(SoftHardDeleteMixin, viewsets.ModelViewSet):
         """Profile photo streamed by the backend (the browser never talks to
         the storage provider: R2/Supabase hosts may be blocked on some
         networks). Visible to the employee themself and to every role that
-        may read this employee (same scope as retrieve). `?download=1` =
+        may read this employee (same scope as retrieve), plus every signed-in
+        user for ACTIVE colleagues (dashboard widgets). `?download=1` =
         original file as attachment (HR only). URLs carry `?v=<photo>` so
         the private browser cache is safe.
         """
@@ -145,12 +146,15 @@ class EmployeeViewSet(SoftHardDeleteMixin, viewsets.ModelViewSet):
         emp = Employee.objects.filter(pk=pk).first()
         own = employee_for(request.user)
         is_self = emp is not None and own is not None and own.pk == emp.pk
-        visible = is_self or (
+        download = request.query_params.get('download') == '1'
+        # Inline photo of an ACTIVE colleague is visible to every signed-in user
+        # (Who's Off Today / birthdays show coworkers); otherwise same scope as
+        # retrieve. The original-file download stays HR-only (below).
+        visible = is_self or (emp is not None and not download and emp.employment_status == 'ACTIVE') or (
             emp is not None and _role(request.user) in READ_ROLES and self.get_queryset().filter(pk=emp.pk).exists()
         )
         if not visible or not emp.photo:
             return Response({'detail': 'Foto tidak ditemukan.'}, status=status.HTTP_404_NOT_FOUND)
-        download = request.query_params.get('download') == '1'
         if download and _role(request.user) not in {'ADMIN', 'HR_STAFF', 'HR_LEAD'}:
             return Response({'detail': 'Not allowed.'}, status=status.HTTP_403_FORBIDDEN)
         if not is_configured():

@@ -51,6 +51,19 @@ function initials(name: string): string {
     .join('');
 }
 
+/** Photo with an initials fallback (also when the image fails to load). */
+function Avatar({ name, photo }: { name: string; photo: string | null }) {
+  const [failed, setFailed] = useState(false);
+  return photo && !failed ? (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img src={photo} alt='' onError={() => setFailed(true)} className='size-10 rounded-full object-cover' />
+  ) : (
+    <span className='bg-primary/10 text-primary flex size-10 items-center justify-center rounded-full text-sm font-semibold'>
+      {initials(name)}
+    </span>
+  );
+}
+
 /**
  * "Who's Off Today": who is on approved izin/cuti today, filterable by
  * category. Shown on every dashboard (HR, GM, Management, Employee); the
@@ -183,14 +196,7 @@ export function WhosOffToday({
                         />
                       }
                     >
-                      {item.photo_url ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={item.photo_url} alt='' className='size-10 rounded-full object-cover' />
-                      ) : (
-                        <span className='bg-primary/10 text-primary flex size-10 items-center justify-center rounded-full text-sm font-semibold'>
-                          {initials(item.employee_name)}
-                        </span>
-                      )}
+                      <Avatar name={item.employee_name} photo={item.photo_url} />
                       <span className='bg-card ring-card absolute -right-1 -bottom-1 flex size-5 items-center justify-center rounded-full ring-2'>
                         <CatIcon className={cn('size-3.5', cat.iconTone)} aria-hidden />
                       </span>

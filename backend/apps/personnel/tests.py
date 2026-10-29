@@ -1327,9 +1327,22 @@ class EmployeePhotoStreamTests(TestCase):
             self.assertTrue(res['Content-Disposition'].startswith('inline'))
             self.assertEqual(res['Cache-Control'], 'private, max-age=86400')
 
-    def test_other_employee_and_out_of_team_management_get_404(self):
+    def test_colleagues_see_active_employee_photo_inline(self):
+        # Dashboard widgets (Who's Off Today, birthdays) show coworkers' photos.
+        for user in (self.other_user, make_user('MANAGEMENT')):
+            res, body = self._get(user)
+            self.assertEqual(res.status_code, 200, body)
+            self.assertTrue(res['Content-Disposition'].startswith('inline'))
+
+    def test_inactive_employee_photo_hidden_from_colleagues(self):
+        self.emp.employment_status = 'INACTIVE'
+        self.emp.save()
         self.assertEqual(self._get(self.other_user)[0].status_code, 404)
         self.assertEqual(self._get(make_user('MANAGEMENT'))[0].status_code, 404)  # not their team
+
+    def test_colleague_cannot_download_original(self):
+        res, _ = self._get(self.other_user, f'/api/employees/{self.emp.pk}/photo/?download=1')
+        self.assertIn(res.status_code, (403, 404))
 
     def test_download_param_is_hr_only(self):
         res, _ = self._get(self.owner_user, f'/api/employees/{self.emp.pk}/photo/?download=1')
