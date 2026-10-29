@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { Card, CardContent } from '@/components/ui/card';
+import { Card } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Icons } from '@/components/icons';
@@ -11,35 +11,35 @@ import { getWhosOffToday, type OffTodayCategory, type OffTodayItem } from '@/lib
 
 type Filter = 'ALL' | OffTodayCategory;
 
-const CATEGORY: Record<OffTodayCategory, { label: string; badge: string; icon: keyof typeof Icons; iconTone: string }> = {
-  ANNUAL: {
-    label: 'Cuti Tahunan',
-    badge: 'bg-rose-500/10 text-rose-600 dark:text-rose-300',
-    icon: 'vacation',
-    iconTone: 'text-rose-500'
-  },
-  SICK: {
-    label: 'Sakit',
-    badge: 'bg-sky-500/10 text-sky-700 dark:text-sky-300',
-    icon: 'sick',
-    iconTone: 'text-sky-600'
-  },
-  OTHER: {
-    label: 'Lainnya',
-    badge: 'bg-muted text-muted-foreground',
-    icon: 'event',
-    iconTone: 'text-muted-foreground'
-  }
+const CATEGORY: Record<OffTodayCategory, { label: string; icon: keyof typeof Icons; iconTone: string }> = {
+  ANNUAL: { label: 'Cuti Tahunan', icon: 'vacation', iconTone: 'text-rose-500' },
+  SICK: { label: 'Sakit', icon: 'sick', iconTone: 'text-sky-600' },
+  OTHER: { label: 'Lainnya', icon: 'event', iconTone: 'text-muted-foreground' }
 };
 
-function fmtDay(iso: string): string {
-  return new Date(`${iso}T00:00:00`).toLocaleDateString('id-ID', { day: 'numeric', month: 'short' });
+function parse(iso: string): Date {
+  return new Date(`${iso}T00:00:00`);
 }
 
+function fmtDay(d: Date, withMonth = true): string {
+  return withMonth ? d.toLocaleDateString('id-ID', { day: 'numeric', month: 'short' }) : String(d.getDate());
+}
+
+/** "27 – 29 Okt", "29 Okt – 2 Nov" or "29 Okt". */
 function dateRange(item: OffTodayItem): string {
-  return item.start_date === item.end_date
-    ? fmtDay(item.start_date)
-    : `${fmtDay(item.start_date)} – ${fmtDay(item.end_date)}`;
+  const s = parse(item.start_date);
+  const e = parse(item.end_date);
+  if (item.start_date === item.end_date) return fmtDay(s);
+  return `${fmtDay(s, s.getMonth() !== e.getMonth())} – ${fmtDay(e)}`;
+}
+
+/** "Hari terakhir" when the leave ends today, else the next weekday after it. */
+function returnLabel(item: OffTodayItem, today: string): string {
+  if (item.end_date <= today) return 'Hari terakhir';
+  const d = parse(item.end_date);
+  do d.setDate(d.getDate() + 1);
+  while (d.getDay() === 0 || d.getDay() === 6);
+  return `Kembali ${fmtDay(d)}`;
 }
 
 function initials(name: string): string {
@@ -56,15 +56,30 @@ function initials(name: string): string {
  * category. Shown on every dashboard (HR, GM, Management, Employee); the
  * backend exposes only name / department / category / dates.
  */
-export function WhosOffToday({ href, className }: { href?: string; className?: string }) {
+export function WhosOffToday({
+  href,
+  className,
+  onLoaded
+}: {
+  href?: string;
+  className?: string;
+  /** Lets a dashboard reuse the same data (e.g. a "Sedang Cuti" stat card). */
+  onLoaded?: (items: OffTodayItem[]) => void;
+}) {
   const [items, setItems] = useState<OffTodayItem[] | null>(null);
+  const [today, setToday] = useState('');
   const [error, setError] = useState(false);
   const [filter, setFilter] = useState<Filter>('ALL');
 
   useEffect(() => {
     getWhosOffToday()
-      .then((d) => setItems(d.results))
+      .then((d) => {
+        setItems(d.results);
+        setToday(d.date);
+        onLoaded?.(d.results);
+      })
       .catch(() => setError(true));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const count = (f: Filter) => (items ?? []).filter((i) => f === 'ALL' || i.category === f).length;
@@ -78,48 +93,43 @@ export function WhosOffToday({ href, className }: { href?: string; className?: s
 
   return (
     <Card className={cn('gap-0 py-0', className)}>
-      <div className='flex items-center justify-between gap-2 px-5 pt-4 pb-3'>
-        <div className='flex items-center gap-2.5'>
-          <span className='bg-primary/10 text-primary flex size-9 items-center justify-center rounded-lg'>
-            <Icons.leave className='size-5' />
-          </span>
-          <div>
-            <h3 className='text-base font-semibold'>Who&apos;s Off Today</h3>
-            <p className='text-muted-foreground text-xs'>Izin &amp; cuti yang disetujui hari ini</p>
-          </div>
+      <div className='flex items-start justify-between gap-2 px-5 pt-5 pb-4'>
+        <div>
+          <h3 className='text-base font-semibold'>Who&apos;s Off Today</h3>
+          <p className='text-muted-foreground text-sm'>Izin &amp; cuti yang disetujui hari ini</p>
         </div>
         {href && (
-          <Link href={href} className='text-primary inline-flex shrink-0 items-center gap-1 text-xs font-medium hover:underline'>
-            Lihat Semua
-            <Icons.arrowRight className='size-3.5' />
+          <Link href={href} className='inline-flex shrink-0 items-center gap-1 text-sm font-medium hover:underline'>
+            Lihat semua
+            <Icons.arrowRight className='size-4' />
           </Link>
         )}
       </div>
 
-      <div className='flex flex-wrap gap-1.5 px-5 pb-3'>
+      <div className='flex flex-wrap gap-1.5 px-5 pb-4'>
         {tabs.map((t) => (
           <button
             key={t.value}
             type='button'
             onClick={() => setFilter(t.value)}
             className={cn(
-              'rounded-lg border px-2.5 py-1 text-xs font-medium whitespace-nowrap transition-colors',
+              'rounded-lg border px-3 py-1.5 text-sm whitespace-nowrap transition-colors',
               filter === t.value
-                ? 'border-primary/30 bg-primary/10 text-primary'
-                : 'text-muted-foreground hover:bg-muted bg-transparent'
+                ? 'bg-foreground text-background border-foreground font-medium'
+                : 'hover:bg-muted bg-transparent'
             )}
           >
-            {t.label} ({items ? count(t.value) : '–'})
+            {t.label} <span className={cn(filter !== t.value && 'text-muted-foreground')}>{items ? count(t.value) : '–'}</span>
           </button>
         ))}
       </div>
 
-      <CardContent className='border-t px-0 pb-1'>
+      <div className='border-t'>
         {error ? (
           <p className='text-muted-foreground px-5 py-8 text-center text-sm'>Gagal memuat data.</p>
         ) : items === null ? (
           <div className='space-y-3 px-5 py-4'>
-            {Array.from({ length: 3 }).map((_, i) => (
+            {Array.from({ length: 2 }).map((_, i) => (
               <Skeleton key={i} className='h-12 w-full' />
             ))}
           </div>
@@ -129,58 +139,57 @@ export function WhosOffToday({ href, className }: { href?: string; className?: s
             {items.length === 0 ? 'Semua hadir hari ini.' : 'Tidak ada untuk kategori ini.'}
           </div>
         ) : (
-          <ul className='max-h-96 divide-y overflow-y-auto'>
+          <ul className='max-h-96 divide-y overflow-y-auto border-b'>
             {visible.map((item) => {
               const cat = CATEGORY[item.category];
               const CatIcon = Icons[cat.icon];
               return (
-                <li key={item.id} className='flex items-center gap-3 px-5 py-3'>
-                  {item.photo_url ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={item.photo_url} alt={item.employee_name} className='size-10 shrink-0 rounded-full object-cover' />
-                  ) : (
-                    <span className='bg-primary/10 text-primary flex size-10 shrink-0 items-center justify-center rounded-full text-sm font-semibold'>
-                      {initials(item.employee_name)}
-                    </span>
-                  )}
-                  <div className='min-w-0 flex-1'>
-                    <p className='truncate text-sm font-medium'>{item.employee_name}</p>
-                    <p className='text-muted-foreground truncate text-xs'>{item.department_name || '-'}</p>
-                  </div>
-                  <div className='flex min-w-0 shrink-0 flex-col items-start gap-1'>
-                    <span
-                      className={cn('max-w-36 truncate rounded-full px-2 py-0.5 text-[11px] font-medium', cat.badge)}
-                      title={item.leave_type_name}
-                    >
-                      {item.leave_type_name}
-                    </span>
-                    <span className='text-muted-foreground text-xs'>
-                      {dateRange(item)}
-                      {item.half_day ? ' · ½ hari' : ''}
-                    </span>
-                  </div>
+                <li key={item.id} className='flex items-center gap-3 px-5 py-3.5'>
                   <Tooltip>
                     <TooltipTrigger
                       render={
                         <span
                           tabIndex={0}
-                          aria-label={`Kategori: ${cat.label}`}
-                          className='hover:bg-muted flex size-8 shrink-0 cursor-help items-center justify-center rounded-md'
+                          aria-label={`${item.employee_name} · ${cat.label}`}
+                          className='relative shrink-0 cursor-help'
                         />
                       }
                     >
-                      <CatIcon className={cn('size-5', cat.iconTone)} aria-hidden />
+                      {item.photo_url ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={item.photo_url} alt='' className='size-10 rounded-full object-cover' />
+                      ) : (
+                        <span className='bg-primary/10 text-primary flex size-10 items-center justify-center rounded-full text-sm font-semibold'>
+                          {initials(item.employee_name)}
+                        </span>
+                      )}
+                      <span className='bg-card ring-card absolute -right-1 -bottom-1 flex size-5 items-center justify-center rounded-full ring-2'>
+                        <CatIcon className={cn('size-3.5', cat.iconTone)} aria-hidden />
+                      </span>
                     </TooltipTrigger>
-                    <TooltipContent side='left'>
+                    <TooltipContent side='top'>
                       {cat.label === item.leave_type_name ? cat.label : `${cat.label} · ${item.leave_type_name}`}
                     </TooltipContent>
                   </Tooltip>
+                  <div className='min-w-0 flex-1'>
+                    <p className='truncate text-sm font-medium'>{item.employee_name}</p>
+                    <p className='text-muted-foreground truncate text-xs'>
+                      {item.department_name || '-'} · {item.leave_type_name}
+                    </p>
+                  </div>
+                  <div className='shrink-0 text-right'>
+                    <p className='text-sm font-medium tabular-nums'>{dateRange(item)}</p>
+                    <p className='text-muted-foreground text-xs'>
+                      {item.half_day ? '½ hari · ' : ''}
+                      {returnLabel(item, today)}
+                    </p>
+                  </div>
                 </li>
               );
             })}
           </ul>
         )}
-      </CardContent>
+      </div>
     </Card>
   );
 }

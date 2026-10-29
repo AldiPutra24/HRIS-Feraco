@@ -50,13 +50,13 @@ export function RecentActivities({
         <div className='flex items-center justify-between'>
           <div>
             <CardTitle>Aktivitas Terbaru</CardTitle>
-            <CardDescription>Aktivitas terbaru di seluruh HRIS.</CardDescription>
+            <CardDescription>Di seluruh HRIS</CardDescription>
           </div>
           <Link
             href='/dashboard/settings/audit-log'
-            className='text-primary inline-flex items-center gap-1 text-sm font-medium hover:underline'
+            className='inline-flex items-center gap-1 text-sm font-medium hover:underline'
           >
-            Lihat Semua
+            Lihat semua
             <Icons.arrowRight className='size-4' />
           </Link>
         </div>
@@ -94,7 +94,7 @@ export function RecentActivities({
                   <div className='min-w-0 flex-1'>
                     <p className='truncate text-sm font-medium'>
                       {activity.actor ?? 'Sistem'}{' '}
-                      <span className='text-muted-foreground font-normal'>{meta.label}</span> {target}
+                      <span className='text-muted-foreground font-normal'>{meta.label.toLowerCase()}</span> {target}
                     </p>
                     <p className='text-muted-foreground text-xs'>{relativeTime(activity.timestamp)}</p>
                   </div>
