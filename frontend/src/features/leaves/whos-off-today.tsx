@@ -7,7 +7,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Icons } from '@/components/icons';
 import { cn } from '@/lib/utils';
-import { getWhosOffToday, type OffTodayCategory, type OffTodayItem } from '@/lib/leaves';
+import { getWhosOffToday, type OffTodayCategory, type OffTodayFilter, type OffTodayItem } from '@/lib/leaves';
 
 type Filter = 'ALL' | OffTodayCategory;
 
@@ -59,10 +59,13 @@ function initials(name: string): string {
 export function WhosOffToday({
   href,
   className,
+  scope,
   onLoaded
 }: {
   href?: string;
   className?: string;
+  /** Department / position filter (HR overview). */
+  scope?: OffTodayFilter;
   /** Lets a dashboard reuse the same data (e.g. a "Sedang Cuti" stat card). */
   onLoaded?: (items: OffTodayItem[]) => void;
 }) {
@@ -71,16 +74,26 @@ export function WhosOffToday({
   const [error, setError] = useState(false);
   const [filter, setFilter] = useState<Filter>('ALL');
 
+  const department = scope?.department ?? null;
+  const position = scope?.position ?? null;
+
   useEffect(() => {
-    getWhosOffToday()
+    let cancelled = false;
+    setItems(null);
+    setError(false);
+    getWhosOffToday({ department, position })
       .then((d) => {
+        if (cancelled) return;
         setItems(d.results);
         setToday(d.date);
         onLoaded?.(d.results);
       })
-      .catch(() => setError(true));
+      .catch(() => !cancelled && setError(true));
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [department, position]);
 
   const count = (f: Filter) => (items ?? []).filter((i) => f === 'ALL' || i.category === f).length;
   const tabs: { value: Filter; label: string }[] = [

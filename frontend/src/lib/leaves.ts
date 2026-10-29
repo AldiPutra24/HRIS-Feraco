@@ -167,8 +167,15 @@ export type OffTodayItem = {
   half_day: boolean;
 };
 
-export function getWhosOffToday(): Promise<{ date: string; results: OffTodayItem[] }> {
-  return request<{ date: string; results: OffTodayItem[] }>('/whos-off-today/', { cache: 'no-store' });
+/** Optional dashboard filters: department / position id. */
+export type OffTodayFilter = { department?: number | null; position?: number | null };
+
+export function getWhosOffToday(filter: OffTodayFilter = {}): Promise<{ date: string; results: OffTodayItem[] }> {
+  const q = new URLSearchParams();
+  if (filter.department) q.set('department', String(filter.department));
+  if (filter.position) q.set('position', String(filter.position));
+  const qs = q.toString() ? `?${q}` : '';
+  return request<{ date: string; results: OffTodayItem[] }>(`/whos-off-today/${qs}`, { cache: 'no-store' });
 }
 
 export function updateLeaveType(

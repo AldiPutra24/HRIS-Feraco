@@ -1751,3 +1751,17 @@ class WhosOffTodayTests(TestCase):
 
     def test_requires_login(self):
         self.assertIn(self.client.get(self.URL).status_code, (401, 403))
+
+    def test_filters_by_department_and_position(self):
+        from apps.personnel.models import Department, Position
+
+        ops = Department.objects.create(name='Ops')
+        pos = Position.objects.create(name='Driver', department=ops)
+        ani = Employee.objects.get(full_name='Ani')
+        ani.department, ani.position = ops, pos
+        ani.save()
+        self.client.force_login(self.viewer)
+        names = lambda q: [r['employee_name'] for r in self.client.get(self.URL + q).json()['results']]  # noqa: E731
+        self.assertEqual(names(f'?department={ops.id}'), ['Ani'])
+        self.assertEqual(names(f'?position={pos.id}'), ['Ani'])
+        self.assertEqual(names('?department=abc'), ['Ani', 'Budi', 'Citra'])

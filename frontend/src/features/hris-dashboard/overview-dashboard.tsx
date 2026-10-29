@@ -4,13 +4,28 @@ import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import { buttonVariants } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger
+} from '@/components/ui/dropdown-menu';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Switch } from '@/components/ui/switch';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Icons } from '@/components/icons';
 import { cn } from '@/lib/utils';
-import { listDepartments, listEmployees, listPositions, type Department, type Employee } from '@/lib/employees';
+import {
+  listDepartments,
+  listEmployees,
+  listPositions,
+  type Department,
+  type Employee,
+  type Position
+} from '@/lib/employees';
 import { getHrDashboard, type HrDashboard } from '@/lib/dashboard';
 import type { OffTodayItem } from '@/lib/leaves';
 import { WhosOffToday } from '@/features/leaves/whos-off-today';
@@ -23,13 +38,75 @@ import {
 } from '@/lib/announcements';
 import { RecentActivities } from '@/features/hris-dashboard/components/recent-activities';
 
+/** Employee counts for the current department/position filter. */
 type Summary = {
   total: number;
   active: number;
   inactive: number;
-  departments: number;
-  positions: number;
 };
+
+type FilterOption = { id: number; name: string; hint?: string };
+
+/** Header dropdown that filters the overview (not a link to the settings page). */
+function FilterMenu({
+  icon,
+  label,
+  allLabel,
+  options,
+  value,
+  onChange
+}: {
+  icon: keyof typeof Icons;
+  label: string;
+  allLabel: string;
+  options: FilterOption[];
+  value: number | null;
+  onChange: (id: number | null) => void;
+}) {
+  const Icon = Icons[icon];
+  const selected = options.find((o) => o.id === value);
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={
+          <button
+            type='button'
+            className={cn(
+              buttonVariants({ variant: 'outline' }),
+              'max-w-56',
+              selected && 'border-primary/40 bg-primary/5 text-primary'
+            )}
+          />
+        }
+      >
+        <Icon className='size-4 shrink-0' />
+        <span className='truncate'>{selected ? selected.name : label}</span>
+        <Icons.chevronDown className='size-4 shrink-0 opacity-60' />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align='end' className='max-h-80 w-64'>
+        <DropdownMenuRadioGroup
+          value={value === null ? '' : String(value)}
+          onValueChange={(v) => onChange(v ? Number(v) : null)}
+        >
+          <DropdownMenuRadioItem value=''>{allLabel}</DropdownMenuRadioItem>
+          <DropdownMenuSeparator />
+          {options.length === 0 ? (
+            <p className='text-muted-foreground px-2 py-1.5 text-sm'>Tidak ada pilihan.</p>
+          ) : (
+            options.map((o) => (
+              <DropdownMenuRadioItem key={o.id} value={String(o.id)}>
+                <span className='min-w-0 truncate'>
+                  {o.name}
+                  {o.hint && <span className='text-muted-foreground'> · {o.hint}</span>}
+                </span>
+              </DropdownMenuRadioItem>
+            ))
+          )}
+        </DropdownMenuRadioGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
 
 /** Contracts within this many days get the "urgent" (orange) treatment. */
 const CONTRACT_URGENT_DAYS = 45;
@@ -121,6 +198,9 @@ export function OverviewDashboard() {
   const [summary, setSummary] = useState<Summary | null>(null);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
+  const [positions, setPositions] = useState<Position[]>([]);
+  const [deptFilter, setDeptFilter] = useState<number | null>(null);
+  const [posFilter, setPosFilter] = useState<number | null>(null);
   const [dashboard, setDashboard] = useState<HrDashboard | null>(null);
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [offToday, setOffToday] = useState<OffTodayItem[] | null>(null);
@@ -157,41 +237,56 @@ export function OverviewDashboard() {
     setAdding(true);
   };
 
+  // Filter options + announcements: loaded once, independent of the filter.
   useEffect(() => {
+    listDepartments().then(setDepartments).catch(() => {});
+    listPositions().then(setPositions).catch(() => {});
+    listAnnouncements().then(setAnnouncements).catch(() => {});
+  }, []);
+
+  // Employee-scoped widgets follow the department/position filter.
+  useEffect(() => {
+    let cancelled = false;
+    const filter = { department: deptFilter ?? undefined, position: posFilter ?? undefined };
+    setLoading(true);
+    setDashLoading(true);
+    setOffToday(null);
     (async () => {
       try {
-        const [latest, active, inactive, depts, positions] = await Promise.all([
-          listEmployees({ ordering: '-created_at' }),
-          listEmployees({ employment_status: 'ACTIVE' }),
-          listEmployees({ employment_status: 'INACTIVE' }),
-          listDepartments(),
-          listPositions()
+        const [latest, active, inactive] = await Promise.all([
+          listEmployees({ ordering: '-created_at', ...filter }),
+          listEmployees({ employment_status: 'ACTIVE', ...filter }),
+          listEmployees({ employment_status: 'INACTIVE', ...filter })
         ]);
-        setSummary({
-          total: latest.count,
-          active: active.count,
-          inactive: inactive.count,
-          departments: depts.length,
-          positions: positions.length
-        });
+        if (cancelled) return;
+        setSummary({ total: latest.count, active: active.count, inactive: inactive.count });
         setEmployees(latest.results.slice(0, 5));
-        setDepartments(depts);
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     })();
     (async () => {
       try {
-        const [d, a] = await Promise.all([getHrDashboard(), listAnnouncements()]);
-        setDashboard(d);
-        setAnnouncements(a);
+        const d = await getHrDashboard({ department: deptFilter, position: posFilter });
+        if (!cancelled) setDashboard(d);
       } catch {
         // Non-HR roles may lack dashboard access; ignore.
       } finally {
-        setDashLoading(false);
+        if (!cancelled) setDashLoading(false);
       }
     })();
-  }, []);
+    return () => {
+      cancelled = true;
+    };
+  }, [deptFilter, posFilter]);
+
+  const selectDept = (id: number | null) => {
+    setDeptFilter(id);
+    // Drop a position that doesn't belong to the newly selected department.
+    if (id !== null && posFilter !== null && positions.find((p) => p.id === posFilter)?.department !== id) {
+      setPosFilter(null);
+    }
+  };
 
   const saveAnnouncement = useCallback(async () => {
     if (!title.trim() || !body.trim()) return;
@@ -239,6 +334,19 @@ export function OverviewDashboard() {
   const birthdays = dashboard?.birthdays ?? [];
   const nearest = contracts[0];
   const offCount = (cat: OffTodayItem['category']) => (offToday ?? []).filter((i) => i.category === cat).length;
+  const deptOptions: FilterOption[] = [...departments]
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map((d) => ({ id: d.id, name: d.name }));
+  const posOptions: FilterOption[] = positions
+    .filter((p) => deptFilter === null || p.department === deptFilter)
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map((p) => ({ id: p.id, name: p.name, hint: deptFilter === null ? p.department_name || undefined : undefined }));
+  const filterLabel = [
+    departments.find((d) => d.id === deptFilter)?.name,
+    positions.find((p) => p.id === posFilter)?.name
+  ]
+    .filter(Boolean)
+    .join(' · ');
   const deptRows = [...departments].sort((a, b) => (b.employee_count ?? 0) - (a.employee_count ?? 0));
   const deptMax = Math.max(1, ...deptRows.map((d) => d.employee_count ?? 0));
   const deptTotal = deptRows.reduce((s, d) => s + (d.employee_count ?? 0), 0);
@@ -255,21 +363,46 @@ export function OverviewDashboard() {
         <div>
           <p className='text-muted-foreground font-mono text-xs tracking-widest uppercase'>{todayLabel}</p>
           <h2 className='mt-1 text-3xl font-bold tracking-tight'>{greeting()}</h2>
-          <p className='text-muted-foreground text-sm'>Ringkasan operasional HRIS Feraco hari ini.</p>
+          <p className='text-muted-foreground text-sm'>
+            {filterLabel ? (
+              <>
+                Ringkasan untuk <span className='text-foreground font-medium'>{filterLabel}</span>.
+              </>
+            ) : (
+              'Ringkasan operasional HRIS Feraco hari ini.'
+            )}
+          </p>
         </div>
-        <div className='flex flex-wrap gap-2'>
-          <Link href='/dashboard/settings/departments' className={buttonVariants({ variant: 'outline' })}>
-            <Icons.building className='size-4' />
-            Departments
-          </Link>
-          <Link href='/dashboard/settings/positions' className={buttonVariants({ variant: 'outline' })}>
-            <Icons.briefcase className='size-4' />
-            Positions
-          </Link>
-          <Link href='/dashboard/karyawan' className={buttonVariants()}>
-            <Icons.add className='size-4' />
-            Tambah Karyawan
-          </Link>
+        <div className='flex flex-wrap items-center gap-2'>
+          {(deptFilter !== null || posFilter !== null) && (
+            <button
+              type='button'
+              onClick={() => {
+                setDeptFilter(null);
+                setPosFilter(null);
+              }}
+              className={buttonVariants({ variant: 'ghost' })}
+            >
+              <Icons.close className='size-4' />
+              Reset filter
+            </button>
+          )}
+          <FilterMenu
+            icon='building'
+            label='Departments'
+            allLabel='Semua department'
+            options={deptOptions}
+            value={deptFilter}
+            onChange={selectDept}
+          />
+          <FilterMenu
+            icon='briefcase'
+            label='Positions'
+            allLabel={deptFilter === null ? 'Semua position' : 'Semua position di department ini'}
+            options={posOptions}
+            value={posFilter}
+            onChange={setPosFilter}
+          />
         </div>
       </div>
 
@@ -317,14 +450,14 @@ export function OverviewDashboard() {
           )}
         </StatCard>
 
-        <StatCard label='Struktur Organisasi' icon='hierarchy' loading={loading || !summary}>
+        <StatCard label='Struktur Organisasi' icon='hierarchy' loading={departments.length === 0 && positions.length === 0}>
           <div className='flex items-stretch gap-6'>
             <div>
-              <p className='text-4xl font-semibold tabular-nums'>{summary?.departments ?? 0}</p>
+              <p className='text-4xl font-semibold tabular-nums'>{departments.length}</p>
               <p className='text-muted-foreground text-xs'>Department</p>
             </div>
             <div className='border-l pl-6'>
-              <p className='text-4xl font-semibold tabular-nums'>{summary?.positions ?? 0}</p>
+              <p className='text-4xl font-semibold tabular-nums'>{positions.length}</p>
               <p className='text-muted-foreground text-xs'>Position</p>
             </div>
           </div>
@@ -334,7 +467,11 @@ export function OverviewDashboard() {
       <div className='grid grid-cols-1 gap-4 lg:grid-cols-3'>
         <div className='flex flex-col gap-4 lg:col-span-2'>
           <div className='grid grid-cols-1 gap-4 md:grid-cols-2'>
-            <WhosOffToday href='/dashboard/leave' onLoaded={setOffToday} />
+            <WhosOffToday
+              href='/dashboard/leave'
+              scope={{ department: deptFilter, position: posFilter }}
+              onLoaded={setOffToday}
+            />
 
             <Card className='gap-0 py-0'>
               <SectionHeader
@@ -471,7 +608,7 @@ export function OverviewDashboard() {
               title='Karyawan per Department'
               description={`${deptTotal} karyawan di ${deptRows.length} department`}
             />
-            {loading ? (
+            {departments.length === 0 && loading ? (
               <div className='space-y-3 px-5 pb-5'>
                 {Array.from({ length: 4 }).map((_, i) => (
                   <Skeleton key={i} className='h-8 w-full' />
@@ -483,14 +620,21 @@ export function OverviewDashboard() {
               <div className='space-y-3.5 px-5 pb-5'>
                 {deptRows.map((d) => {
                   const n = d.employee_count ?? 0;
+                  const dimmed = deptFilter !== null && d.id !== deptFilter;
                   return (
-                    <div key={d.id} className='space-y-1.5'>
+                    <button
+                      key={d.id}
+                      type='button'
+                      onClick={() => selectDept(d.id === deptFilter ? null : d.id)}
+                      title={d.id === deptFilter ? 'Hapus filter' : `Filter: ${d.name}`}
+                      className={cn('block w-full space-y-1.5 text-left transition-opacity hover:opacity-80', dimmed && 'opacity-40')}
+                    >
                       <div className={cn('flex items-center justify-between text-sm', n === 0 && 'text-muted-foreground')}>
                         <span className='truncate'>{d.name}</span>
                         <span className='font-medium tabular-nums'>{n}</span>
                       </div>
                       <Bar value={(n / deptMax) * 100} />
-                    </div>
+                    </button>
                   );
                 })}
               </div>

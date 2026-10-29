@@ -682,9 +682,17 @@ class DashboardHrView(APIView):
             return Response({'detail': 'Hanya untuk HR/Admin.'}, status=status.HTTP_403_FORBIDDEN)
 
         today = timezone.localdate()
+        # Optional overview filters (?department=<id>&position=<id>) applied to
+        # the employee-scoped widgets: leave today, contracts, birthdays.
+        emp_filter = {}
+        for param in ('department', 'position'):
+            value = request.query_params.get(param, '')
+            if value.isdigit():
+                emp_filter[f'{param}_id'] = int(value)
+        emp_lookup = {f'employee__{k}': v for k, v in emp_filter.items()}
         # Izin & cuti hari ini: approved requests covering today.
         leave_today = LeaveRequest.objects.filter(
-            status='APPROVED', start_date__lte=today, end_date__gte=today
+            status='APPROVED', start_date__lte=today, end_date__gte=today, **emp_lookup
         ).select_related('employee', 'leave_type').order_by('employee__full_name')
         leave_today_data = [
             {
@@ -701,7 +709,7 @@ class DashboardHrView(APIView):
         ]
         # End of contract: the 5 active contracts ending soonest (future end_date).
         contracts = (
-            EmployeeContract.objects.filter(status='ACTIVE', end_date__gte=today)
+            EmployeeContract.objects.filter(status='ACTIVE', end_date__gte=today, **emp_lookup)
             .select_related('employee')
             .order_by('end_date')[:5]
         )
@@ -721,7 +729,7 @@ class DashboardHrView(APIView):
         md = today.strftime('%m-%d')
         md_end = (today + datetime.timedelta(days=7)).strftime('%m-%d')
         birthdays = []
-        for e in Employee.objects.filter(birth_date__isnull=False).select_related('department', 'position'):
+        for e in Employee.objects.filter(birth_date__isnull=False, **emp_filter).select_related('department', 'position'):
             b = e.birth_date.strftime('%m-%d')
             in_range = md <= b <= md_end if md <= md_end else (b >= md or b <= md_end)
             if in_range:

@@ -1129,6 +1129,20 @@ class DashboardHrApiTests(TestCase):
         rows = self.client.get('/api/dashboard/hr/').data['contracts_ending']
         self.assertEqual([r['employee_name'] for r in rows], [f'Kontrak {i}' for i in range(5)])
 
+    def test_filters_by_department_and_position(self):
+        today = timezone.localdate()
+        other = Employee.objects.create(employee_id='E002', full_name='Other', nik='22', birth_date=today + timedelta(days=2))
+        for e in (self.emp, other):
+            EmployeeContract.objects.create(employee=e, contract_type='PKWT', status='ACTIVE',
+                                            start_date=today - timedelta(days=30), end_date=today + timedelta(days=20))
+        for q in (f'?department={self.dept.id}', f'?position={self.pos.id}'):
+            data = self.client.get('/api/dashboard/hr/' + q).data
+            self.assertEqual([r['employee_name'] for r in data['contracts_ending']], ['John'], q)
+            self.assertEqual([r['full_name'] for r in data['birthdays']], ['John'], q)
+        data = self.client.get('/api/dashboard/hr/').data
+        self.assertEqual(len(data['contracts_ending']), 2)
+        self.assertEqual(len(data['birthdays']), 2)
+
     def test_employee_denied(self):
         self.client.force_login(make_user('EMPLOYEE'))
         res = self.client.get('/api/dashboard/hr/')

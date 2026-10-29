@@ -554,6 +554,11 @@ class WhosOffTodayView(APIView):
             .prefetch_related('dates')
             .order_by('employee__full_name')
         )
+        # Optional dashboard filters (?department=<id>&position=<id>).
+        for param in ('department', 'position'):
+            value = request.query_params.get(param, '')
+            if value.isdigit():
+                qs = qs.filter(**{f'employee__{param}_id': int(value)})
         rows = []
         for lr in qs:
             day = next((portion for d, portion in lr.selected_days() if d == today), None)

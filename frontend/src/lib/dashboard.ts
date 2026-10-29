@@ -79,6 +79,11 @@ export type HrDashboard = {
   recent_activities: DashboardActivity[];
 };
 
-export function getHrDashboard(): Promise<HrDashboard> {
-  return request<HrDashboard>('/dashboard/hr/');
+/** Optional department / position id filters for the employee-scoped widgets. */
+export function getHrDashboard(filter: { department?: number | null; position?: number | null } = {}): Promise<HrDashboard> {
+  const q = new URLSearchParams();
+  if (filter.department) q.set('department', String(filter.department));
+  if (filter.position) q.set('position', String(filter.position));
+  const qs = q.toString() ? `?${q}` : '';
+  return request<HrDashboard>(`/dashboard/hr/${qs}`);
 }
