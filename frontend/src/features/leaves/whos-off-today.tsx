@@ -95,14 +95,14 @@ export function WhosOffToday({ href, className }: { href?: string; className?: s
         )}
       </div>
 
-      <div className='flex gap-1.5 overflow-x-auto px-5 pb-3'>
+      <div className='flex flex-wrap gap-1.5 px-5 pb-3'>
         {tabs.map((t) => (
           <button
             key={t.value}
             type='button'
             onClick={() => setFilter(t.value)}
             className={cn(
-              'shrink-0 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors',
+              'rounded-lg border px-2.5 py-1 text-xs font-medium whitespace-nowrap transition-colors',
               filter === t.value
                 ? 'border-primary/30 bg-primary/10 text-primary'
                 : 'text-muted-foreground hover:bg-muted bg-transparent'
