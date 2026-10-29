@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Icons } from '@/components/icons';
 import { cn } from '@/lib/utils';
 import { getWhosOffToday, type OffTodayCategory, type OffTodayItem } from '@/lib/leaves';
@@ -14,20 +15,20 @@ const CATEGORY: Record<OffTodayCategory, { label: string; badge: string; icon: k
   ANNUAL: {
     label: 'Cuti Tahunan',
     badge: 'bg-rose-500/10 text-rose-600 dark:text-rose-300',
-    icon: 'sun',
-    iconTone: 'text-emerald-500'
+    icon: 'vacation',
+    iconTone: 'text-rose-500'
   },
   SICK: {
     label: 'Sakit',
     badge: 'bg-sky-500/10 text-sky-700 dark:text-sky-300',
-    icon: 'plusCircle',
+    icon: 'sick',
     iconTone: 'text-sky-600'
   },
   OTHER: {
     label: 'Lainnya',
     badge: 'bg-muted text-muted-foreground',
-    icon: 'calendar',
-    iconTone: 'text-primary'
+    icon: 'event',
+    iconTone: 'text-muted-foreground'
   }
 };
 
@@ -158,7 +159,22 @@ export function WhosOffToday({ href, className }: { href?: string; className?: s
                       {item.half_day ? ' · ½ hari' : ''}
                     </span>
                   </div>
-                  <CatIcon className={cn('size-5 shrink-0', cat.iconTone)} aria-hidden />
+                  <Tooltip>
+                    <TooltipTrigger
+                      render={
+                        <span
+                          tabIndex={0}
+                          aria-label={`Kategori: ${cat.label}`}
+                          className='hover:bg-muted flex size-8 shrink-0 cursor-help items-center justify-center rounded-md'
+                        />
+                      }
+                    >
+                      <CatIcon className={cn('size-5', cat.iconTone)} aria-hidden />
+                    </TooltipTrigger>
+                    <TooltipContent side='left'>
+                      {cat.label === item.leave_type_name ? cat.label : `${cat.label} · ${item.leave_type_name}`}
+                    </TooltipContent>
+                  </Tooltip>
                 </li>
               );
             })}
