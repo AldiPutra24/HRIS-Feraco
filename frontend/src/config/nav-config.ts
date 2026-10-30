@@ -355,6 +355,13 @@ export const navGroups: NavGroup[] = [
     label: 'Talent',
     items: [
       {
+        title: 'Dashboard Rekrutmen',
+        url: '/dashboard/recruitment/dashboard',
+        icon: 'kanban',
+        isActive: false,
+        items: []
+      },
+      {
         title: 'Recruitment',
         url: '/dashboard/recruitment',
         icon: 'userPlus',

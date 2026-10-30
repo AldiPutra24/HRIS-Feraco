@@ -419,3 +419,44 @@ export function anonymizeTalentProfile(id: number): Promise<TalentProfileDetail>
 export function profileCvFileUrl(p: { cv_url?: string | null }): string | null {
   return p.cv_url ? `${p.cv_url}?raw=1` : null;
 }
+
+/* ---------------------------------------------------------------- Dashboards */
+
+export type CountRow = { key: string; label: string; count: number };
+
+export type TalentPoolDashboard = {
+  total_profiles: number;
+  total_applications: number;
+  qualified_profiles: number;
+  available_profiles: number;
+  by_employment_type: CountRow[];
+  by_interest: CountRow[];
+  by_source: CountRow[];
+  by_availability: CountRow[];
+  by_month: { month: string; count: number }[];
+};
+
+export type PipelineDashboard = {
+  total_applications: number;
+  by_stage: CountRow[];
+  hr_interview: number;
+  user_interview: number;
+  hired: number;
+  awaiting_follow_up: number;
+  follow_up: { id: number; full_name: string; status: string; position: string; updated_at: string }[];
+  by_source: CountRow[];
+  by_position: { position: string; track: string; total: number; statuses: Record<string, number> }[];
+};
+
+function withQuery(path: string, params: Record<string, string>): string {
+  const qs = new URLSearchParams(Object.entries(params).filter(([, v]) => v)).toString();
+  return `${path}${qs ? `?${qs}` : ''}`;
+}
+
+export function getTalentPoolDashboard(params: Record<string, string> = {}): Promise<TalentPoolDashboard> {
+  return request<TalentPoolDashboard>(withQuery('/dashboard/talent-pool/', params));
+}
+
+export function getPipelineDashboard(params: Record<string, string> = {}): Promise<PipelineDashboard> {
+  return request<PipelineDashboard>(withQuery('/dashboard/pipeline/', params));
+}

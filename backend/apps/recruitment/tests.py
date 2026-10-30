@@ -1703,3 +1703,60 @@ class TalentPoolApiTests(TestCase):
     def test_employee_forbidden(self):
         self.client.force_login(make_user('EMPLOYEE', 'emp@test.com'))
         self.assertEqual(self.client.get(self.URL).status_code, 403)
+
+
+class RecruitmentDashboardTests(TestCase):
+    """Stage 5: Talent Pool (unique people) vs Pipeline (applications)."""
+
+    def setUp(self):
+        self.client.force_login(make_user('HR_STAFF', 'hr@test.com'))
+        self.dev = Job.objects.create(title='Developer', slug='d5-dev', open_date=date.today(), status='OPEN')
+        self.mc = Job.objects.create(title='MC', slug='d5-mc', open_date=date.today(), status='OPEN',
+                                     recruitment_type='FREELANCE', employment_type='FREELANCE')
+        # Rina applies twice (one person, two applications).
+        self.r1 = Candidate.objects.create(job=self.dev, full_name='Rina', email='rina@x.com',
+                                           screening_result='QUALIFIED', status='SCREENED')
+        self.r2 = Candidate.objects.create(job=self.mc, full_name='Rina', email='rina@x.com', status='HIRED')
+        self.b = Candidate.objects.create(job=None, full_name='Budi', email='budi@x.com', status='INACTIVE',
+                                          inactive_reason='UNRESPONSIVE', source='LINKEDIN')
+        CandidateProfile.objects.filter(pk=self.r1.profile_id).update(
+            employment_types=['FULL_TIME', 'FREELANCE'], availability='IMMEDIATELY', source_reported='LINKEDIN',
+        )
+        CandidateProfile.objects.filter(pk=self.b.profile_id).update(employment_types=['FREELANCE'])
+
+    def test_talent_pool_counts_unique_people(self):
+        data = self.client.get('/api/recruitment/dashboard/talent-pool/').json()
+        self.assertEqual((data['total_profiles'], data['total_applications']), (2, 3))
+        self.assertEqual(data['qualified_profiles'], 1)
+        self.assertEqual(data['available_profiles'], 1)  # Budi: nothing active, not hired
+        types = {r['key']: r['count'] for r in data['by_employment_type']}
+        self.assertEqual(types, {'FREELANCE': 2, 'FULL_TIME': 1})
+        interest = {r['label']: r['count'] for r in data['by_interest']}
+        self.assertEqual(interest, {'Developer': 1, 'MC': 1, 'Open Application': 1})
+        self.assertEqual(sum(m['count'] for m in data['by_month']), 2)
+
+    def test_talent_pool_filters(self):
+        data = self.client.get('/api/recruitment/dashboard/talent-pool/?employment_type=FULL_TIME').json()
+        self.assertEqual(data['total_profiles'], 1)
+        data = self.client.get('/api/recruitment/dashboard/talent-pool/?job=open').json()
+        self.assertEqual((data['total_profiles'], data['total_applications']), (1, 1))
+        future = (date.today() + timedelta(days=1)).isoformat()
+        self.assertEqual(self.client.get(f'/api/recruitment/dashboard/talent-pool/?from={future}').json()['total_profiles'], 0)
+
+    def test_pipeline(self):
+        from django.utils import timezone
+
+        Candidate.objects.filter(pk=self.r1.pk).update(updated_at=timezone.now() - timedelta(days=10))
+        data = self.client.get('/api/recruitment/dashboard/pipeline/').json()
+        stages = {r['key']: r['count'] for r in data['by_stage']}
+        self.assertEqual((stages['SCREENED'], stages['HIRED'], stages['INACTIVE']), (1, 1, 1))
+        self.assertEqual((data['hired'], data['awaiting_follow_up']), (1, 1))
+        self.assertEqual(data['follow_up'][0]['id'], self.r1.id)
+        positions = {r['position']: r['total'] for r in data['by_position']}
+        self.assertEqual(positions, {'Developer': 1, 'MC': 1, 'Open Application': 1})
+        self.assertEqual(self.client.get('/api/recruitment/dashboard/pipeline/?track=FREELANCE').json()['total_applications'], 1)
+
+    def test_employee_forbidden(self):
+        self.client.force_login(make_user('EMPLOYEE', 'emp@test.com'))
+        self.assertEqual(self.client.get('/api/recruitment/dashboard/pipeline/').status_code, 403)
+        self.assertEqual(self.client.get('/api/recruitment/dashboard/talent-pool/').status_code, 403)
