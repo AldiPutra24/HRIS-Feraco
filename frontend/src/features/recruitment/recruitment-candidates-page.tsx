@@ -126,11 +126,11 @@ export function RecruitmentCandidatesPage({
     <div className='flex flex-1 flex-col gap-4 p-4 md:p-6'>
       <div>
         <h2 className='text-2xl font-bold tracking-tight'>
-          {isFreelance ? 'Candidate Freelance / Talent Pool' : 'Candidate Inhouse'}
+          {isFreelance ? 'Candidate Freelance' : 'Candidate Inhouse'}
         </h2>
         <p className='text-muted-foreground text-sm'>
           {isFreelance
-            ? 'Kandidat recruitment freelance. Kandidat diterima masuk ke Freelance / Talent Pool.'
+            ? 'Kandidat recruitment freelance. Kandidat yang diterima masuk ke data Freelancer.'
             : 'Kelola lamaran masuk dari portal publik. Kandidat lolos lanjut ke Onboarding.'}
         </p>
       </div>
@@ -232,7 +232,10 @@ export function RecruitmentCandidatesPage({
                     <TableRow key={c.id}>
                       <TableCell className='font-medium'>{c.full_name}</TableCell>
                       <TableCell>
-                        {c.job_title}
+                        {c.job_title ?? <span className='text-muted-foreground'>Open Application</span>}
+                        {c.track === 'UNDECIDED' && (
+                          <p className='text-xs text-amber-600'>Track belum ditentukan</p>
+                        )}
                         {c.applied_skill && (
                           <p className='text-muted-foreground text-xs'>Posisi: {c.applied_skill.name}</p>
                         )}

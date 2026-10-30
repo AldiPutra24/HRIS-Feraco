@@ -183,6 +183,8 @@ class CandidateProfile(models.Model):
     consent_at = models.DateTimeField(null=True, blank=True)
     consent_version = models.CharField(max_length=32, blank=True)
     consent_withdrawn_at = models.DateTimeField(null=True, blank=True)
+    # Personal data removed on request (PRD 5.13); statistics are kept.
+    anonymized_at = models.DateTimeField(null=True, blank=True)
     # Phone-only match on registration: HR decides merge vs. not a duplicate.
     possible_duplicate_of = models.ForeignKey(
         'self', on_delete=models.SET_NULL, null=True, blank=True, related_name='possible_duplicates',
@@ -232,10 +234,16 @@ class Candidate(models.Model):
     """Application record (shown as "Lamaran"): one job application of a
     ``CandidateProfile``. CV binary lives in Supabase Storage."""
 
+    # Internal recruitment source: how the application reached the HRIS
+    # (channel link ``?ref=``), separate from what the candidate reported.
     SOURCE_CHOICES = [
         ('PORTAL', 'Public Portal'),
         ('REFERRAL', 'Referral'),
         ('WEBSITE', 'Company Website'),
+        ('LINKEDIN', 'LinkedIn'),
+        ('JOBSTREET', 'JobStreet'),
+        ('THREADS', 'Threads'),
+        ('INSTAGRAM', 'Instagram'),
         ('OTHER', 'Other'),
     ]
     # PRD 5.5 statuses (Decision #4); legacy values are kept in legacy_status.
@@ -273,7 +281,10 @@ class Candidate(models.Model):
     profile = models.ForeignKey(
         CandidateProfile, on_delete=models.PROTECT, related_name='applications',
     )
-    job = models.ForeignKey(Job, on_delete=models.CASCADE, related_name='applications')
+    # Empty = Open Application / Talent Pool (no specific vacancy).
+    job = models.ForeignKey(Job, on_delete=models.CASCADE, null=True, blank=True, related_name='applications')
+    # Employment types chosen on this application (CandidateProfile.EMPLOYMENT_TYPES keys).
+    employment_types = models.JSONField(default=list, blank=True)
     # Direction decided by HR (Decision #0); defaults to the job's type.
     track = models.CharField(max_length=16, choices=TRACK_CHOICES, default='UNDECIDED')
     full_name = models.CharField(max_length=255)
@@ -302,7 +313,7 @@ class Candidate(models.Model):
         ordering = ['-created_at']
 
     def __str__(self):
-        return f'{self.full_name} -> {self.job.title}'
+        return f'{self.full_name} -> {self.job.title if self.job_id else "Open Application"}'
 
     def next_statuses(self):
         """Allowed targets: any later pipeline stage + INACTIVE; an INACTIVE

@@ -154,6 +154,9 @@ class PublicJobViewSet(viewsets.ReadOnlyModelViewSet):
     pagination_class = None
 
     def get_queryset(self):
+        return self.get_queryset_for_options()
+
+    def get_queryset_for_options(self):
         today = timezone.localdate()
         # Exclude jobs where close_date is in the past
         return self.queryset.filter(
@@ -178,7 +181,9 @@ class CandidateViewSet(viewsets.ModelViewSet):
         qs = super().get_queryset()
         rtype = self.request.query_params.get('recruitment_type')
         if rtype in ('INHOUSE', 'FREELANCE'):
-            qs = qs.filter(job__recruitment_type=rtype)
+            # Open Applications without a decided track show on both lists
+            # until HR assigns them.
+            qs = qs.filter(models.Q(track=rtype) | models.Q(track='UNDECIDED'))
         # ?skill=<id>: applicants per position (replaces the retired
         # apply-form "applicants by skill" view).
         skill = self.request.query_params.get('skill')
@@ -288,6 +293,34 @@ class CandidateViewSet(viewsets.ModelViewSet):
         return Response(CandidateSerializer(candidate, context={'request': request}).data)
 
     @action(detail=True, methods=['post'])
+    def assign(self, request, pk=None):
+        """HR decides the track (and optionally a vacancy) of an application,
+        e.g. an Open Application (Decision #0). Not allowed once Hired."""
+        obj = self.get_object()
+        track = request.data.get('track')
+        if track not in ('INHOUSE', 'FREELANCE'):
+            return Response({'track': ['Pilih Inhouse atau Freelance.']}, status=status.HTTP_400_BAD_REQUEST)
+        if obj.status == 'HIRED':
+            return Response({'detail': 'Lamaran yang sudah Hired tidak dapat dipindah.'}, status=status.HTTP_400_BAD_REQUEST)
+        fields = ['track', 'updated_at']
+        job_id = request.data.get('job')
+        if job_id:
+            job = Job.objects.filter(pk=job_id).first() if str(job_id).isdigit() else None
+            if job is None or job.recruitment_type != track:
+                return Response({'job': ['Lowongan tidak sesuai dengan track.']}, status=status.HTTP_400_BAD_REQUEST)
+            obj.job = job
+            fields.append('job')
+        elif obj.job_id and obj.job.recruitment_type != track:
+            obj.job = None  # vacancy of the other track no longer applies
+            fields.append('job')
+        obj.track = track
+        obj.save(update_fields=fields)
+        log_event(request, 'update', obj=obj,
+                  description=f'Lamaran "{obj.full_name}" diarahkan ke {track}'
+                              + (f' ({obj.job.title})' if obj.job_id else ''))
+        return Response(CandidateSerializer(obj, context={'request': request}).data)
+
+    @action(detail=True, methods=['post'])
     def screening(self, request, pk=None):
         """Record Qualified / Not Qualified + required notes (PRD 5.5)."""
         obj = self.get_object()
@@ -311,9 +344,9 @@ class CandidateViewSet(viewsets.ModelViewSet):
         an Employee/User/Onboarding — that is the Inhouse path only.
         """
         obj = self.get_object()
-        if obj.job.recruitment_type != 'FREELANCE':
+        if obj.track == 'INHOUSE':
             return Response(
-                {'detail': 'Hanya kandidat recruitment Freelance yang dapat masuk Talent Pool.'},
+                {'detail': 'Hanya lamaran Freelance yang dapat diterima sebagai Freelancer.'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
         if obj.status == 'INACTIVE':
@@ -496,3 +529,89 @@ class PublicFreelancePortalView(APIView):
 
     def post(self, request, slug):
         return self._gone(slug)
+
+
+class PublicApplyOptionsView(APIView):
+    """Public: positions for the unified form = open vacancies (with their
+    freelance roles) + Open Application, plus the consent text."""
+
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        from .public_apply import CONSENT_TEXT, CONSENT_VERSION
+
+        jobs = PublicJobViewSet().get_queryset_for_options()
+        return Response({
+            'jobs': [
+                {
+                    'id': j.id,
+                    'slug': j.slug,
+                    'title': j.title,
+                    'recruitment_type': j.recruitment_type,
+                    'location': j.location,
+                    'skills': [
+                        {'id': s.id, 'name': s.name, 'category': s.category.name if s.category_id else None}
+                        for s in j.skills.all() if s.is_active
+                    ],
+                }
+                for j in jobs
+            ],
+            'consent_text': CONSENT_TEXT,
+            'consent_version': CONSENT_VERSION,
+        })
+
+
+class PublicApplyView(APIView):
+    """Public: submit the unified application form (multipart, CV required).
+
+    Guards: per-IP rate limit (429), CV format/size (400), same email on
+    the same vacancy / Open Application within 24h (409).
+    """
+
+    authentication_classes = []
+    permission_classes = [AllowAny]
+    parser_classes = [MultiPartParser, FormParser]
+
+    def post(self, request):
+        from .public_apply import PublicApplySerializer, create_public_application
+
+        if antispam.rate_limited(request):
+            return Response({'detail': 'Too many attempts. Please try again later.'},
+                            status=status.HTTP_429_TOO_MANY_REQUESTS)
+        serializer = PublicApplySerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        file = request.FILES.get('cv')
+        if file is None:
+            return Response({'cv': ['Please upload your CV.']}, status=status.HTTP_400_BAD_REQUEST)
+        err = _validate_cv(file)
+        if err:
+            return Response({'cv': [err]}, status=status.HTTP_400_BAD_REQUEST)
+        if antispam.duplicate_submission(data['job'], data['email']):
+            return Response(
+                {'detail': 'You have already applied for this position in the last 24 hours.'},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        obj = create_public_application(data)
+        if is_configured():
+            path = f'cvs/{obj.id}/{file.name}'
+            try:
+                upload_bytes(_bucket(), path, file.read(), file.content_type or 'application/octet-stream')
+            except Exception:
+                profile = obj.profile
+                obj.delete()
+                if not profile.applications.exists():
+                    profile.delete()
+                return Response({'detail': 'Failed to upload the CV. Please try again.'},
+                                status=status.HTTP_502_BAD_GATEWAY)
+            obj.cv_name = file.name
+            obj.cv_path = path
+            obj.cv_content_type = file.content_type or ''
+            obj.save(update_fields=['cv_name', 'cv_path', 'cv_content_type', 'updated_at'])
+        log_event(request, 'create', obj=obj, description=(
+            f'Candidate "{obj.full_name}" applied for '
+            + (f'"{obj.job.title}"' if obj.job_id else 'Open Application')
+        ))
+        return Response({'detail': 'Application submitted.'}, status=status.HTTP_201_CREATED)

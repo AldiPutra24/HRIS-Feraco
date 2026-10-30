@@ -52,7 +52,8 @@ export type Onboarding = {
   candidate_name: string;
   candidate_email: string;
   candidate_status: string;
-  job_title: string;
+  /** Null for an Open Application hire. */
+  job_title: string | null;
   department_name: string | null;
   position_name: string | null;
   status: string;

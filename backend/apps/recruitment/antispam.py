@@ -50,3 +50,14 @@ def duplicate_application(job, email, skill_id):
         candidate__email__iexact=(email or '').strip(),
         submitted_at__gte=timezone.now() - DUPLICATE_WINDOW,
     ).exists()
+
+
+def duplicate_submission(job, email):
+    """Same email on the same vacancy (or Open Application) within 24h."""
+    from .models import Candidate
+
+    return Candidate.objects.filter(
+        job=job,
+        email__iexact=(email or '').strip(),
+        created_at__gte=timezone.now() - DUPLICATE_WINDOW,
+    ).exists()

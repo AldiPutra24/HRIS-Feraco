@@ -47,10 +47,13 @@ def accept_candidate_to_talent_pool(candidate: Candidate, request):
     }
     # Map job location -> domicile and free-text position -> skill tag when available.
     job = candidate.job
-    domicile = (job.location or '').strip()
+    # Open Applications have no job: the candidate's own city is the domicile.
+    domicile = ((job.location if job else '') or candidate.profile.city or '').strip()
     if domicile:
         defaults['domicile'] = domicile
-    position_name = (job.position_text or (job.position.name if job.position else '') or '').strip()
+    position_name = (
+        (job.position_text or (job.position.name if job.position else '') or '').strip() if job else ''
+    )
     if existing:
         # Update only empty fields; do not overwrite curated data.
         for field, value in defaults.items():
@@ -69,7 +72,7 @@ def accept_candidate_to_talent_pool(candidate: Candidate, request):
     from apps.freelance.models import FreelancerSkill, Skill
 
     applied = getattr(candidate, 'applied_skill', None)
-    job_skills = list(job.skills.all())
+    job_skills = list(job.skills.all()) if job else []
     if applied is not None:
         FreelancerSkill.objects.get_or_create(freelancer=freelancer, skill=applied.skill)
     elif job_skills:

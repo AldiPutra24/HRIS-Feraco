@@ -11,15 +11,19 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Icons } from '@/components/icons';
 import {
   acceptCandidateFreelance,
+  assignCandidate,
   candidateCvFileUrl,
   createInterview,
   deleteInterview,
   getCandidate,
   hardDeleteCandidate,
+  listJobs,
   screenCandidate,
   transitionCandidate,
   updateInterview,
-  type Candidate
+  type Candidate,
+  type Job,
+  type RecruitmentType
 } from '@/lib/recruitment';
 import {
   INACTIVE_REASONS,
@@ -104,6 +108,9 @@ export function RecruitmentCandidateDetailPage({ id }: { id: string }) {
   const [screenResult, setScreenResult] = useState('');
   const [screenNotes, setScreenNotes] = useState('');
   const [iv, setIv] = useState({ stage: 'HR', scheduled_at: '', interviewer_name: '', notes: '' });
+  const [jobs, setJobs] = useState<Job[]>([]);
+  const [assignTrack, setAssignTrack] = useState<RecruitmentType | ''>('');
+  const [assignJob, setAssignJob] = useState('');
 
   function load() {
     setLoading(true);
@@ -114,12 +121,20 @@ export function RecruitmentCandidateDetailPage({ id }: { id: string }) {
         setInactiveReason('');
         setScreenResult(c.screening_result);
         setScreenNotes(c.screening_notes);
+        setAssignTrack(c.track === 'UNDECIDED' ? '' : c.track);
+        setAssignJob(c.job ? String(c.job) : '');
       })
       .catch(() => setNotFoundState(true))
       .finally(() => setLoading(false));
   }
 
   useEffect(() => { load(); }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    listJobs({ status: 'OPEN' })
+      .then(setJobs)
+      .catch(() => setJobs([]));
+  }, []);
 
   if (notFoundState) notFound();
 
@@ -140,6 +155,14 @@ export function RecruitmentCandidateDetailPage({ id }: { id: string }) {
     if (!candidate) return;
     const reason = toStatus === 'INACTIVE' ? inactiveReason : '';
     void run(() => transitionCandidate(candidate.id, toStatus, note, reason), `Status diubah ke ${statusLabel(toStatus)}`);
+  }
+
+  function handleAssign() {
+    if (!candidate || !assignTrack) return;
+    void run(
+      () => assignCandidate(candidate.id, assignTrack, assignJob ? Number(assignJob) : null),
+      'Arah proses lamaran disimpan.'
+    );
   }
 
   function handleScreening() {
@@ -225,6 +248,60 @@ export function RecruitmentCandidateDetailPage({ id }: { id: string }) {
           </Button>
         </div>
       </div>
+
+      {/* Track decision (Decision #0) — e.g. Open Application */}
+      {candidate.status !== 'HIRED' && (
+        <Card className={candidate.track === 'UNDECIDED' ? 'border-amber-300' : undefined}>
+          <CardHeader>
+            <CardTitle>Arah Proses</CardTitle>
+            <CardDescription>
+              {candidate.track === 'UNDECIDED'
+                ? 'Lamaran ini belum ditentukan: proses sebagai Inhouse atau Freelance.'
+                : 'Inhouse berlanjut ke Onboarding, Freelance ke data Freelancer.'}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className='flex flex-wrap items-center gap-2'>
+            <select
+              className={`${inputClass} max-w-40`}
+              value={assignTrack}
+              onChange={(e) => {
+                setAssignTrack(e.target.value as RecruitmentType | '');
+                setAssignJob('');
+              }}
+            >
+              <option value=''>Pilih track…</option>
+              <option value='INHOUSE'>Inhouse</option>
+              <option value='FREELANCE'>Freelance</option>
+            </select>
+            <select
+              className={`${inputClass} max-w-72`}
+              value={assignJob}
+              disabled={!assignTrack}
+              onChange={(e) => setAssignJob(e.target.value)}
+            >
+              <option value=''>Tanpa lowongan (Open Application)</option>
+              {jobs
+                .filter((j) => j.recruitment_type === assignTrack)
+                .map((j) => (
+                  <option key={j.id} value={j.id}>
+                    {j.title}
+                  </option>
+                ))}
+            </select>
+            <Button
+              size='sm'
+              disabled={
+                busy ||
+                !assignTrack ||
+                (assignTrack === candidate.track && assignJob === (candidate.job ? String(candidate.job) : ''))
+              }
+              onClick={handleAssign}
+            >
+              Simpan
+            </Button>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Pipeline (PRD 5.5) */}
       <Card>
@@ -458,7 +535,7 @@ export function RecruitmentCandidateDetailPage({ id }: { id: string }) {
         <CardHeader>
           <CardTitle>Profil Kandidat</CardTitle>
           <CardDescription>
-            {candidate.job_title}
+            {candidate.job_title ?? 'Open Application'}
             {candidate.source ? ` · ${sourceLabel(candidate.source)}` : ''}
           </CardDescription>
         </CardHeader>
@@ -466,7 +543,7 @@ export function RecruitmentCandidateDetailPage({ id }: { id: string }) {
           <Field label='Nama Lengkap' value={candidate.full_name} />
           <Field label='Email' value={candidate.email} />
           <Field label='Telepon' value={candidate.phone || '-'} />
-          <Field label='Lowongan' value={candidate.job_title} />
+          <Field label='Lowongan' value={candidate.job_title ?? 'Open Application / Talent Pool'} />
           <Field label='Kategori' value={isFreelance ? 'Freelance' : candidate.track === 'INHOUSE' ? 'Inhouse' : 'Belum ditentukan'} />
           <Field
             label='Tanggal Melamar'
@@ -477,7 +554,14 @@ export function RecruitmentCandidateDetailPage({ id }: { id: string }) {
             })}
           />
           <Field label='Sumber' value={sourceLabel(candidate.source)} />
-          <Field label='ID Kandidat' value={candidate.profile_code} />
+          <Field
+            label='ID Kandidat'
+            value={
+              <Link href={`/dashboard/recruitment/talent-pool/${candidate.profile}`} className='text-primary hover:underline'>
+                {candidate.profile_code} · lihat profil Talent Pool
+              </Link>
+            }
+          />
         </CardContent>
       </Card>
 

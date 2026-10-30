@@ -1440,17 +1440,266 @@ class LegacyStatusMigrationTests(TransactionTestCase):
         for i, st in enumerate(['APPLIED', 'INTERVIEW_GM', 'OFFERING', 'OFFER_ACCEPTED', 'REJECTED', 'WITHDRAWN']):
             prof = Profile.objects.create(full_name=st, email=f'{i}@t.com')
             Candidate.objects.create(job=job, profile=prof, full_name=st, email=f'{i}@t.com', status=st)
-        MigrationExecutor(connection).migrate(self.after)
+        executor = MigrationExecutor(connection)
+        executor.migrate(self.after)
+        # Models as of 0015 (later migrations add columns).
+        self.Candidate = executor.loader.project_state(self.after).apps.get_model('recruitment', 'Candidate')
 
     def tearDown(self):
         executor = MigrationExecutor(connection)
         executor.migrate(executor.loader.graph.leaf_nodes())
 
     def test_mapping(self):
-        rows = {c.full_name: (c.status, c.inactive_reason, c.legacy_status) for c in Candidate.objects.all()}
+        rows = {c.full_name: (c.status, c.inactive_reason, c.legacy_status) for c in self.Candidate.objects.all()}
         self.assertEqual(rows['APPLIED'], ('NEW', '', 'APPLIED'))
         self.assertEqual(rows['INTERVIEW_GM'], ('USER_INTERVIEW', '', 'INTERVIEW_GM'))
         self.assertEqual(rows['OFFERING'], ('USER_INTERVIEW', '', 'OFFERING'))
         self.assertEqual(rows['OFFER_ACCEPTED'], ('HIRED', '', 'OFFER_ACCEPTED'))
         self.assertEqual(rows['REJECTED'], ('INACTIVE', 'NOT_QUALIFIED', 'REJECTED'))
         self.assertEqual(rows['WITHDRAWN'], ('INACTIVE', 'CANDIDATE_WITHDREW', 'WITHDRAWN'))
+
+
+class PublicUnifiedApplyTests(TestCase):
+    """Stage 3: one public form for in-house + freelance + Open Application."""
+
+    PDF = b'%PDF-1.4 test cv'
+
+    def setUp(self):
+        from . import antispam
+
+        antispam.reset()
+        self.job = Job.objects.create(
+            title='Designer', slug='designer', description='d', requirements='r', location='Jakarta',
+            open_date=date.today(), status='OPEN',
+        )
+
+    def _cv(self, name='cv.pdf', content=None):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        return SimpleUploadedFile(name, content or self.PDF, content_type='application/pdf')
+
+    def _payload(self, **over):
+        data = {
+            'full_name': 'Rina Ayu', 'email': 'rina@x.com', 'phone': '0812 3456 789', 'city': 'Bekasi',
+            'employment_types': ['FULL_TIME', 'FREELANCE'], 'preferred_location': 'JAKARTA',
+            'employment_status': 'OPEN_TO_WORK', 'availability': '1_2_WEEKS',
+            'source_reported': 'LINKEDIN', 'consent': 'true', 'cv': self._cv(),
+        }
+        data.update(over)
+        return {k: v for k, v in data.items() if v is not None}
+
+    def _post(self, **over):
+        return self.client.post('/api/recruitment/public/apply/', self._payload(**over))
+
+    def test_options_list_open_jobs_and_consent(self):
+        Job.objects.create(title='Closed', slug='closed', open_date=date.today(), status='CLOSED')
+        data = self.client.get('/api/recruitment/public/apply-options/').json()
+        self.assertEqual([j['slug'] for j in data['jobs']], ['designer'])
+        self.assertIn('consent', data['consent_text'])
+
+    def test_apply_to_vacancy_creates_profile_and_application(self):
+        resp = self._post(job=self.job.id, ref='linkedin', expected_monthly_salary='9000000')
+        self.assertEqual(resp.status_code, 201, resp.content)
+        cand = Candidate.objects.get(email='rina@x.com')
+        self.assertEqual((cand.job_id, cand.track, cand.status, cand.source), (self.job.id, 'INHOUSE', 'NEW', 'LINKEDIN'))
+        self.assertEqual(cand.employment_types, ['FULL_TIME', 'FREELANCE'])
+        prof = cand.profile
+        self.assertEqual((prof.city, prof.availability, prof.source_reported), ('Bekasi', '1_2_WEEKS', 'LINKEDIN'))
+        self.assertEqual(str(prof.expected_monthly_salary), '9000000.00')
+        self.assertEqual(prof.consent_version, 'v1-2026-10-30')
+        self.assertIsNotNone(prof.consent_at)
+
+    def test_open_application_has_no_job_and_undecided_track(self):
+        resp = self._post()
+        self.assertEqual(resp.status_code, 201, resp.content)
+        cand = Candidate.objects.get(email='rina@x.com')
+        self.assertIsNone(cand.job_id)
+        self.assertEqual(cand.track, 'UNDECIDED')
+        self.client.force_login(make_user('HR_STAFF', 'hr@test.com'))
+        data = self.client.get(f'/api/recruitment/candidates/{cand.id}/').json()
+        self.assertIsNone(data['job_title'])
+        # Undecided applications show on both the inhouse and freelance lists.
+        for rtype in ('INHOUSE', 'FREELANCE'):
+            ids = [c['id'] for c in self.client.get(f'/api/recruitment/candidates/?recruitment_type={rtype}').json()['results']]
+            self.assertIn(cand.id, ids)
+
+    def test_same_email_reuses_profile_with_latest_answers(self):
+        self.assertEqual(self._post(job=self.job.id).status_code, 201)
+        self.assertEqual(self._post(email='RINA@x.com', city='Yogyakarta').status_code, 201)
+        self.assertEqual(CandidateProfile.objects.count(), 1)
+        prof = CandidateProfile.objects.get()
+        self.assertEqual(prof.city, 'Yogyakarta')
+        self.assertEqual(prof.applications.count(), 2)
+
+    def test_required_fields_consent_and_cv(self):
+        from . import antispam
+
+        self.assertEqual(self._post(consent='false').status_code, 400)
+        self.assertEqual(self._post(city='').status_code, 400)
+        self.assertEqual(self._post(employment_types=[]).status_code, 400)
+        self.assertEqual(self._post(cv=None).status_code, 400)
+        self.assertEqual(self._post(cv=self._cv('cv.txt', b'hello')).status_code, 400)
+        antispam.reset()  # rejected attempts also count toward the rate limit
+        self.assertEqual(self._post(source_reported='OTHER').status_code, 400)
+        self.assertEqual(self._post(source_reported='OTHER', source_other='Teman kampus').status_code, 201)
+        self.assertEqual(Candidate.objects.count(), 1)
+
+    def test_closed_job_rejected(self):
+        self.job.status = 'CLOSED'
+        self.job.save()
+        self.assertEqual(self._post(job=self.job.id).status_code, 400)
+
+    def test_freelance_job_requires_role_choice(self):
+        from apps.freelance.models import Skill
+
+        mc = Skill.objects.create(name='MC Event')
+        job = Job.objects.create(title='Crew', slug='crew', open_date=date.today(), status='OPEN',
+                                 recruitment_type='FREELANCE', employment_type='FREELANCE')
+        job.skills.add(mc)
+        self.assertEqual(self._post(job=job.id).status_code, 400)
+        self.assertEqual(self._post(job=job.id, skill_id=mc.id).status_code, 201)
+        cand = Candidate.objects.get()
+        self.assertEqual((cand.track, cand.applied_skill.skill_id), ('FREELANCE', mc.id))
+
+    def test_duplicate_within_24h_conflict(self):
+        self.assertEqual(self._post(job=self.job.id).status_code, 201)
+        self.assertEqual(self._post(job=self.job.id).status_code, 409)
+        self.assertEqual(self._post().status_code, 201)  # Open Application is a different target
+
+    def test_rate_limit(self):
+        for i in range(5):
+            self._post(email=f'r{i}@x.com')
+        self.assertEqual(self._post(email='r9@x.com').status_code, 429)
+
+
+class AssignTrackTests(TestCase):
+    def setUp(self):
+        self.client.force_login(make_user('HR_STAFF', 'hr@test.com'))
+        self.cand = Candidate.objects.create(job=None, full_name='Open', email='open@test.com')
+        self.fl_job = Job.objects.create(title='MC', slug='mc-assign', open_date=date.today(), status='OPEN',
+                                         recruitment_type='FREELANCE', employment_type='FREELANCE')
+
+    def _assign(self, **body):
+        return self.client.post(f'/api/recruitment/candidates/{self.cand.id}/assign/', body,
+                                content_type='application/json')
+
+    def test_assign_track_and_matching_job(self):
+        self.assertEqual(self._assign(track='MAYBE').status_code, 400)
+        self.assertEqual(self._assign(track='INHOUSE', job=self.fl_job.id).status_code, 400)
+        resp = self._assign(track='FREELANCE', job=self.fl_job.id)
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual((resp.json()['track'], resp.json()['job']), ('FREELANCE', self.fl_job.id))
+        # Switching track drops the vacancy of the other track.
+        resp = self._assign(track='INHOUSE')
+        self.assertEqual((resp.json()['track'], resp.json()['job']), ('INHOUSE', None))
+
+    def test_open_application_can_be_hired_as_freelancer(self):
+        self.cand.profile.city = 'Yogyakarta'
+        self.cand.profile.save()
+        resp = self.client.post(f'/api/recruitment/candidates/{self.cand.id}/accept-freelance/')
+        self.assertEqual(resp.status_code, 200, resp.content)
+        self.cand.refresh_from_db()
+        self.assertEqual((self.cand.status, self.cand.track), ('HIRED', 'FREELANCE'))
+        from apps.personnel.models import Freelancer
+
+        self.assertEqual(Freelancer.objects.get(pk=resp.json()['freelancer_id']).domicile, 'Yogyakarta')
+
+    def test_hired_cannot_be_reassigned(self):
+        Candidate.objects.filter(pk=self.cand.pk).update(status='HIRED', track='INHOUSE')
+        self.assertEqual(self._assign(track='FREELANCE').status_code, 400)
+
+
+class TalentPoolApiTests(TestCase):
+    """Stage 4: /api/recruitment/talent-pool/ (HR only)."""
+
+    URL = '/api/recruitment/talent-pool/'
+
+    def setUp(self):
+        self.hr = make_user('HR_STAFF', 'hr@test.com')
+        self.client.force_login(self.hr)
+        self.job = Job.objects.create(title='Designer', slug='tp4-designer', open_date=date.today(), status='OPEN')
+        self.a = Candidate.objects.create(job=self.job, full_name='Rina', email='rina@x.com', phone='0811')
+        self.b = Candidate.objects.create(job=None, full_name='Rina A', email='rina.alt@x.com', phone='+62811')
+        CandidateProfile.objects.filter(pk=self.a.profile_id).update(
+            city='Bekasi', availability='IMMEDIATELY', employment_types=['FULL_TIME', 'FREELANCE'],
+        )
+
+    def _ids(self, query=''):
+        return [r['id'] for r in self.client.get(f'{self.URL}?{query}').json()['results']]
+
+    def test_list_and_filters(self):
+        pa, pb = self.a.profile_id, self.b.profile_id
+        self.assertEqual(set(self._ids()), {pa, pb})
+        self.assertEqual(self._ids('employment_type=FREELANCE'), [pa])
+        self.assertEqual(self._ids('availability=IMMEDIATELY'), [pa])
+        self.assertEqual(self._ids('location=bekasi'), [pa])
+        self.assertEqual(self._ids('job=open'), [pb])
+        self.assertEqual(self._ids(f'job={self.job.id}'), [pa])
+        self.assertEqual(self._ids('duplicates=1'), [pb])  # phone-only match
+        self.assertEqual(self._ids('search=rina.alt'), [pb])
+        row = self.client.get(f'{self.URL}?job={self.job.id}').json()['results'][0]
+        self.assertEqual(row['applications_count'], 1)
+        self.assertEqual(row['latest_application']['job_title'], 'Designer')
+
+    def test_detail_lists_applications_and_patch(self):
+        data = self.client.get(f'{self.URL}{self.a.profile_id}/').json()
+        self.assertEqual([x['id'] for x in data['applications']], [self.a.id])
+        resp = self.client.patch(f'{self.URL}{self.a.profile_id}/', {'city': 'Jakarta'}, content_type='application/json')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json()['city'], 'Jakarta')
+        resp = self.client.patch(f'{self.URL}{self.a.profile_id}/', {'code': 'TP-X'}, content_type='application/json')
+        self.assertNotEqual(CandidateProfile.objects.get(pk=self.a.profile_id).code, 'TP-X')
+
+    def test_retention_review_filter(self):
+        from django.utils import timezone
+
+        old = timezone.now() - timedelta(days=800)
+        CandidateProfile.objects.filter(pk=self.b.profile_id).update(updated_at=old)
+        Candidate.objects.filter(pk=self.b.pk).update(updated_at=old)
+        self.assertEqual(self._ids('needs_review=1'), [self.b.profile_id])
+
+    def test_merge_moves_applications(self):
+        resp = self.client.post(f'{self.URL}{self.b.profile_id}/merge/', {'into': self.a.profile_id},
+                                content_type='application/json')
+        self.assertEqual(resp.status_code, 200, resp.content)
+        self.assertFalse(CandidateProfile.objects.filter(pk=self.b.profile_id).exists())
+        self.assertEqual(Candidate.objects.get(pk=self.b.pk).profile_id, self.a.profile_id)
+        self.assertEqual(len(resp.json()['applications']), 2)
+        self.assertEqual(self.client.post(f'{self.URL}{self.a.profile_id}/merge/', {'into': self.a.profile_id},
+                                          content_type='application/json').status_code, 400)
+
+    def test_not_duplicate_clears_flag(self):
+        self.client.post(f'{self.URL}{self.b.profile_id}/not-duplicate/')
+        self.assertIsNone(CandidateProfile.objects.get(pk=self.b.profile_id).possible_duplicate_of_id)
+
+    def test_new_application_for_existing_profile(self):
+        other = Job.objects.create(title='MC', slug='tp4-mc', open_date=date.today(), status='OPEN',
+                                   recruitment_type='FREELANCE', employment_type='FREELANCE')
+        url = f'{self.URL}{self.a.profile_id}/applications/'
+        resp = self.client.post(url, {'job': other.id}, content_type='application/json')
+        self.assertEqual(resp.status_code, 201, resp.content)
+        self.assertEqual((resp.json()['track'], resp.json()['status']), ('FREELANCE', 'NEW'))
+        # Active application on the same vacancy is refused.
+        self.assertEqual(self.client.post(url, {'job': other.id}, content_type='application/json').status_code, 400)
+        self.assertEqual(self.client.post(url, {'job': self.job.id, 'track': 'FREELANCE'},
+                                          content_type='application/json').status_code, 400)
+
+    def test_anonymize_requires_hr_lead_and_wipes_personal_data(self):
+        url = f'{self.URL}{self.a.profile_id}/anonymize/'
+        self.assertEqual(self.client.post(url).status_code, 403)
+        self.client.force_login(make_user('HR_LEAD', 'lead@test.com'))
+        Candidate.objects.filter(pk=self.a.pk).update(screening_notes='Pernah kerja di PT X', status='SCREENED')
+        resp = self.client.post(url)
+        self.assertEqual(resp.status_code, 200, resp.content)
+        prof = CandidateProfile.objects.get(pk=self.a.profile_id)
+        self.assertIsNotNone(prof.anonymized_at)
+        self.assertEqual((prof.phone, prof.city), ('', ''))
+        self.assertTrue(prof.full_name.startswith('Anonymized TP-'))
+        app = Candidate.objects.get(pk=self.a.pk)
+        self.assertEqual((app.email, app.phone, app.screening_notes), (prof.email, '', ''))
+        self.assertEqual(app.status, 'SCREENED')  # statistics kept
+        self.assertEqual(self.client.post(url).status_code, 400)
+
+    def test_employee_forbidden(self):
+        self.client.force_login(make_user('EMPLOYEE', 'emp@test.com'))
+        self.assertEqual(self.client.get(self.URL).status_code, 403)

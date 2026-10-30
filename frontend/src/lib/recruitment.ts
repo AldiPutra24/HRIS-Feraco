@@ -112,12 +112,14 @@ export type Candidate = {
   profile: number;
   profile_code: string;
   track: RecruitmentType | 'UNDECIDED';
-  job: number;
-  job_title: string;
-  recruitment_type: RecruitmentType;
+  /** Null = Open Application / Talent Pool. */
+  job: number | null;
+  job_title: string | null;
+  recruitment_type: RecruitmentType | null;
   full_name: string;
   email: string;
   phone: string;
+  employment_types: string[];
   cv_name: string;
   cv_url: string | null;
   source: string;
@@ -207,42 +209,36 @@ export function listCandidates(params: Record<string, string> = {}): Promise<Can
   return request<Candidate[]>(`/candidates/${qs ? `?${qs}` : ''}`).then(unwrapList);
 }
 
-export type ApplyInput = {
-  job: number;
-  full_name: string;
-  email: string;
-  phone: string;
-  source?: string;
-  skill_id?: number | null;
-  // Freelance-only extras (stored as a candidate note by the backend).
-  domicile?: string;
-  portfolio_url?: string;
-  expected_rate?: string;
-  applicant_notes?: string;
-  cv?: File | null;
+/** Unified public form (Talent Pool): open vacancies + Open Application. */
+export type ApplyOptionJob = {
+  id: number;
+  slug: string;
+  title: string;
+  recruitment_type: RecruitmentType;
+  location: string;
+  skills: JobSkill[];
 };
 
-export function applyJob(input: ApplyInput): Promise<Candidate> {
-  const body =
-    input.cv instanceof File
-      ? (() => {
-          const fd = new FormData();
-          fd.append('job', String(input.job));
-          fd.append('full_name', input.full_name);
-          fd.append('email', input.email);
-          fd.append('phone', input.phone ?? '');
-          if (input.source) fd.append('source', input.source);
-          if (input.skill_id) fd.append('skill_id', String(input.skill_id));
-          for (const key of ['domicile', 'portfolio_url', 'expected_rate', 'applicant_notes'] as const) {
-            if (input[key]) fd.append(key, input[key] as string);
-          }
-          fd.append('cv', input.cv);
-          return fd;
-        })()
-      : JSON.stringify({ ...input, source: input.source ?? 'PORTAL' });
-  return request<Candidate>('/candidates/', {
+export type ApplyOptions = {
+  jobs: ApplyOptionJob[];
+  consent_text: string;
+  consent_version: string;
+};
+
+export function getApplyOptions(): Promise<ApplyOptions> {
+  return request<ApplyOptions>('/public/apply-options/');
+}
+
+/** Multipart submit of the unified form (CV required). */
+export function submitApplication(body: FormData): Promise<{ detail: string }> {
+  return request<{ detail: string }>('/public/apply/', { method: 'POST', body });
+}
+
+/** HR: decide the track (and optionally a vacancy) of an application. */
+export function assignCandidate(id: number, track: RecruitmentType, job: number | null = null): Promise<Candidate> {
+  return request<Candidate>(`/candidates/${id}/assign/`, {
     method: 'POST',
-    body
+    body: JSON.stringify({ track, job })
   });
 }
 
@@ -314,4 +310,112 @@ export function listPublicJobs(): Promise<PublicJob[]> {
 
 export function getPublicJob(slug: string): Promise<PublicJob> {
   return request<PublicJob>(`/public/jobs/${slug}/`);
+}
+
+/* ---------------------------------------------------------------- Talent Pool */
+
+export type ProfileApplication = {
+  id: number;
+  job: number | null;
+  job_title: string | null;
+  track: RecruitmentType | 'UNDECIDED';
+  status: string;
+  inactive_reason: string;
+  source: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type TalentProfile = {
+  id: number;
+  code: string;
+  full_name: string;
+  email: string;
+  phone: string;
+  city: string;
+  employment_types: string[];
+  preferred_location: string;
+  employment_status: string;
+  availability: string;
+  source_reported: string;
+  possible_duplicate_of: number | null;
+  possible_duplicate_code: string | null;
+  freelancer: number | null;
+  employee: number | null;
+  consent_at: string | null;
+  consent_withdrawn_at: string | null;
+  anonymized_at: string | null;
+  applications_count: number;
+  last_activity: string;
+  latest_application: ProfileApplication | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type TalentProfileDetail = TalentProfile & {
+  linkedin_url: string;
+  portfolio_url: string;
+  preferred_location_other: string;
+  employment_status_other: string;
+  expected_monthly_salary: string | null;
+  expected_project_fee: string | null;
+  source_other: string;
+  consent_version: string;
+  cv_name: string;
+  cv_url: string | null;
+  applications: ProfileApplication[];
+};
+
+export type TalentProfileInput = Partial<
+  Pick<
+    TalentProfileDetail,
+    | 'full_name'
+    | 'phone'
+    | 'city'
+    | 'linkedin_url'
+    | 'portfolio_url'
+    | 'employment_types'
+    | 'preferred_location'
+    | 'employment_status'
+    | 'availability'
+    | 'expected_monthly_salary'
+    | 'expected_project_fee'
+  >
+>;
+
+export function listTalentProfiles(params: Record<string, string> = {}): Promise<Page<TalentProfile>> {
+  const qs = new URLSearchParams(params).toString();
+  return request<Page<TalentProfile>>(`/talent-pool/${qs ? `?${qs}` : ''}`);
+}
+
+export function getTalentProfile(id: number): Promise<TalentProfileDetail> {
+  return request<TalentProfileDetail>(`/talent-pool/${id}/`);
+}
+
+export function updateTalentProfile(id: number, input: TalentProfileInput): Promise<TalentProfileDetail> {
+  return request<TalentProfileDetail>(`/talent-pool/${id}/`, { method: 'PATCH', body: JSON.stringify(input) });
+}
+
+export function mergeTalentProfile(id: number, into: number): Promise<TalentProfileDetail> {
+  return request<TalentProfileDetail>(`/talent-pool/${id}/merge/`, { method: 'POST', body: JSON.stringify({ into }) });
+}
+
+export function markNotDuplicate(id: number): Promise<TalentProfileDetail> {
+  return request<TalentProfileDetail>(`/talent-pool/${id}/not-duplicate/`, { method: 'POST' });
+}
+
+export function createProfileApplication(id: number, job: number | null, track?: RecruitmentType): Promise<ProfileApplication> {
+  return request<ProfileApplication>(`/talent-pool/${id}/applications/`, {
+    method: 'POST',
+    body: JSON.stringify({ job, ...(track ? { track } : {}) })
+  });
+}
+
+export function anonymizeTalentProfile(id: number): Promise<TalentProfileDetail> {
+  return request<TalentProfileDetail>(`/talent-pool/${id}/anonymize/`, { method: 'POST' });
+}
+
+/** Direct link that streams the profile's latest CV (`?raw=1`). */
+export function profileCvFileUrl(p: { cv_url?: string | null }): string | null {
+  return p.cv_url ? `${p.cv_url}?raw=1` : null;
 }

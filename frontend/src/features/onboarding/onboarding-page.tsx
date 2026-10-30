@@ -77,7 +77,7 @@ export function OnboardingPage() {
       const matchesQ =
         !query ||
         o.candidate_name.toLowerCase().includes(query) ||
-        o.job_title.toLowerCase().includes(query);
+        (o.job_title ?? '').toLowerCase().includes(query);
       const matchesStatus = !fStatus || o.status === fStatus;
       return matchesQ && matchesStatus;
     });
@@ -221,7 +221,7 @@ export function OnboardingPage() {
                           {o.candidate_name}
                         </button>
                       </TableCell>
-                      <TableCell>{o.job_title}</TableCell>
+                      <TableCell>{o.job_title ?? 'Open Application'}</TableCell>
                       <TableCell>{o.target_join_date || '-'}</TableCell>
                       <TableCell>{o.created_at}</TableCell>
                       <TableCell>
@@ -273,7 +273,7 @@ export function OnboardingPage() {
                     <option value=''>Pilih kandidat</option>
                     {candidates.map((c) => (
                       <option key={c.id} value={c.id}>
-                        {c.full_name} — {c.job_title}
+                        {c.full_name} — {c.job_title ?? 'Open Application'}
                       </option>
                     ))}
                   </select>

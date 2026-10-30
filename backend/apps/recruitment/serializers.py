@@ -171,8 +171,8 @@ class InterviewSerializer(serializers.ModelSerializer):
 
 class CandidateSerializer(serializers.ModelSerializer):
     cv_url = serializers.SerializerMethodField()
-    job_title = serializers.CharField(source='job.title', read_only=True)
-    recruitment_type = serializers.CharField(source='job.recruitment_type', read_only=True)
+    job_title = serializers.CharField(source='job.title', read_only=True, default=None)
+    recruitment_type = serializers.CharField(source='job.recruitment_type', read_only=True, default=None)
     profile_code = serializers.CharField(source='profile.code', read_only=True)
     applied_at = serializers.DateTimeField(source='created_at', read_only=True)
     next_statuses = serializers.SerializerMethodField()
@@ -194,7 +194,7 @@ class CandidateSerializer(serializers.ModelSerializer):
         model = Candidate
         fields = (
             'id', 'profile', 'profile_code', 'track', 'job', 'job_title', 'recruitment_type',
-            'full_name', 'email', 'phone',
+            'full_name', 'email', 'phone', 'employment_types',
             'cv_name', 'cv_url', 'source', 'status', 'inactive_reason', 'inactive_note', 'legacy_status',
             'screening_result', 'screening_notes', 'screened_at', 'screened_by_name', 'interviews',
             'next_statuses', 'status_history', 'talent_pool_freelancer_id', 'notes',
@@ -209,7 +209,7 @@ class CandidateSerializer(serializers.ModelSerializer):
     def get_talent_pool_freelancer_id(self, obj):
         """Freelancer id if this candidate is already in the Talent Pool (matched by the
         same email/phone rules as accept_candidate_to_talent_pool), else None."""
-        if obj.job.recruitment_type != 'FREELANCE':
+        if obj.track == 'INHOUSE':
             return None
         from .talent_pool import _find_existing_freelancer
 

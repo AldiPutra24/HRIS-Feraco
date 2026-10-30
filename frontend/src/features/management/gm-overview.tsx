@@ -610,7 +610,7 @@ export function GmOverview({
         {[
           { href: '/dashboard/karyawan', label: 'Data Karyawan', icon: 'employee' as const },
           { href: '/dashboard/management/leave', label: 'Persetujuan Cuti', icon: 'leave' as const },
-          { href: '/dashboard/freelance', label: 'Talent Pool', icon: 'freelancer' as const },
+          { href: '/dashboard/freelance', label: 'Freelancer', icon: 'freelancer' as const },
           { href: '/dashboard/payroll', label: 'Payroll', icon: 'wallet' as const }
         ].map((a) => {
           const Icon = Icons[a.icon];

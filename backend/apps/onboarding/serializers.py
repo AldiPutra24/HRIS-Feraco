@@ -244,7 +244,7 @@ class OnboardingSerializer(serializers.ModelSerializer):
     candidate_name = serializers.CharField(source='candidate.full_name', read_only=True)
     candidate_email = serializers.CharField(source='candidate.email', read_only=True)
     candidate_status = serializers.CharField(source='candidate.status', read_only=True)
-    job_title = serializers.CharField(source='candidate.job.title', read_only=True)
+    job_title = serializers.CharField(source='candidate.job.title', read_only=True, default=None)
     department_name = serializers.CharField(source='candidate.job.department.name', read_only=True, default=None)
     position_name = serializers.CharField(source='candidate.job.position.name', read_only=True, default=None)
     next_statuses = serializers.SerializerMethodField()

@@ -3,7 +3,7 @@ import { Suspense } from 'react';
 import { RecruitmentCandidatesPage } from '@/features/recruitment/recruitment-candidates-page';
 
 export const metadata: Metadata = {
-  title: 'Candidate Freelance / Talent Pool',
+  title: 'Candidate Freelance',
   description: 'Kandidat recruitment freelance.'
 };
 

@@ -6,7 +6,7 @@ const RECRUITMENT_HOST = 'recruitment.feraco.co.id';
 /**
  * Hostname-aware routing for the public recruitment portal.
  *
- * recruitment.feraco.co.id -> only public /jobs/* pages (everything else
+ * recruitment.feraco.co.id -> only public /jobs/* and /apply pages (everything else
  * redirects back to the HRIS host so dashboard/API never leak out).
  * hris.feraco.co.id      -> full HRIS app, including legacy /jobs URLs.
  */
@@ -14,7 +14,8 @@ export function middleware(request: NextRequest) {
   const host = (request.headers.get('host') ?? '').split(':')[0];
   const { pathname, search } = request.nextUrl;
 
-  if (host === RECRUITMENT_HOST && !pathname.startsWith('/jobs') && !pathname.startsWith('/freelance/apply')) {
+  const isPublic = ['/jobs', '/apply', '/freelance/apply'].some((p) => pathname.startsWith(p));
+  if (host === RECRUITMENT_HOST && !isPublic) {
     return NextResponse.redirect(`https://${HRIS_HOST}${pathname}${search}`);
   }
 
