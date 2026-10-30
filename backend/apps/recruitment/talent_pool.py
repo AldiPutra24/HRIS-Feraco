@@ -98,6 +98,10 @@ def accept_candidate_to_talent_pool(candidate: Candidate, request):
             },
         )
 
+    if candidate.profile.freelancer_id != freelancer.pk:
+        candidate.profile.freelancer = freelancer
+        candidate.profile.save(update_fields=['freelancer', 'updated_at'])
+
     # Mark the candidate accepted (reuses the existing pipeline terminal state).
     if candidate.status != 'OFFER_ACCEPTED':
         CandidateStatusHistory.objects.create(

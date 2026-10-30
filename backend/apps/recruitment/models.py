@@ -100,8 +100,137 @@ class Job(models.Model):
         return all(getattr(self, f) for f in self.REQUIRED_FIELDS)
 
 
+def normalize_phone(value) -> str:
+    """Digits only, Indonesian numbers folded to the 62 prefix
+    ('0812..', '+62 812..', '62812..' -> '62812..') for duplicate checks."""
+    digits = ''.join(ch for ch in str(value or '') if ch.isdigit())
+    if digits.startswith('0'):
+        digits = '62' + digits[1:]
+    elif digits.startswith('8'):
+        digits = '62' + digits
+    return digits
+
+
+class CandidateProfile(models.Model):
+    """Talent Pool: one person, many applications (``Candidate`` rows).
+
+    Holds the person-level data (contact, preferences, latest CV, consent)
+    shared by every application; recruitment status lives on the application.
+    """
+
+    EMPLOYMENT_TYPES = [
+        ('FULL_TIME', 'Full-time'),
+        ('CONTRACT', 'Contract-based'),
+        ('FREELANCE', 'Freelance / Project-based'),
+        ('INTERNSHIP', 'Internship'),
+        ('OPEN', 'Open to Opportunities (Talent Pool)'),
+    ]
+    LOCATION_CHOICES = [
+        ('YOGYAKARTA', 'Yogyakarta'),
+        ('JAKARTA', 'Jakarta'),
+        ('OTHER', 'Other'),
+        ('FLEXIBLE', 'Flexible'),
+    ]
+    EMPLOYMENT_STATUS_CHOICES = [
+        ('EMPLOYED', 'Employed'),
+        ('FREELANCE', 'Freelance'),
+        ('OPEN_TO_WORK', 'Open to Work'),
+        ('STUDENT', 'Student'),
+        ('FRESH_GRADUATE', 'Fresh Graduate'),
+        ('OTHER', 'Other'),
+    ]
+    AVAILABILITY_CHOICES = [
+        ('IMMEDIATELY', 'Immediately'),
+        ('1_2_WEEKS', 'Within 1-2 Weeks'),
+        ('2_4_WEEKS', 'Within 2-4 Weeks'),
+        ('OVER_1_MONTH', 'More Than 1 Month'),
+        ('DEPENDS', 'Depends on the Project / Schedule'),
+    ]
+    SOURCE_CHOICES = [
+        ('LINKEDIN', 'LinkedIn'),
+        ('JOBSTREET', 'JobStreet'),
+        ('THREADS', 'Threads'),
+        ('SOCIAL_MEDIA', 'Instagram / Social Media'),
+        ('REFERRAL', 'Employee / Professional Referral'),
+        ('WEBSITE', 'Feraco Website'),
+        ('OTHER', 'Other'),
+    ]
+
+    code = models.CharField(max_length=16, unique=True, null=True, blank=True)
+    full_name = models.CharField(max_length=255)
+    email = models.EmailField(db_index=True)
+    phone = models.CharField(max_length=32, blank=True)
+    phone_normalized = models.CharField(max_length=32, blank=True, db_index=True)
+    city = models.CharField(max_length=128, blank=True)
+    linkedin_url = models.URLField(max_length=500, blank=True)
+    portfolio_url = models.URLField(max_length=500, blank=True)
+    employment_types = models.JSONField(default=list, blank=True)
+    preferred_location = models.CharField(max_length=16, choices=LOCATION_CHOICES, blank=True)
+    preferred_location_other = models.CharField(max_length=128, blank=True)
+    employment_status = models.CharField(max_length=16, choices=EMPLOYMENT_STATUS_CHOICES, blank=True)
+    employment_status_other = models.CharField(max_length=128, blank=True)
+    availability = models.CharField(max_length=16, choices=AVAILABILITY_CHOICES, blank=True)
+    # Optional (Decision #2); HR-only in serializers.
+    expected_monthly_salary = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    expected_project_fee = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    # Latest CV across applications (each application keeps its own copy).
+    cv_name = models.CharField(max_length=255, blank=True)
+    cv_path = models.CharField(max_length=512, blank=True)
+    cv_content_type = models.CharField(max_length=128, blank=True)
+    # Source as reported by the candidate (internal channel stays on Candidate.source).
+    source_reported = models.CharField(max_length=16, choices=SOURCE_CHOICES, blank=True)
+    source_other = models.CharField(max_length=255, blank=True)
+    consent_at = models.DateTimeField(null=True, blank=True)
+    consent_version = models.CharField(max_length=32, blank=True)
+    consent_withdrawn_at = models.DateTimeField(null=True, blank=True)
+    # Phone-only match on registration: HR decides merge vs. not a duplicate.
+    possible_duplicate_of = models.ForeignKey(
+        'self', on_delete=models.SET_NULL, null=True, blank=True, related_name='possible_duplicates',
+    )
+    freelancer = models.ForeignKey(
+        'personnel.Freelancer', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='candidate_profiles',
+    )
+    employee = models.ForeignKey(
+        'personnel.Employee', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='candidate_profiles',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'{self.code or "TP-?"} {self.full_name}'
+
+    def save(self, *args, **kwargs):
+        self.phone_normalized = normalize_phone(self.phone)
+        super().save(*args, **kwargs)
+        if not self.code:
+            self.code = f'TP-{self.pk:06d}'
+            CandidateProfile.objects.filter(pk=self.pk).update(code=self.code)
+
+    @classmethod
+    def match_or_create(cls, full_name, email, phone=''):
+        """Duplicate rule (PRD 5.2, decided 2026-10-30): same email (any
+        case) reuses that profile; a phone-only match creates a new profile
+        flagged ``possible_duplicate_of`` for HR review."""
+        email = (email or '').strip()
+        if email:
+            existing = cls.objects.filter(email__iexact=email).order_by('pk').first()
+            if existing:
+                return existing
+        phone_key = normalize_phone(phone)
+        suspect = cls.objects.filter(phone_normalized=phone_key).order_by('pk').first() if phone_key else None
+        return cls.objects.create(
+            full_name=full_name, email=email, phone=phone or '', possible_duplicate_of=suspect,
+        )
+
+
 class Candidate(models.Model):
-    """Public job applicant. CV binary lives in Supabase Storage."""
+    """Application record (shown as "Lamaran"): one job application of a
+    ``CandidateProfile``. CV binary lives in Supabase Storage."""
 
     SOURCE_CHOICES = [
         ('PORTAL', 'Public Portal'),
@@ -135,7 +264,18 @@ class Candidate(models.Model):
         'OFFER_ACCEPTED': {'REJECTED', 'WITHDRAWN'},
     }
 
+    TRACK_CHOICES = [
+        ('INHOUSE', 'Inhouse'),
+        ('FREELANCE', 'Freelance'),
+        ('UNDECIDED', 'Undecided'),
+    ]
+
+    profile = models.ForeignKey(
+        CandidateProfile, on_delete=models.PROTECT, related_name='applications',
+    )
     job = models.ForeignKey(Job, on_delete=models.CASCADE, related_name='applications')
+    # Direction decided by HR (Decision #0); defaults to the job's type.
+    track = models.CharField(max_length=16, choices=TRACK_CHOICES, default='UNDECIDED')
     full_name = models.CharField(max_length=255)
     email = models.EmailField()
     phone = models.CharField(max_length=32, blank=True)
@@ -152,6 +292,18 @@ class Candidate(models.Model):
 
     def __str__(self):
         return f'{self.full_name} -> {self.job.title}'
+
+    def save(self, *args, **kwargs):
+        if self.profile_id is None:
+            self.profile = CandidateProfile.match_or_create(self.full_name, self.email, self.phone)
+        if self._state.adding and self.track == 'UNDECIDED' and self.job_id:
+            self.track = self.job.recruitment_type
+        super().save(*args, **kwargs)
+        # Latest uploaded CV becomes the profile CV.
+        if self.cv_path and self.profile.cv_path != self.cv_path:
+            CandidateProfile.objects.filter(pk=self.profile_id).update(
+                cv_name=self.cv_name, cv_path=self.cv_path, cv_content_type=self.cv_content_type,
+            )
 
 
 class FreelanceApplyForm(models.Model):

@@ -149,6 +149,7 @@ class CandidateSerializer(serializers.ModelSerializer):
     cv_url = serializers.SerializerMethodField()
     job_title = serializers.CharField(source='job.title', read_only=True)
     recruitment_type = serializers.CharField(source='job.recruitment_type', read_only=True)
+    profile_code = serializers.CharField(source='profile.code', read_only=True)
     applied_at = serializers.DateTimeField(source='created_at', read_only=True)
     next_statuses = serializers.SerializerMethodField()
     status_history = CandidateStatusHistorySerializer(many=True, read_only=True)
@@ -166,14 +167,15 @@ class CandidateSerializer(serializers.ModelSerializer):
     class Meta:
         model = Candidate
         fields = (
-            'id', 'job', 'job_title', 'recruitment_type', 'full_name', 'email', 'phone',
+            'id', 'profile', 'profile_code', 'track', 'job', 'job_title', 'recruitment_type',
+            'full_name', 'email', 'phone',
             'cv_name', 'cv_url', 'source', 'status',
             'next_statuses', 'status_history', 'talent_pool_freelancer_id', 'notes',
             'skill_id', 'applied_skill',
             'domicile', 'portfolio_url', 'expected_rate', 'applicant_notes',
             'applied_at', 'created_at', 'updated_at',
         )
-        read_only_fields = ('id', 'job_title', 'cv_name', 'cv_url', 'source', 'status', 'next_statuses', 'status_history', 'applied_at', 'created_at', 'updated_at')
+        read_only_fields = ('id', 'profile', 'track', 'job_title', 'cv_name', 'cv_url', 'source', 'status', 'next_statuses', 'status_history', 'applied_at', 'created_at', 'updated_at')
 
     def get_talent_pool_freelancer_id(self, obj):
         """Freelancer id if this candidate is already in the Talent Pool (matched by the

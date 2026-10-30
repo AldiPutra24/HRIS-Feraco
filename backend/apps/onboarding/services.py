@@ -289,6 +289,9 @@ def complete_onboarding(onboarding, request):
     onboarding.save(update_fields=[
         'status', 'completed_at', 'completed_by', 'employee', 'updated_at',
     ])
+    profile = onboarding.candidate.profile
+    profile.employee = employee
+    profile.save(update_fields=['employee', 'updated_at'])
 
     OnboardingStatusHistory.objects.create(
         onboarding=onboarding,

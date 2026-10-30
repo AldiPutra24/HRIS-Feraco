@@ -364,7 +364,10 @@ class CandidateViewSet(viewsets.ModelViewSet):
             return Response({'detail': 'Hanya admin yang dapat menghapus kandidat.'}, status=status.HTTP_403_FORBIDDEN)
         obj = self.get_object()
         name = obj.full_name
+        profile = obj.profile
         obj.delete()
+        if not profile.applications.exists():
+            profile.delete()
         log_event(request, 'delete', obj=None, description=f'Candidate "{name}" deleted')
         return Response(status=status.HTTP_204_NO_CONTENT)
 

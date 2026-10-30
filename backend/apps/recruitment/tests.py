@@ -2,7 +2,9 @@ from datetime import date, timedelta
 import json
 
 from django.contrib.auth import get_user_model
-from django.test import TestCase
+from django.db import connection
+from django.db.migrations.executor import MigrationExecutor
+from django.test import TestCase, TransactionTestCase
 from django.urls import reverse
 from django.utils import timezone
 
@@ -10,7 +12,7 @@ from apps.accounts.models import Role
 from apps.audit.models import AuditLog
 from apps.personnel.models import Department, Position
 
-from .models import Candidate, FreelanceApplyForm, Job
+from .models import Candidate, CandidateProfile, FreelanceApplyForm, Job, normalize_phone
 
 User = get_user_model()
 
@@ -1224,3 +1226,123 @@ class PublicJobSkillApplyTests(TestCase):
         self.assertEqual(resp.status_code, 200, resp.content)
         fl = Freelancer.objects.get(personal_email='rina@test.com')
         self.assertEqual({fs.skill_id for fs in fl.freelancer_skills.all()}, {self.s_mc.id})
+
+
+class CandidateProfileTests(TestCase):
+    """Talent Pool stage 1: every application belongs to one person profile."""
+
+    def setUp(self):
+        self.admin = make_user('ADMIN', 'admin@test.com')
+        self.client.force_login(self.admin)
+        self.job_inhouse = Job.objects.create(
+            title='Inhouse Dev', slug='tp-inhouse', description='d', requirements='r',
+            location='Jakarta', open_date=date.today(), status='OPEN',
+        )
+        self.job_freelance = Job.objects.create(
+            title='Freelance MC', slug='tp-freelance', description='d', requirements='r',
+            employment_type='FREELANCE', recruitment_type='FREELANCE',
+            location='Jakarta', open_date=date.today(), status='OPEN',
+        )
+
+    def _apply(self, job, email, phone='', name='Rina'):
+        return Candidate.objects.create(job=job, full_name=name, email=email, phone=phone)
+
+    def test_normalize_phone(self):
+        self.assertEqual(normalize_phone('0812-3456 789'), '628123456789')
+        self.assertEqual(normalize_phone('+62 812 3456 789'), '628123456789')
+        self.assertEqual(normalize_phone('8123456789'), '628123456789')
+        self.assertEqual(normalize_phone(''), '')
+
+    def test_new_application_creates_profile_with_code_and_track(self):
+        cand = self._apply(self.job_freelance, 'rina@test.com')
+        self.assertIsNotNone(cand.profile_id)
+        self.assertEqual(cand.profile.code, f'TP-{cand.profile.pk:06d}')
+        self.assertEqual(cand.track, 'FREELANCE')
+        self.assertEqual(self._apply(self.job_inhouse, 'x@test.com').track, 'INHOUSE')
+
+    def test_same_email_reuses_profile(self):
+        first = self._apply(self.job_inhouse, 'Rina@Test.com')
+        second = self._apply(self.job_freelance, 'rina@test.com')
+        self.assertEqual(first.profile_id, second.profile_id)
+        self.assertEqual(CandidateProfile.objects.count(), 1)
+        self.assertEqual(first.profile.applications.count(), 2)
+
+    def test_phone_only_match_flags_possible_duplicate(self):
+        first = self._apply(self.job_inhouse, 'a@test.com', phone='0812345678')
+        second = self._apply(self.job_inhouse, 'b@test.com', phone='+62 812 345 678')
+        self.assertNotEqual(first.profile_id, second.profile_id)
+        self.assertEqual(second.profile.possible_duplicate_of_id, first.profile_id)
+        self.assertIsNone(first.profile.possible_duplicate_of_id)
+
+    def test_latest_cv_is_copied_to_profile(self):
+        cand = self._apply(self.job_inhouse, 'cv@test.com')
+        cand.cv_name, cand.cv_path, cand.cv_content_type = 'cv.pdf', 'cvs/1/cv.pdf', 'application/pdf'
+        cand.save(update_fields=['cv_name', 'cv_path', 'cv_content_type', 'updated_at'])
+        cand.profile.refresh_from_db()
+        self.assertEqual(cand.profile.cv_path, 'cvs/1/cv.pdf')
+
+    def test_api_exposes_profile_and_track(self):
+        cand = self._apply(self.job_freelance, 'api@test.com')
+        data = self.client.get(f'/api/recruitment/candidates/{cand.id}/').json()
+        self.assertEqual(data['profile'], cand.profile_id)
+        self.assertEqual(data['profile_code'], cand.profile.code)
+        self.assertEqual(data['track'], 'FREELANCE')
+
+    def test_accept_freelance_links_profile(self):
+        cand = self._apply(self.job_freelance, 'fl@test.com')
+        resp = self.client.post(f'/api/recruitment/candidates/{cand.id}/accept-freelance/')
+        self.assertEqual(resp.status_code, 200)
+        cand.profile.refresh_from_db()
+        self.assertEqual(cand.profile.freelancer_id, resp.json()['freelancer_id'])
+
+    def test_deleting_only_application_removes_profile(self):
+        only = self._apply(self.job_inhouse, 'solo@test.com')
+        shared_a = self._apply(self.job_inhouse, 'two@test.com')
+        self._apply(self.job_freelance, 'two@test.com')
+        self.client.delete(f'/api/recruitment/candidates/{only.id}/')
+        self.client.delete(f'/api/recruitment/candidates/{shared_a.id}/')
+        self.assertFalse(CandidateProfile.objects.filter(email='solo@test.com').exists())
+        self.assertTrue(CandidateProfile.objects.filter(email='two@test.com').exists())
+
+
+class CandidateProfileBackfillMigrationTests(TransactionTestCase):
+    """0012 groups pre-existing applications into profiles and links them."""
+
+    before = [('recruitment', '0011_talent_pool_profile'), ('onboarding', '0004_onboardingdocument_rejection_reason')]
+    after = [('recruitment', '0013_candidate_profile_required')]
+
+    def setUp(self):
+        executor = MigrationExecutor(connection)
+        executor.migrate(self.before)
+        old = executor.loader.project_state(self.before).apps
+        Job = old.get_model('recruitment', 'Job')
+        Candidate = old.get_model('recruitment', 'Candidate')
+        Freelancer = old.get_model('personnel', 'Freelancer')
+        job_in = Job.objects.create(title='A', slug='m-a', open_date=date.today())
+        job_fl = Job.objects.create(title='B', slug='m-b', open_date=date.today(), recruitment_type='FREELANCE')
+        Candidate.objects.create(job=job_in, full_name='Old Name', email='Same@Test.com', status='REJECTED')
+        Candidate.objects.create(job=job_fl, full_name='New Name', email='same@test.com', phone='0811',
+                                 cv_name='cv.pdf', cv_path='cvs/x/cv.pdf')
+        Candidate.objects.create(job=job_fl, full_name='No Email', email='', phone='0899')
+        Freelancer.objects.create(full_name='FL', personal_email='same@test.com')
+
+        executor = MigrationExecutor(connection)
+        executor.migrate(self.after)
+
+    def test_backfill(self):
+        from django.apps import apps as live
+
+        Profile = live.get_model('recruitment', 'CandidateProfile')
+        Cand = live.get_model('recruitment', 'Candidate')
+        self.assertEqual(Profile.objects.count(), 2)
+        same = Profile.objects.get(email='same@test.com')
+        self.assertEqual(same.full_name, 'New Name')  # newest application wins
+        self.assertEqual(same.cv_path, 'cvs/x/cv.pdf')
+        self.assertEqual(same.code, f'TP-{same.pk:06d}')
+        self.assertEqual(same.consent_version, 'legacy')
+        self.assertIsNotNone(same.freelancer_id)
+        self.assertEqual(same.applications.count(), 2)
+        # Statuses are untouched in stage 1; track follows the job.
+        self.assertEqual(set(same.applications.values_list('status', flat=True)), {'REJECTED', 'APPLIED'})
+        self.assertEqual(Cand.objects.get(full_name='No Email').track, 'FREELANCE')
+        self.assertFalse(Cand.objects.filter(profile__isnull=True).exists())
