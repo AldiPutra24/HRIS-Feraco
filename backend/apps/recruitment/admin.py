@@ -12,10 +12,10 @@ class JobAdmin(admin.ModelAdmin):
 
 @admin.register(Candidate)
 class CandidateAdmin(admin.ModelAdmin):
-    list_display = ('full_name', 'email', 'job', 'track', 'source', 'created_at')
+    list_display = ('full_name', 'email', 'job', 'track', 'status', 'source', 'created_at')
     raw_id_fields = ('profile',)
     search_fields = ('full_name', 'email')
-    list_filter = ('source',)
+    list_filter = ('source', 'status', 'track')
 
 
 @admin.register(CandidateProfile)

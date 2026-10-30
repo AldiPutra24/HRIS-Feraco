@@ -66,7 +66,7 @@ export function OnboardingPage() {
 
   useEffect(() => {
     if (!createOpen) return;
-    listCandidates({ status: 'OFFER_ACCEPTED' })
+    listCandidates({ status: 'HIRED', track: 'INHOUSE' })
       .then(setCandidates)
       .catch(() => toast.error('Gagal memuat kandidat yang memenuhi syarat.'));
   }, [createOpen]);

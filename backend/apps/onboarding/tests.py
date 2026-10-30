@@ -45,7 +45,7 @@ class OnboardingTests(TestCase):
         )
         self.client.force_login(self.admin)
 
-    def _candidate(self, status='OFFER_ACCEPTED'):
+    def _candidate(self, status='HIRED'):
         return Candidate.objects.create(
             job=self.job,
             full_name='Budi Santoso',
@@ -84,8 +84,14 @@ class OnboardingTests(TestCase):
         self.assertTrue(AuditLog.objects.filter(action='create', object_id=str(data['id'])).exists())
         self.assertTrue(Onboarding.objects.filter(candidate=cand).exists())
 
-    def test_create_rejects_non_offer_accepted(self):
-        for status in ('APPLIED', 'INTERVIEW_HR', 'OFFERING', 'REJECTED', 'WITHDRAWN'):
+    def test_create_rejects_hired_freelance_application(self):
+        cand = self._candidate()
+        Candidate.objects.filter(pk=cand.pk).update(track='FREELANCE')
+        resp = self.client.post('/api/onboarding/', self._payload(cand), content_type='application/json')
+        self.assertEqual(resp.status_code, 400)
+
+    def test_create_rejects_non_hired(self):
+        for status in ('NEW', 'SCREENED', 'HR_INTERVIEW', 'USER_INTERVIEW', 'INACTIVE'):
             cand = self._candidate(status)
             resp = self.client.post('/api/onboarding/', self._payload(cand), content_type='application/json')
             self.assertEqual(resp.status_code, 400, status)

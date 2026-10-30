@@ -94,7 +94,7 @@ class StreamDownloadTests(TestCase):
         pos = Position.objects.create(name='Dev', department=dept)
         job = Job.objects.create(title='Dev', slug='dev', department=dept, position=pos, employment_type='FULL_TIME',
                                  location='Jakarta', open_date=date.today(), status='OPEN')
-        cand = Candidate.objects.create(job=job, full_name='Budi', email='budi@test.com', status='OFFER_ACCEPTED')
+        cand = Candidate.objects.create(job=job, full_name='Budi', email='budi@test.com', status='HIRED')
         ob = Onboarding.objects.create(candidate=cand, created_by=self.admin)
         doc = OnboardingDocument.objects.create(onboarding=ob, document_type='KTP', original_filename=NAME,
                                                 storage_path=f'onboarding/{ob.id}/{NAME}')

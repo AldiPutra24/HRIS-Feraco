@@ -2,7 +2,7 @@ from apps.freelance.models import Skill
 
 from rest_framework import serializers
 
-from .models import Candidate, CandidateNote, CandidateSkill, CandidateStatusHistory, Job
+from .models import Candidate, CandidateNote, CandidateSkill, CandidateStatusHistory, Interview, Job
 
 
 class FreelancePositionSerializer(serializers.ModelSerializer):
@@ -145,6 +145,30 @@ class CandidateStatusHistorySerializer(serializers.ModelSerializer):
     def get_changed_by_name(self, obj):
         return obj.changed_by.get_username() if obj.changed_by_id else None
 
+class InterviewSerializer(serializers.ModelSerializer):
+    interviewer_label = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Interview
+        fields = (
+            'id', 'application', 'stage', 'scheduled_at', 'interviewer', 'interviewer_name',
+            'interviewer_label', 'result', 'notes', 'created_at', 'updated_at',
+        )
+        read_only_fields = ('id', 'interviewer_label', 'created_at', 'updated_at')
+
+    def get_interviewer_label(self, obj):
+        if obj.interviewer_name:
+            return obj.interviewer_name
+        return obj.interviewer.get_username() if obj.interviewer_id else None
+
+    def validate(self, attrs):
+        interviewer = attrs.get('interviewer', getattr(self.instance, 'interviewer', None))
+        name = attrs.get('interviewer_name', getattr(self.instance, 'interviewer_name', ''))
+        if not interviewer and not (name or '').strip():
+            raise serializers.ValidationError({'interviewer_name': 'Isi interviewer.'})
+        return attrs
+
+
 class CandidateSerializer(serializers.ModelSerializer):
     cv_url = serializers.SerializerMethodField()
     job_title = serializers.CharField(source='job.title', read_only=True)
@@ -153,6 +177,8 @@ class CandidateSerializer(serializers.ModelSerializer):
     applied_at = serializers.DateTimeField(source='created_at', read_only=True)
     next_statuses = serializers.SerializerMethodField()
     status_history = CandidateStatusHistorySerializer(many=True, read_only=True)
+    interviews = InterviewSerializer(many=True, read_only=True)
+    screened_by_name = serializers.SerializerMethodField()
     talent_pool_freelancer_id = serializers.SerializerMethodField()
     notes = serializers.SerializerMethodField()
     # FREELANCE apply: the ONE position (job Skill) chosen by the applicant.
@@ -169,13 +195,16 @@ class CandidateSerializer(serializers.ModelSerializer):
         fields = (
             'id', 'profile', 'profile_code', 'track', 'job', 'job_title', 'recruitment_type',
             'full_name', 'email', 'phone',
-            'cv_name', 'cv_url', 'source', 'status',
+            'cv_name', 'cv_url', 'source', 'status', 'inactive_reason', 'inactive_note', 'legacy_status',
+            'screening_result', 'screening_notes', 'screened_at', 'screened_by_name', 'interviews',
             'next_statuses', 'status_history', 'talent_pool_freelancer_id', 'notes',
             'skill_id', 'applied_skill',
             'domicile', 'portfolio_url', 'expected_rate', 'applicant_notes',
             'applied_at', 'created_at', 'updated_at',
         )
-        read_only_fields = ('id', 'profile', 'track', 'job_title', 'cv_name', 'cv_url', 'source', 'status', 'next_statuses', 'status_history', 'applied_at', 'created_at', 'updated_at')
+        read_only_fields = ('id', 'profile', 'track', 'job_title', 'cv_name', 'cv_url', 'source', 'status',
+                            'inactive_reason', 'inactive_note', 'legacy_status', 'screening_result',
+                            'screening_notes', 'screened_at', 'next_statuses', 'status_history', 'applied_at', 'created_at', 'updated_at')
 
     def get_talent_pool_freelancer_id(self, obj):
         """Freelancer id if this candidate is already in the Talent Pool (matched by the
@@ -195,7 +224,10 @@ class CandidateSerializer(serializers.ModelSerializer):
         return {'id': s.id, 'name': s.name, 'category': s.category.name if s.category_id else None}
 
     def get_next_statuses(self, obj):
-        return sorted(Candidate.TRANSITIONS.get(obj.status, set()))
+        return obj.next_statuses()
+
+    def get_screened_by_name(self, obj):
+        return obj.screened_by.get_username() if obj.screened_by_id else None
 
     def get_notes(self, obj):
         return [n.note for n in obj.notes.all()]

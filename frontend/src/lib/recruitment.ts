@@ -93,8 +93,25 @@ export type CandidateStatusHistory = {
   note: string;
 };
 
+export type Interview = {
+  id: number;
+  application: number;
+  stage: string;
+  scheduled_at: string | null;
+  interviewer: number | null;
+  interviewer_name: string;
+  interviewer_label: string | null;
+  result: string;
+  notes: string;
+  created_at: string;
+  updated_at: string;
+};
+
 export type Candidate = {
   id: number;
+  profile: number;
+  profile_code: string;
+  track: RecruitmentType | 'UNDECIDED';
   job: number;
   job_title: string;
   recruitment_type: RecruitmentType;
@@ -105,6 +122,14 @@ export type Candidate = {
   cv_url: string | null;
   source: string;
   status: string;
+  inactive_reason: string;
+  inactive_note: string;
+  legacy_status: string;
+  screening_result: string;
+  screening_notes: string;
+  screened_at: string | null;
+  screened_by_name: string | null;
+  interviews: Interview[];
   next_statuses: string[];
   status_history: CandidateStatusHistory[];
   talent_pool_freelancer_id: number | null;
@@ -245,12 +270,42 @@ export function getCandidateCv(id: number): Promise<{ url: string; name: string 
 export function transitionCandidate(
   id: number,
   status: string,
-  note = ''
+  note = '',
+  inactiveReason = ''
 ): Promise<Candidate> {
   return request<Candidate>(`/candidates/${id}/transition/`, {
     method: 'POST',
-    body: JSON.stringify({ status, note })
+    body: JSON.stringify({ status, note, inactive_reason: inactiveReason })
   });
+}
+
+/** Record the screening result (notes required). NEW moves to SCREENED. */
+export function screenCandidate(id: number, result: string, notes: string): Promise<Candidate> {
+  return request<Candidate>(`/candidates/${id}/screening/`, {
+    method: 'POST',
+    body: JSON.stringify({ result, notes })
+  });
+}
+
+export type InterviewInput = {
+  application: number;
+  stage: string;
+  scheduled_at: string | null;
+  interviewer_name: string;
+  result: string;
+  notes: string;
+};
+
+export function createInterview(input: InterviewInput): Promise<Interview> {
+  return request<Interview>('/interviews/', { method: 'POST', body: JSON.stringify(input) });
+}
+
+export function updateInterview(id: number, input: Partial<InterviewInput>): Promise<Interview> {
+  return request<Interview>(`/interviews/${id}/`, { method: 'PATCH', body: JSON.stringify(input) });
+}
+
+export function deleteInterview(id: number): Promise<void> {
+  return request<void>(`/interviews/${id}/`, { method: 'DELETE' });
 }
 
 export function listPublicJobs(): Promise<PublicJob[]> {

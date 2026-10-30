@@ -242,14 +242,14 @@ class CandidateTests(TestCase):
         )
         self.assertEqual(resp.status_code, 201)
         c = Candidate.objects.get(email='budi@test.com')
-        self.assertEqual(c.status, 'APPLIED')
+        self.assertEqual(c.status, 'NEW')
         self.assertTrue(AuditLog.objects.filter(action='create').exists())
 
     def test_hr_lists_candidates_filters_by_status(self):
         Candidate.objects.create(job=self.job, full_name='Budi', email='budi@test.com')
         self.client.logout()
         self.client.force_login(self.hr)
-        resp = self.client.get(f'/api/recruitment/candidates/?status=APPLIED&job={self.job.id}')
+        resp = self.client.get(f'/api/recruitment/candidates/?status=NEW&job={self.job.id}')
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(len(resp.json()['results']), 1)
 
@@ -360,67 +360,138 @@ class CandidateTransitionTests(TestCase):
             status='OPEN',
         )
         self.candidate = Candidate.objects.create(
-            job=self.job, full_name='Budi', email='budi@test.com', status='APPLIED'
+            job=self.job, full_name='Budi', email='budi@test.com', status='NEW'
         )
         self.client.force_login(self.admin)
 
-    def _transition(self, to_status, note=''):
+    def _transition(self, to_status, note='', **extra):
         return self.client.post(
             f'/api/recruitment/candidates/{self.candidate.id}/transition/',
-            {'status': to_status, 'note': note},
+            {'status': to_status, 'note': note, **extra},
             content_type='application/json',
         )
 
+    def _screen(self, result='QUALIFIED', notes='CV sesuai'):
+        return self.client.post(
+            f'/api/recruitment/candidates/{self.candidate.id}/screening/',
+            {'result': result, 'notes': notes}, content_type='application/json',
+        )
+
     def test_valid_transition(self):
-        resp = self._transition('SCREENING', 'lolos admin')
+        resp = self._transition('CONTACTED', 'sudah ditelepon')
         self.assertEqual(resp.status_code, 200)
         self.candidate.refresh_from_db()
-        self.assertEqual(self.candidate.status, 'SCREENING')
+        self.assertEqual(self.candidate.status, 'CONTACTED')
         self.assertTrue(
             self.candidate.status_history.filter(
-                from_status='APPLIED', to_status='SCREENING', note='lolos admin'
+                from_status='NEW', to_status='CONTACTED', note='sudah ditelepon'
             ).exists()
         )
         self.assertTrue(AuditLog.objects.filter(action='update').exists())
 
     def test_full_normal_flow(self):
-        for s in ['SCREENING', 'INTERVIEW_HR', 'INTERVIEW_USER', 'INTERVIEW_GM', 'OFFERING', 'OFFER_ACCEPTED']:
+        self.assertEqual(self._screen().status_code, 200)
+        for s in ['CONTACTED', 'HR_INTERVIEW', 'USER_INTERVIEW', 'HIRED']:
             resp = self._transition(s)
             self.assertEqual(resp.status_code, 200, s)
         self.candidate.refresh_from_db()
-        self.assertEqual(self.candidate.status, 'OFFER_ACCEPTED')
-        self.assertEqual(self.candidate.status_history.count(), 6)
+        self.assertEqual(self.candidate.status, 'HIRED')
+        self.assertEqual(self.candidate.status_history.count(), 5)
 
-    def test_invalid_transition_rejected(self):
-        resp = self._transition('OFFER_ACCEPTED')  # skip pipeline
+    def test_stages_can_be_skipped_but_not_reversed(self):
+        self.assertEqual(self._transition('USER_INTERVIEW').status_code, 200)
+        resp = self._transition('HR_INTERVIEW')
         self.assertEqual(resp.status_code, 400)
         self.candidate.refresh_from_db()
-        self.assertEqual(self.candidate.status, 'APPLIED')
+        self.assertEqual(self.candidate.status, 'USER_INTERVIEW')
 
     def test_invalid_status_value(self):
-        resp = self._transition('BOGUS')
+        self.assertEqual(self._transition('BOGUS').status_code, 400)
+        self.assertEqual(self._transition('OFFER_ACCEPTED').status_code, 400)  # legacy value
+
+    def test_screened_requires_screening_result(self):
+        resp = self._transition('SCREENED')
         self.assertEqual(resp.status_code, 400)
 
-    def test_reject(self):
-        resp = self._transition('REJECTED', 'tidak cocok')
+    def test_screening_moves_new_to_screened_and_requires_notes(self):
+        self.assertEqual(self._screen(notes='').status_code, 400)
+        self.assertEqual(self._screen(result='MAYBE').status_code, 400)
+        resp = self._screen('NOT_QUALIFIED', 'Pengalaman kurang')
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertEqual(data['status'], 'SCREENED')
+        self.assertEqual(data['screening_result'], 'NOT_QUALIFIED')
+        self.assertEqual(data['screening_notes'], 'Pengalaman kurang')
+        self.assertEqual(data['screened_by_name'], 'admin@test.com')
+        self.assertTrue(self.candidate.status_history.filter(to_status='SCREENED').exists())
+
+    def test_inactive_requires_reason(self):
+        self.assertEqual(self._transition('INACTIVE').status_code, 400)
+        self.assertEqual(self._transition('INACTIVE', inactive_reason='OTHER').status_code, 400)
+        resp = self._transition('INACTIVE', 'tidak cocok', inactive_reason='NOT_QUALIFIED')
         self.assertEqual(resp.status_code, 200)
         self.candidate.refresh_from_db()
-        self.assertEqual(self.candidate.status, 'REJECTED')
-        self.assertTrue(self.candidate.status_history.filter(to_status='REJECTED', note='tidak cocok').exists())
+        self.assertEqual(self.candidate.status, 'INACTIVE')
+        self.assertEqual(self.candidate.inactive_reason, 'NOT_QUALIFIED')
+        self.assertEqual(self.candidate.inactive_note, 'tidak cocok')
 
-    def test_withdraw(self):
-        self._transition('SCREENING')
-        resp = self._transition('WITHDRAWN')
-        self.assertEqual(resp.status_code, 200)
+    def test_inactive_can_only_reactivate_to_previous_stage(self):
+        self._transition('HR_INTERVIEW')
+        self._transition('INACTIVE', inactive_reason='UNRESPONSIVE')
         self.candidate.refresh_from_db()
-        self.assertEqual(self.candidate.status, 'WITHDRAWN')
+        self.assertEqual(self.candidate.next_statuses(), ['HR_INTERVIEW'])
+        self.assertEqual(self._transition('HIRED').status_code, 400)
+        self.assertEqual(self._transition('HR_INTERVIEW', 'kandidat merespons').status_code, 200)
+        self.candidate.refresh_from_db()
+        self.assertEqual(self.candidate.status, 'HR_INTERVIEW')
+        self.assertEqual(self.candidate.inactive_reason, '')
 
-    def test_terminal_has_no_transitions(self):
-        self._transition('REJECTED')
-        resp = self._transition('WITHDRAWN')
+    def test_freelance_track_cannot_be_hired_via_transition(self):
+        job = Job.objects.create(
+            title='MC', slug='mc-track', description='d', requirements='r', location='Jakarta',
+            open_date=date.today(), status='OPEN', recruitment_type='FREELANCE', employment_type='FREELANCE',
+        )
+        self.candidate = Candidate.objects.create(job=job, full_name='Fl', email='fl@test.com')
+        self.assertNotIn('HIRED', self.candidate.next_statuses())
+        self.assertEqual(self._transition('HIRED').status_code, 400)
+
+
+class InterviewApiTests(TestCase):
+    def setUp(self):
+        self.hr = make_user('HR_STAFF', 'hr@test.com')
+        job = Job.objects.create(title='Dev', slug='dev-iv', open_date=date.today(), status='OPEN')
+        self.cand = Candidate.objects.create(job=job, full_name='Budi', email='budi@test.com')
+        self.client.force_login(self.hr)
+
+    def test_crud_interview_and_exposed_on_application(self):
+        resp = self.client.post('/api/recruitment/interviews/', {
+            'application': self.cand.id, 'stage': 'HR', 'scheduled_at': '2026-11-02T10:00:00+07:00',
+            'interviewer': self.hr.id,
+        }, content_type='application/json')
+        self.assertEqual(resp.status_code, 201, resp.content)
+        iid = resp.json()['id']
+        self.assertEqual(resp.json()['result'], 'PENDING')
+        self.assertEqual(resp.json()['interviewer_label'], 'hr@test.com')
+        resp = self.client.patch(f'/api/recruitment/interviews/{iid}/', {'result': 'PASSED', 'notes': 'Bagus'},
+                                 content_type='application/json')
+        self.assertEqual(resp.status_code, 200)
+        data = self.client.get(f'/api/recruitment/candidates/{self.cand.id}/').json()
+        self.assertEqual([(i['stage'], i['result']) for i in data['interviews']], [('HR', 'PASSED')])
+        self.assertEqual(self.client.delete(f'/api/recruitment/interviews/{iid}/').status_code, 204)
+
+    def test_interviewer_required(self):
+        resp = self.client.post('/api/recruitment/interviews/', {'application': self.cand.id, 'stage': 'USER'},
+                                content_type='application/json')
         self.assertEqual(resp.status_code, 400)
-        self.candidate.refresh_from_db()
-        self.assertEqual(self.candidate.status, 'REJECTED')
+        resp = self.client.post('/api/recruitment/interviews/', {
+            'application': self.cand.id, 'stage': 'SKILL_TEST', 'interviewer_name': 'Klien PT X',
+        }, content_type='application/json')
+        self.assertEqual(resp.status_code, 201)
+
+    def test_employee_forbidden(self):
+        self.client.force_login(make_user('EMPLOYEE', 'emp@test.com'))
+        self.assertEqual(self.client.get('/api/recruitment/interviews/').status_code, 403)
+
 
 class HardDeleteTests(TestCase):
     def setUp(self):
@@ -475,7 +546,7 @@ class HardDeleteTests(TestCase):
         self.assertEqual(resp.status_code, 200)
         data = resp.json()
         self.assertIn('next_statuses', data)
-        self.assertIn('SCREENING', data['next_statuses'])
+        self.assertIn('CONTACTED', data['next_statuses'])
 
 class RecruitmentTypeTests(TestCase):
     """Inhouse vs Freelance recruitment split: job typing, candidate
@@ -611,7 +682,7 @@ class RecruitmentTypeTests(TestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertTrue(resp.json()['created'])
         cand.refresh_from_db()
-        self.assertEqual(cand.status, 'OFFER_ACCEPTED')
+        self.assertEqual(cand.status, 'HIRED')
         # Freelancer created with mapped data.
         fl = Freelancer.objects.get(personal_email='freelance@test.com')
         self.assertEqual(fl.full_name, 'Candra')
@@ -643,7 +714,7 @@ class RecruitmentTypeTests(TestCase):
 
     def test_freelance_accept_rejected_candidate_blocked(self):
         cand = self._candidate(self.job_freelance, 'rej@test.com')
-        cand.status = 'REJECTED'
+        cand.status = 'INACTIVE'
         cand.save(update_fields=['status'])
         resp = self.client.post(f'/api/recruitment/candidates/{cand.id}/accept-freelance/')
         self.assertEqual(resp.status_code, 400)
@@ -670,17 +741,17 @@ class RecruitmentTypeTests(TestCase):
         resp = self.client.get(f'/api/recruitment/candidates/{cand.id}/')
         self.assertIsNotNone(resp.json()['talent_pool_freelancer_id'])
 
-    def test_inhouse_pipeline_transitions_unchanged(self):
-        """Inhouse candidate still walks Screening -> ... -> Offer Accepted."""
+    def test_inhouse_pipeline_transitions(self):
+        """Inhouse application walks the PRD pipeline up to Hired."""
         cand = self._candidate(self.job_inhouse, 'pipe@test.com')
-        for st in ('SCREENING', 'INTERVIEW_HR', 'INTERVIEW_USER', 'INTERVIEW_GM', 'OFFERING', 'OFFER_ACCEPTED'):
+        for st in ('CONTACTED', 'HR_INTERVIEW', 'USER_INTERVIEW', 'HIRED'):
             resp = self.client.post(
                 f'/api/recruitment/candidates/{cand.id}/transition/',
                 {'status': st}, content_type='application/json',
             )
             self.assertEqual(resp.status_code, 200, st)
         cand.refresh_from_db()
-        self.assertEqual(cand.status, 'OFFER_ACCEPTED')
+        self.assertEqual(cand.status, 'HIRED')
 
     def test_unauth_cannot_accept_freelance(self):
         cand = self._candidate(self.job_freelance, 'x@test.com')
@@ -839,7 +910,7 @@ class FreelanceJobPublicApplyTests(TestCase):
         self.assertEqual(res.status_code, 201, res.content)
         cand = Candidate.objects.get(email='rina@example.com')
         self.assertEqual(cand.source, 'PORTAL')
-        self.assertEqual(cand.status, 'APPLIED')
+        self.assertEqual(cand.status, 'NEW')
         self.assertEqual(cand.applied_skill.skill_id, self.s_mc.id)
         self.assertTrue(cand.cv_path)
         up.assert_called_once()
@@ -935,7 +1006,7 @@ class PublicApplyCsrfTests(TestCase):
     def test_hr_actions_still_require_csrf(self):
         cand = Candidate.objects.create(job=self.job, full_name='Rina', email='rina@x.com')
         res = self.client.post(f'/api/recruitment/candidates/{cand.id}/transition/',
-                               {'status': 'SCREENING'}, content_type='application/json')
+                               {'status': 'CONTACTED'}, content_type='application/json')
         self.assertEqual(res.status_code, 403)
         self.assertIn('CSRF', res.json()['detail'])
         # HR list still requires an authenticated session.
@@ -1328,12 +1399,16 @@ class CandidateProfileBackfillMigrationTests(TransactionTestCase):
 
         executor = MigrationExecutor(connection)
         executor.migrate(self.after)
+        self.state_apps = executor.loader.project_state(self.after).apps
+
+    def tearDown(self):
+        executor = MigrationExecutor(connection)
+        executor.migrate(executor.loader.graph.leaf_nodes())
 
     def test_backfill(self):
-        from django.apps import apps as live
-
-        Profile = live.get_model('recruitment', 'CandidateProfile')
-        Cand = live.get_model('recruitment', 'Candidate')
+        # Models as of 0013 (later migrations add columns).
+        Profile = self.state_apps.get_model('recruitment', 'CandidateProfile')
+        Cand = self.state_apps.get_model('recruitment', 'Candidate')
         self.assertEqual(Profile.objects.count(), 2)
         same = Profile.objects.get(email='same@test.com')
         self.assertEqual(same.full_name, 'New Name')  # newest application wins
@@ -1346,3 +1421,36 @@ class CandidateProfileBackfillMigrationTests(TransactionTestCase):
         self.assertEqual(set(same.applications.values_list('status', flat=True)), {'REJECTED', 'APPLIED'})
         self.assertEqual(Cand.objects.get(full_name='No Email').track, 'FREELANCE')
         self.assertFalse(Cand.objects.filter(profile__isnull=True).exists())
+
+
+class LegacyStatusMigrationTests(TransactionTestCase):
+    """0015 maps pre-PRD statuses (Decision #7) and keeps the old value."""
+
+    before = [('recruitment', '0014_prd_status_screening_interview')]
+    after = [('recruitment', '0015_map_legacy_statuses')]
+
+    def setUp(self):
+        executor = MigrationExecutor(connection)
+        executor.migrate(self.before)
+        old = executor.loader.project_state(self.before).apps
+        Job = old.get_model('recruitment', 'Job')
+        Profile = old.get_model('recruitment', 'CandidateProfile')
+        Candidate = old.get_model('recruitment', 'Candidate')
+        job = Job.objects.create(title='A', slug='lm-a', open_date=date.today())
+        for i, st in enumerate(['APPLIED', 'INTERVIEW_GM', 'OFFERING', 'OFFER_ACCEPTED', 'REJECTED', 'WITHDRAWN']):
+            prof = Profile.objects.create(full_name=st, email=f'{i}@t.com')
+            Candidate.objects.create(job=job, profile=prof, full_name=st, email=f'{i}@t.com', status=st)
+        MigrationExecutor(connection).migrate(self.after)
+
+    def tearDown(self):
+        executor = MigrationExecutor(connection)
+        executor.migrate(executor.loader.graph.leaf_nodes())
+
+    def test_mapping(self):
+        rows = {c.full_name: (c.status, c.inactive_reason, c.legacy_status) for c in Candidate.objects.all()}
+        self.assertEqual(rows['APPLIED'], ('NEW', '', 'APPLIED'))
+        self.assertEqual(rows['INTERVIEW_GM'], ('USER_INTERVIEW', '', 'INTERVIEW_GM'))
+        self.assertEqual(rows['OFFERING'], ('USER_INTERVIEW', '', 'OFFERING'))
+        self.assertEqual(rows['OFFER_ACCEPTED'], ('HIRED', '', 'OFFER_ACCEPTED'))
+        self.assertEqual(rows['REJECTED'], ('INACTIVE', 'NOT_QUALIFIED', 'REJECTED'))
+        self.assertEqual(rows['WITHDRAWN'], ('INACTIVE', 'CANDIDATE_WITHDREW', 'WITHDRAWN'))

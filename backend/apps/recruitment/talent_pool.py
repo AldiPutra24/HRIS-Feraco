@@ -102,17 +102,18 @@ def accept_candidate_to_talent_pool(candidate: Candidate, request):
         candidate.profile.freelancer = freelancer
         candidate.profile.save(update_fields=['freelancer', 'updated_at'])
 
-    # Mark the candidate accepted (reuses the existing pipeline terminal state).
-    if candidate.status != 'OFFER_ACCEPTED':
+    # Final decision: hired as freelancer (PRD 5.11).
+    if candidate.status != 'HIRED':
         CandidateStatusHistory.objects.create(
             candidate=candidate,
             from_status=candidate.status,
-            to_status='OFFER_ACCEPTED',
+            to_status='HIRED',
             changed_by=request.user if request.user.is_authenticated else None,
-            note='Accepted into Freelance / Talent Pool',
+            note='Diterima sebagai Freelancer',
         )
-        candidate.status = 'OFFER_ACCEPTED'
-        candidate.save(update_fields=['status', 'updated_at'])
+        candidate.status = 'HIRED'
+    candidate.track = 'FREELANCE'
+    candidate.save(update_fields=['status', 'track', 'updated_at'])
 
     action = 'create' if created else 'update'
     log_event(

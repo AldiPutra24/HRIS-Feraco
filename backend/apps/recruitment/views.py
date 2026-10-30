@@ -13,17 +13,18 @@ from apps.freelance.models import Skill, SkillCategory
 from apps.personnel.permissions import _role
 from apps.personnel.storage import is_configured, upload_bytes
 
-from .models import Candidate, FreelanceApplyForm, Job
+from .models import Candidate, FreelanceApplyForm, Interview, Job
 from .permissions import IsRecruitmentAdmin, RECRUITMENT_ADMIN_ROLES
 from . import antispam
 from .serializers import (
     CandidateSerializer,
     FreelanceApplyFormSerializer,
+    InterviewSerializer,
     JobPublicSerializer,
     JobSerializer,
 )
 from rest_framework.views import APIView
-from .services import _bucket, transition_candidate
+from .services import _bucket, record_screening, transition_candidate
 from .talent_pool import accept_candidate_to_talent_pool
 
 # CV upload validation: PDF or Word (DOC/DOCX) only, max 5 MB. Extension,
@@ -168,7 +169,7 @@ class CandidateViewSet(viewsets.ModelViewSet):
     queryset = Candidate.objects.select_related('job', 'applied_skill__skill__category').all()
     serializer_class = CandidateSerializer
     parser_classes = [JSONParser, FormParser, MultiPartParser]
-    filterset_fields = ['job', 'source', 'status']
+    filterset_fields = ['job', 'source', 'status', 'track']
     search_fields = ['full_name', 'email']
 
     def get_queryset(self):
@@ -268,9 +269,17 @@ class CandidateViewSet(viewsets.ModelViewSet):
         obj = self.get_object()
         to_status = request.data.get('status')
         note = (request.data.get('note') or '').strip()
+        reason = request.data.get('inactive_reason') or ''
         if not to_status or to_status not in dict(Candidate.STATUS_CHOICES):
             return Response({'detail': 'Status tidak valid.'}, status=status.HTTP_400_BAD_REQUEST)
-        candidate, history = transition_candidate(obj, to_status, request, note)
+        if to_status == 'INACTIVE':
+            if reason not in dict(Candidate.INACTIVE_REASONS):
+                return Response({'inactive_reason': ['Pilih alasan Inactive.']}, status=status.HTTP_400_BAD_REQUEST)
+            if reason == 'OTHER' and not note:
+                return Response({'note': ['Jelaskan alasan lainnya.']}, status=status.HTTP_400_BAD_REQUEST)
+        if to_status == 'SCREENED' and not obj.screening_result:
+            return Response({'detail': 'Catat hasil screening terlebih dahulu.'}, status=status.HTTP_400_BAD_REQUEST)
+        candidate, history = transition_candidate(obj, to_status, request, note, reason)
         if candidate is None:
             return Response(
                 {'detail': f'Transisi dari {obj.status} ke {to_status} tidak diizinkan.'},
@@ -278,12 +287,27 @@ class CandidateViewSet(viewsets.ModelViewSet):
             )
         return Response(CandidateSerializer(candidate, context={'request': request}).data)
 
+    @action(detail=True, methods=['post'])
+    def screening(self, request, pk=None):
+        """Record Qualified / Not Qualified + required notes (PRD 5.5)."""
+        obj = self.get_object()
+        result = request.data.get('result')
+        notes = (request.data.get('notes') or '').strip()
+        if result not in dict(Candidate.SCREENING_RESULTS):
+            return Response({'result': ['Pilih hasil screening.']}, status=status.HTTP_400_BAD_REQUEST)
+        if not notes:
+            return Response({'notes': ['Catatan screening wajib diisi.']}, status=status.HTTP_400_BAD_REQUEST)
+        if obj.status == 'INACTIVE':
+            return Response({'detail': 'Lamaran Inactive tidak dapat di-screening.'}, status=status.HTTP_400_BAD_REQUEST)
+        record_screening(obj, result, notes, request)
+        return Response(CandidateSerializer(obj, context={'request': request}).data)
+
     @action(detail=True, methods=['post'], url_path='accept-freelance')
     def accept_freelance(self, request, pk=None):
         """Freelance flow: accepted candidate enters the Freelance/Talent Pool.
 
         Creates or updates (dedup by email) the Freelancer record from the
-        candidate's data and marks the candidate OFFER_ACCEPTED. Never creates
+        candidate's data and marks the application HIRED. Never creates
         an Employee/User/Onboarding — that is the Inhouse path only.
         """
         obj = self.get_object()
@@ -292,7 +316,7 @@ class CandidateViewSet(viewsets.ModelViewSet):
                 {'detail': 'Hanya kandidat recruitment Freelance yang dapat masuk Talent Pool.'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        if obj.status in Candidate.TERMINAL:
+        if obj.status == 'INACTIVE':
             return Response(
                 {'detail': f'Kandidat berstatus {obj.status} tidak dapat diterima.'},
                 status=status.HTTP_400_BAD_REQUEST,
@@ -374,6 +398,31 @@ class CandidateViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['delete'], url_path='hard-delete')
     def hard_delete(self, request, pk=None):
         return self.destroy(request, pk=pk)
+
+class InterviewViewSet(viewsets.ModelViewSet):
+    """Interviews / skill tests per application (?application=<id>). HR only."""
+
+    queryset = Interview.objects.select_related('application', 'interviewer').all()
+    serializer_class = InterviewSerializer
+    permission_classes = [IsRecruitmentAdmin]
+    filterset_fields = ['application', 'stage', 'result']
+    pagination_class = None
+
+    def perform_create(self, serializer):
+        obj = serializer.save(created_by=self.request.user)
+        log_event(self.request, 'create', obj=obj.application,
+                  description=f'Interview {obj.stage} untuk "{obj.application.full_name}" dicatat')
+
+    def perform_update(self, serializer):
+        obj = serializer.save()
+        log_event(self.request, 'update', obj=obj.application,
+                  description=f'Interview {obj.stage} "{obj.application.full_name}": {obj.result}')
+
+    def perform_destroy(self, instance):
+        log_event(self.request, 'delete', obj=instance.application,
+                  description=f'Interview {instance.stage} "{instance.application.full_name}" dihapus')
+        instance.delete()
+
 
 class FreelanceApplyFormViewSet(viewsets.ReadOnlyModelViewSet):
     """RETIRED apply forms — read-only history.

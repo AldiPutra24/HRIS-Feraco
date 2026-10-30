@@ -3,7 +3,7 @@ from django.db import models
 
 
 class Onboarding(models.Model):
-    """Bridge between an OFFER_ACCEPTED Candidate and (later) Employee."""
+    """Bridge between a HIRED Inhouse Candidate and (later) Employee."""
 
     class Status(models.TextChoices):
         PENDING = 'PENDING', 'Pending'

@@ -1,11 +1,15 @@
 from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 
-from .views import CandidateViewSet, FreelanceApplyFormViewSet, JobViewSet, PublicFreelancePortalView, PublicJobViewSet
+from .views import (
+    CandidateViewSet, FreelanceApplyFormViewSet, InterviewViewSet, JobViewSet, PublicFreelancePortalView,
+    PublicJobViewSet,
+)
 
 router = DefaultRouter()
 router.register('jobs', JobViewSet, basename='job')
 router.register('candidates', CandidateViewSet, basename='candidate')
+router.register('interviews', InterviewViewSet, basename='interview')
 router.register('freelance-apply-forms', FreelanceApplyFormViewSet, basename='freelance-apply-form')
 
 urlpatterns = [

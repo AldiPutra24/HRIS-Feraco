@@ -238,31 +238,31 @@ class Candidate(models.Model):
         ('WEBSITE', 'Company Website'),
         ('OTHER', 'Other'),
     ]
+    # PRD 5.5 statuses (Decision #4); legacy values are kept in legacy_status.
     STATUS_CHOICES = [
-        ('APPLIED', 'Applied'),
-        ('SCREENING', 'Screening'),
-        ('INTERVIEW_HR', 'Interview HR'),
-        ('INTERVIEW_USER', 'Interview User'),
-        ('INTERVIEW_GM', 'Interview GM'),
-        ('OFFERING', 'Offering'),
-        ('OFFER_ACCEPTED', 'Offer Accepted'),
-        ('REJECTED', 'Rejected'),
-        ('WITHDRAWN', 'Withdrawn'),
+        ('NEW', 'New'),
+        ('SCREENED', 'Screened'),
+        ('CONTACTED', 'Contacted'),
+        ('HR_INTERVIEW', 'HR Interview'),
+        ('USER_INTERVIEW', 'User Interview'),
+        ('HIRED', 'Hired / Assigned'),
+        ('INACTIVE', 'Inactive'),
     ]
-    # Normal pipeline order. Terminal statuses (REJECTED/WITHDRAWN) excluded.
-    PIPELINE = ['APPLIED', 'SCREENING', 'INTERVIEW_HR', 'INTERVIEW_USER', 'INTERVIEW_GM', 'OFFERING', 'OFFER_ACCEPTED']
-    TERMINAL = {'REJECTED', 'WITHDRAWN'}
-    # Allowed next status per current status. APPLIED may jump straight to
-    # INTERVIEW_HR when screening is skipped; REJECTED/WITHDRAWN are terminal.
-    TRANSITIONS = {
-        'APPLIED': {'SCREENING', 'INTERVIEW_HR', 'REJECTED', 'WITHDRAWN'},
-        'SCREENING': {'INTERVIEW_HR', 'REJECTED', 'WITHDRAWN'},
-        'INTERVIEW_HR': {'INTERVIEW_USER', 'REJECTED', 'WITHDRAWN'},
-        'INTERVIEW_USER': {'INTERVIEW_GM', 'REJECTED', 'WITHDRAWN'},
-        'INTERVIEW_GM': {'OFFERING', 'REJECTED', 'WITHDRAWN'},
-        'OFFERING': {'OFFER_ACCEPTED', 'REJECTED', 'WITHDRAWN'},
-        'OFFER_ACCEPTED': {'REJECTED', 'WITHDRAWN'},
-    }
+    # Pipeline order. Stages may be skipped (PRD 6.2): any later stage is a
+    # valid next step; INACTIVE is reachable from everywhere with a reason.
+    PIPELINE = ['NEW', 'SCREENED', 'CONTACTED', 'HR_INTERVIEW', 'USER_INTERVIEW', 'HIRED']
+    INACTIVE_REASONS = [
+        ('NOT_QUALIFIED', 'Not Qualified'),
+        ('CANDIDATE_WITHDREW', 'Candidate Withdrew'),
+        ('UNRESPONSIVE', 'Unresponsive'),
+        ('NO_LONGER_AVAILABLE', 'No Longer Available'),
+        ('POSITION_CLOSED', 'Position Closed'),
+        ('OTHER', 'Other'),
+    ]
+    SCREENING_RESULTS = [
+        ('QUALIFIED', 'Qualified'),
+        ('NOT_QUALIFIED', 'Not Qualified'),
+    ]
 
     TRACK_CHOICES = [
         ('INHOUSE', 'Inhouse'),
@@ -283,7 +283,18 @@ class Candidate(models.Model):
     cv_path = models.CharField(max_length=512, blank=True)
     cv_content_type = models.CharField(max_length=128, blank=True)
     source = models.CharField(max_length=32, choices=SOURCE_CHOICES, default='PORTAL')
-    status = models.CharField(max_length=32, choices=STATUS_CHOICES, default='APPLIED')
+    status = models.CharField(max_length=32, choices=STATUS_CHOICES, default='NEW')
+    inactive_reason = models.CharField(max_length=32, choices=INACTIVE_REASONS, blank=True)
+    inactive_note = models.TextField(blank=True)
+    # Pre-PRD status of migrated applications (e.g. INTERVIEW_GM), for history.
+    legacy_status = models.CharField(max_length=32, blank=True)
+    screening_result = models.CharField(max_length=16, choices=SCREENING_RESULTS, blank=True)
+    screening_notes = models.TextField(blank=True)
+    screened_at = models.DateTimeField(null=True, blank=True)
+    screened_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='screened_candidates',
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -292,6 +303,19 @@ class Candidate(models.Model):
 
     def __str__(self):
         return f'{self.full_name} -> {self.job.title}'
+
+    def next_statuses(self):
+        """Allowed targets: any later pipeline stage + INACTIVE; an INACTIVE
+        application can only be reactivated to the stage it left. HIRED is
+        excluded unless the track is INHOUSE (freelance hires go through
+        accept-freelance; undecided applications need a track first)."""
+        if self.status == 'INACTIVE':
+            last = self.status_history.filter(to_status='INACTIVE').order_by('-changed_at', '-pk').first()
+            back = last.from_status if last and last.from_status in self.PIPELINE else 'NEW'
+            return [back]
+        idx = self.PIPELINE.index(self.status) if self.status in self.PIPELINE else 0
+        targets = [s for s in self.PIPELINE[idx + 1:] if s != 'HIRED' or self.track == 'INHOUSE']
+        return targets + ['INACTIVE']
 
     def save(self, *args, **kwargs):
         if self.profile_id is None:
@@ -432,3 +456,43 @@ class CandidateStatusHistory(models.Model):
 
     def __str__(self):
         return f'{self.candidate.full_name}: {self.from_status} -> {self.to_status}'
+
+
+class Interview(models.Model):
+    """Interview / skill test of one application (PRD 5.5). Skill Test is an
+    interview stage, not a pipeline status."""
+
+    STAGE_CHOICES = [
+        ('HR', 'HR Interview'),
+        ('USER', 'User Interview'),
+        ('SKILL_TEST', 'Skill Test'),
+    ]
+    RESULT_CHOICES = [
+        ('PENDING', 'Pending'),
+        ('PASSED', 'Passed'),
+        ('NOT_PASSED', 'Not Passed'),
+    ]
+
+    application = models.ForeignKey(Candidate, on_delete=models.CASCADE, related_name='interviews')
+    stage = models.CharField(max_length=16, choices=STAGE_CHOICES)
+    scheduled_at = models.DateTimeField(null=True, blank=True)
+    interviewer = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='candidate_interviews',
+    )
+    # Free text for interviewers without an HRIS account (e.g. client user).
+    interviewer_name = models.CharField(max_length=255, blank=True)
+    result = models.CharField(max_length=16, choices=RESULT_CHOICES, default='PENDING')
+    notes = models.TextField(blank=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='created_candidate_interviews',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['scheduled_at', 'pk']
+
+    def __str__(self):
+        return f'{self.application.full_name}: {self.get_stage_display()} ({self.result})'

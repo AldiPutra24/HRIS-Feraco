@@ -82,9 +82,9 @@ class OnboardingViewSet(viewsets.ModelViewSet):
         except Candidate.DoesNotExist:
             return Response({'detail': 'Candidate tidak ditemukan.'}, status=status.HTTP_400_BAD_REQUEST)
 
-        if candidate.status != 'OFFER_ACCEPTED':
+        if candidate.status != 'HIRED' or candidate.track != 'INHOUSE':
             return Response(
-                {'detail': 'Onboarding hanya dapat dibuat untuk candidate dengan status OFFER_ACCEPTED.'},
+                {'detail': 'Onboarding hanya dapat dibuat untuk lamaran Inhouse berstatus Hired.'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
         if Onboarding.objects.filter(candidate=candidate).exists():

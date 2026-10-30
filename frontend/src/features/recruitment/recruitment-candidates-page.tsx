@@ -27,8 +27,8 @@ import { listSkills, type Skill } from '@/lib/freelance';
 const STATUS_OPTIONS = [...ALL_STATUSES];
 
 function statusVariant(status: string): 'default' | 'secondary' | 'outline' {
-  if (status === 'REJECTED') return 'outline';
-  if (status === 'WITHDRAWN') return 'secondary';
+  if (status === 'INACTIVE') return 'outline';
+  if (status === 'HIRED') return 'secondary';
   return 'default';
 }
 
@@ -95,10 +95,10 @@ export function RecruitmentCandidatesPage({
   async function handleAcceptFreelance(c: Candidate) {
     try {
       await acceptCandidateFreelance(c.id);
-      toast.success('Kandidat berhasil dipindahkan ke Freelance / Talent Pool.');
+      toast.success('Kandidat diterima sebagai Freelancer.');
       router.push('/dashboard/freelance');
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Gagal memindahkan kandidat.');
+      toast.error(err instanceof Error ? err.message : 'Gagal menerima kandidat.');
     }
   }
 
@@ -268,14 +268,14 @@ export function RecruitmentCandidatesPage({
                           >
                             Detail
                           </Button>
-                          {isFreelance && c.status !== 'REJECTED' && c.status !== 'WITHDRAWN' && (
+                          {isFreelance && c.status !== 'INACTIVE' && (
                             c.talent_pool_freelancer_id != null ? (
                               <Button size='sm' variant='outline' disabled>
-                                Sudah di Talent Pool
+                                Sudah jadi Freelancer
                               </Button>
                             ) : (
                               <Button size='sm' variant='default' onClick={() => handleAcceptFreelance(c)}>
-                                Pindahkan ke Freelance / Talent Pool
+                                Terima sebagai Freelancer
                               </Button>
                             )
                           )}
