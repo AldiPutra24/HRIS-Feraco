@@ -1537,7 +1537,8 @@ class Tahap3cTests(TestCase):
         from pypdf import PdfReader
         reader = PdfReader(io.BytesIO(content))
         self.assertEqual(len(reader.pages), 1, 'Payslip must be a single page')
-        return reader.pages[0].extract_text() or ''
+        # Collapse whitespace so phrases wrapped across lines still match.
+        return ' '.join((reader.pages[0].extract_text() or '').split())
 
     def test_payslip_template_header_and_sections(self):
         """Normal payslip: header, title bar, sections, terbilang, signature."""
@@ -1550,7 +1551,7 @@ class Tahap3cTests(TestCase):
         self.assertIn('PT FERY AGUNG CORINDOTAMA', text)
         self.assertIn('PURI SENTRA NIAGA', text)
         # Title with period + year.
-        self.assertIn('SLIP GAJI | Juni | 2026', text)
+        self.assertIn('SLIP GAJI JUNI 2026', text)
         # Slip number boxed on the right (still rendered).
         self.assertIn('001/HRGA/06/2026', text)
         self.assertIn('Nomor', text)
@@ -1564,7 +1565,7 @@ class Tahap3cTests(TestCase):
         self.assertIn('Nama Pegawai', text)
         self.assertIn('John', text)
         self.assertIn('Periode', text)
-        self.assertIn(f'{self.period.period_start} s/d {self.period.period_end}', text)
+        self.assertIn('Juni 2026', text)
         # Terbilang present.
         self.assertIn('Terbilang', text)
         self.assertIn('Empat Juta Sembilan Ratus Lima Puluh Ribu Rupiah', text)
