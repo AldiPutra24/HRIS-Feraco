@@ -2,7 +2,6 @@
 
 import { useState } from 'react';
 import { Icons } from '@/components/icons';
-import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
 const WEEKDAYS = ['Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab', 'Min'];
@@ -21,6 +20,9 @@ export function formatIsoShort(value: string): string {
   const [y, m, d] = value.split('-').map(Number);
   return `${String(d).padStart(2, '0')} ${MONTHS_SHORT[m - 1]} ${y}`;
 }
+
+const navClass =
+  'border-border hover:bg-muted flex size-9 items-center justify-center rounded-lg border bg-background transition-colors';
 
 /**
  * Month calendar where each day toggles independently, so non-consecutive
@@ -65,21 +67,21 @@ export function MultiDateCalendar({
   }
 
   return (
-    <div className='w-full max-w-sm rounded-lg border p-3'>
-      <div className='mb-2 flex items-center justify-between'>
-        <Button type='button' variant='ghost' size='sm' onClick={() => shift(-1)} aria-label='Bulan sebelumnya'>
+    <div className='w-full rounded-xl border p-4'>
+      <div className='mb-3 flex items-center justify-between'>
+        <button type='button' className={navClass} onClick={() => shift(-1)} aria-label='Bulan sebelumnya'>
           <Icons.chevronLeft className='size-4' />
-        </Button>
-        <span className='text-sm font-medium'>
+        </button>
+        <span className='text-base font-semibold'>
           {MONTHS[cursor.m]} {cursor.y}
         </span>
-        <Button type='button' variant='ghost' size='sm' onClick={() => shift(1)} aria-label='Bulan berikutnya'>
+        <button type='button' className={navClass} onClick={() => shift(1)} aria-label='Bulan berikutnya'>
           <Icons.chevronRight className='size-4' />
-        </Button>
+        </button>
       </div>
-      <div className='grid grid-cols-7 gap-1 text-center'>
-        {WEEKDAYS.map((w) => (
-          <span key={w} className='text-muted-foreground py-1 text-xs font-medium'>
+      <div className='grid grid-cols-7 gap-1.5 text-center'>
+        {WEEKDAYS.map((w, i) => (
+          <span key={w} className={cn('py-1.5 text-xs font-medium', i >= 5 ? 'text-orange-600' : 'text-muted-foreground')}>
             {w}
           </span>
         ))}
@@ -88,24 +90,38 @@ export function MultiDateCalendar({
           const key = iso(cursor.y, cursor.m, day);
           const selected = value.includes(key);
           const disabled = !!minDate && key < minDate;
+          const isToday = key === todayIso;
           return (
             <button
               key={key}
               type='button'
               onClick={() => toggle(day)}
               aria-pressed={selected}
+              aria-current={isToday ? 'date' : undefined}
               disabled={disabled}
               className={cn(
-                'h-8 rounded-md text-sm transition-colors',
-                disabled && 'text-muted-foreground/40 cursor-not-allowed',
-                selected ? 'bg-primary text-primary-foreground font-semibold' : !disabled && 'hover:bg-muted',
-                !selected && key === todayIso && 'border-primary border'
+                'h-10 rounded-lg border text-sm tabular-nums transition-colors',
+                disabled
+                  ? 'text-muted-foreground/40 cursor-not-allowed border-transparent'
+                  : selected
+                    ? 'bg-primary border-primary text-primary-foreground font-semibold'
+                    : isToday
+                      ? 'border-foreground font-medium hover:bg-muted'
+                      : 'border-border/70 hover:bg-muted'
               )}
             >
               {day}
             </button>
           );
         })}
+      </div>
+      <div className='text-muted-foreground mt-3 flex items-center gap-4 text-xs'>
+        <span className='flex items-center gap-1.5'>
+          <span className='bg-primary size-3 rounded-sm' /> Dipilih
+        </span>
+        <span className='flex items-center gap-1.5'>
+          <span className='border-foreground size-3 rounded-sm border' /> Hari ini
+        </span>
       </div>
     </div>
   );

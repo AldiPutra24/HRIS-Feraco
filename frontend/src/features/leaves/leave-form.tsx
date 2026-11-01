@@ -1,11 +1,11 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { toast } from 'react-toastify';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
+import { Card } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
@@ -21,7 +21,17 @@ import {
 import { getMyEmployee } from '@/lib/employee-self';
 import type { Employee } from '@/lib/employees';
 import { Icons } from '@/components/icons';
+import { cn } from '@/lib/utils';
 import { MultiDateCalendar, formatIsoShort } from './multi-date-calendar';
+
+// Same as nginx client_max_body_size (deploy/nginx-hris.conf).
+const FILE_MAX_MB = 20;
+const FILE_EXTENSIONS = ['.pdf', '.jpg', '.jpeg', '.png'];
+
+const KINDS = [
+  { value: 'LEAVE', label: 'Cuti', hint: 'Libur terencana, memotong kuota sesuai kategori' },
+  { value: 'PERMISSION', label: 'Izin', hint: 'Sakit atau keperluan mendadak' }
+] as const;
 
 /** 'YYYY-MM-DD' + n days, in local time (no UTC shift). */
 function isoPlusDays(iso: string, days: number): string {
@@ -30,8 +40,53 @@ function isoPlusDays(iso: string, days: number): string {
   return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
 }
 
+function fileError(f: File): string | null {
+  const name = f.name.toLowerCase();
+  if (!FILE_EXTENSIONS.some((ext) => name.endsWith(ext))) return 'Format dokumen harus PDF, JPG atau PNG.';
+  if (f.size > FILE_MAX_MB * 1024 * 1024) return `Ukuran dokumen maksimal ${FILE_MAX_MB} MB.`;
+  return null;
+}
+
+function initials(name: string): string {
+  return name
+    .replace(/\(.*?\)/g, ' ')
+    .split(' ')
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((w) => w[0]?.toUpperCase() ?? '')
+    .join('');
+}
+
+function Step({ n, title, hint, required, children }: { n: number; title: string; hint?: string; required?: boolean; children: React.ReactNode }) {
+  return (
+    <Card className='gap-5 px-6 py-6'>
+      <div className='flex flex-wrap items-center gap-x-3 gap-y-1'>
+        <span className='bg-foreground text-background flex size-7 items-center justify-center rounded-md text-sm font-semibold'>
+          {n}
+        </span>
+        <h3 className='text-base font-semibold'>
+          {title}
+          {required && <span className='text-destructive'> *</span>}
+        </h3>
+        {hint && <span className='text-muted-foreground text-sm'>{hint}</span>}
+      </div>
+      {children}
+    </Card>
+  );
+}
+
+function SummaryRow({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div className='flex items-start justify-between gap-3 text-sm'>
+      <span className='text-muted-foreground'>{label}</span>
+      <span className='text-right font-medium'>{value}</span>
+    </div>
+  );
+}
+
 export function LeaveForm({ redirectTo = '/dashboard/leave' }: { redirectTo?: string }) {
   const router = useRouter();
+  const fileInput = useRef<HTMLInputElement>(null);
   const [types, setTypes] = useState<LeaveType[]>([]);
   const [loading, setLoading] = useState(true);
   const [kind, setKind] = useState<'LEAVE' | 'PERMISSION'>('LEAVE');
@@ -47,6 +102,7 @@ export function LeaveForm({ redirectTo = '/dashboard/leave' }: { redirectTo?: st
   const now = new Date();
   const todayIso = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
   const [file, setFile] = useState<File | null>(null);
+  const [dragging, setDragging] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [me, setMe] = useState<Employee | null>(null);
 
@@ -66,6 +122,16 @@ export function LeaveForm({ redirectTo = '/dashboard/leave' }: { redirectTo?: st
   useEffect(() => {
     load();
   }, [load]);
+
+  function pickFile(f: File | null) {
+    if (!f) return;
+    const problem = fileError(f);
+    if (problem) {
+      toast.error(problem);
+      return;
+    }
+    setFile(f);
+  }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -138,6 +204,15 @@ export function LeaveForm({ redirectTo = '/dashboard/leave' }: { redirectTo?: st
   const totalDays = dates.length - effectiveHalf.length * 0.5;
   const quotaTypeId = selectedType ? (selectedType.deducts_from ?? selectedType.id) : null;
   const quota = myBalances.find((b) => b.leave_type === quotaTypeId) ?? null;
+  // Without a quota for the chosen category, show the annual balance unchanged.
+  const shownQuota = quota ?? myBalances.find((b) => b.leave_type_code === 'ANNUAL') ?? null;
+  const remainingNow = shownQuota?.remaining_days ?? 0;
+  const remainingAfter = quota ? remainingNow - totalDays : remainingNow;
+  const overQuota = !!quota && remainingAfter < 0;
+  const managerName = me?.manager_name || '';
+  const missing = [!form.leave_type && 'kategori', dates.length === 0 && 'tanggal', !form.reason.trim() && 'alasan', !file && 'dokumen']
+    .filter(Boolean)
+    .join(', ');
 
   function togglePortion(d: string) {
     setHalfDays((prev) => (prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d]));
@@ -152,97 +227,123 @@ export function LeaveForm({ redirectTo = '/dashboard/leave' }: { redirectTo?: st
     );
   }
 
+  const dateSummary =
+    dates.length === 0
+      ? '—'
+      : dates.length === 1
+        ? formatIsoShort(dates[0])
+        : `${formatIsoShort(dates[0])} – ${formatIsoShort(dates[dates.length - 1])}`;
+
   return (
-    <div className='flex flex-1 flex-col gap-4 p-4 md:p-6'>
-      <div>
-        <h2 className='text-2xl font-bold tracking-tight'>Pengajuan Izin / Cuti</h2>
-        <p className='text-muted-foreground text-sm'>Isi formulir untuk mengajukan izin atau cuti.</p>
+    <div className='flex flex-1 flex-col gap-6 p-4 md:p-8'>
+      <div className='space-y-3'>
+        <Link href={redirectTo} className='text-muted-foreground hover:text-foreground inline-flex items-center gap-1.5 text-sm'>
+          <Icons.arrowLeft className='size-4' />
+          Kembali ke Izin &amp; Cuti
+        </Link>
+        <div>
+          <h2 className='text-3xl font-bold tracking-tight'>Pengajuan Izin / Cuti</h2>
+          <p className='text-muted-foreground mt-1'>Lengkapi tiga langkah di bawah. Ringkasan di sebelah kanan ikut terisi otomatis.</p>
+        </div>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Pengajuan Baru</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={submit} className='grid grid-cols-1 gap-3 md:grid-cols-4'>
-            <div>
-              <Label className='text-xs'>Jenis</Label>
-              <select
-                className='border-input h-9 w-full rounded-lg border bg-transparent px-2.5 text-sm'
-                value={kind}
-                onChange={(e) => {
-                  const k = e.target.value as 'LEAVE' | 'PERMISSION';
-                  setKind(k);
-                  setForm((f) => ({ ...f, leave_type: '' }));
-                }}
-              >
-                <option value='LEAVE'>Cuti</option>
-                <option value='PERMISSION'>Izin</option>
-              </select>
+      <form onSubmit={submit} className='grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_340px]'>
+        <div className='space-y-6'>
+          <Step n={1} title='Jenis pengajuan'>
+            <div className='grid gap-3 sm:grid-cols-2'>
+              {KINDS.map((k) => {
+                const active = kind === k.value;
+                return (
+                  <label
+                    key={k.value}
+                    className={cn(
+                      'flex cursor-pointer items-start gap-3 rounded-xl border-2 px-4 py-3.5 transition-colors',
+                      active ? 'border-primary bg-primary/5' : 'border-border hover:bg-muted/40'
+                    )}
+                  >
+                    <input
+                      type='radio'
+                      name='kind'
+                      value={k.value}
+                      checked={active}
+                      onChange={() => {
+                        setKind(k.value);
+                        setForm((f) => ({ ...f, leave_type: '' }));
+                      }}
+                      className='accent-primary mt-1 size-4'
+                    />
+                    <span>
+                      <span className='block font-semibold'>{k.label}</span>
+                      <span className='text-muted-foreground block text-sm'>{k.hint}</span>
+                    </span>
+                  </label>
+                );
+              })}
             </div>
-            <div>
-              <Label className='text-xs'>Atasan / Reporting To</Label>
-              <Input
-                readOnly
-                value={me?.manager_name || ''}
-                placeholder='Belum ditentukan'
-                className='bg-muted/50'
-              />
-            </div>
-            <div>
-              <Label className='text-xs'>Kategori</Label>
-              <select
-                className='border-input h-9 w-full rounded-lg border bg-transparent px-2.5 text-sm'
-                value={form.leave_type}
-                onChange={(e) => setForm((f) => ({ ...f, leave_type: e.target.value }))}
-              >
-                <option value=''>Pilih kategori</option>
-                {types
-                  .filter((t) => t.is_active && t.kind === kind)
-                  .map((t) => (
-                    <option key={t.id} value={t.id}>
-                      {t.name}
-                    </option>
-                  ))}
-              </select>
-            </div>
-            <div className='md:col-span-4'>
-              <Label className='text-xs'>
-                Tanggal Izin/Cuti <span className='text-destructive'>*</span>{' '}
-                <span className='text-muted-foreground'>(klik tanggal untuk memilih; boleh tidak berurutan)</span>
-              </Label>
-              <div className='mt-1 flex flex-col gap-3 md:flex-row'>
-                <MultiDateCalendar value={dates} onChange={setDates} minDate={earliestIso} />
-                <div className='flex-1 space-y-2'>
-                  {noticeDays > 0 && (
-                    <p className='rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-300'>
-                      {selectedType?.name} wajib diajukan <span className='font-semibold'>paling lambat H-{noticeDays}</span>{' '}
-                      (minimal {noticeDays} hari sebelum tanggal izin/cuti). Tanggal paling awal yang bisa dipilih:{' '}
-                      <span className='font-semibold'>{formatIsoShort(earliestIso)}</span>.
-                    </p>
-                  )}
-                  <p className='text-sm'>
-                    Total: <span className='font-semibold'>{formatDays(totalDays)} hari</span>
-                  </p>
-                  {quota && (
-                    <p className='text-muted-foreground text-xs'>
-                      Sisa kuota {quota.leave_type_name} per hari ini:{' '}
-                      <span className='text-foreground font-medium'>{formatDays(quota.remaining_days)} hari</span>
-                      {quota.pending_days > 0 && ` (${formatDays(quota.pending_days)} hari menunggu persetujuan)`}
-                    </p>
-                  )}
-                  {halfDayAllowed && dates.length > 0 && (
-                    <p className='text-muted-foreground text-xs'>Klik Full/Half pada tiap tanggal (Full Day = 1, Half Day = 0,5).</p>
-                  )}
-                  {dates.length === 0 ? (
-                    <p className='text-muted-foreground text-sm'>Belum ada tanggal dipilih.</p>
+            <div className='grid gap-4 sm:grid-cols-2'>
+              <div className='space-y-1.5'>
+                <Label htmlFor='leave-type'>
+                  Kategori <span className='text-destructive'>*</span>
+                </Label>
+                <select
+                  id='leave-type'
+                  className='border-input bg-background h-10 w-full rounded-lg border px-3 text-sm'
+                  value={form.leave_type}
+                  onChange={(e) => setForm((f) => ({ ...f, leave_type: e.target.value }))}
+                >
+                  <option value=''>Pilih kategori</option>
+                  {types
+                    .filter((t) => t.is_active && t.kind === kind)
+                    .map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.name}
+                      </option>
+                    ))}
+                </select>
+              </div>
+              <div className='space-y-1.5'>
+                <Label>Disetujui oleh</Label>
+                <div className='bg-muted/50 flex h-10 items-center gap-2.5 rounded-lg border px-3 text-sm'>
+                  {managerName ? (
+                    <>
+                      <span className='bg-background text-muted-foreground flex size-6 items-center justify-center rounded-full border text-[10px] font-semibold'>
+                        {initials(managerName)}
+                      </span>
+                      <span className='min-w-0 flex-1 truncate font-medium'>{managerName}</span>
+                      <span className='text-muted-foreground text-xs'>Atasan langsung</span>
+                    </>
                   ) : (
+                    <span className='text-muted-foreground'>Belum ditentukan</span>
+                  )}
+                </div>
+              </div>
+            </div>
+          </Step>
+
+          <Step n={2} title='Pilih tanggal' required hint='Klik untuk memilih; boleh tidak berurutan.'>
+            <div className='grid gap-6 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]'>
+              <MultiDateCalendar value={dates} onChange={setDates} minDate={earliestIso} />
+              <div className='space-y-3'>
+                <p className='flex items-baseline gap-2'>
+                  <span className='text-5xl font-semibold tabular-nums'>{formatDays(totalDays)}</span>
+                  <span className='text-lg'>hari dipilih</span>
+                </p>
+                {noticeDays > 0 && (
+                  <p className='rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-300'>
+                    {selectedType?.name} wajib diajukan <span className='font-semibold'>paling lambat H-{noticeDays}</span>. Tanggal paling
+                    awal: <span className='font-semibold'>{formatIsoShort(earliestIso)}</span>.
+                  </p>
+                )}
+                {dates.length === 0 ? (
+                  <p className='text-muted-foreground text-sm'>Belum ada tanggal dipilih. Tanggal sebelum hari ini tidak bisa dipilih.</p>
+                ) : (
+                  <>
+                    {halfDayAllowed && (
+                      <p className='text-muted-foreground text-xs'>Klik Full/Half pada tiap tanggal (Full Day = 1, Half Day = 0,5).</p>
+                    )}
                     <div className='flex flex-wrap gap-1.5'>
                       {dates.map((d) => (
-                        <span
-                          key={d}
-                          className='bg-muted flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium'
-                        >
+                        <span key={d} className='bg-muted flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium'>
                           {formatIsoShort(d)}
                           {halfDayAllowed && (
                             <button
@@ -265,46 +366,147 @@ export function LeaveForm({ redirectTo = '/dashboard/leave' }: { redirectTo?: st
                         </span>
                       ))}
                     </div>
-                  )}
-                </div>
+                  </>
+                )}
               </div>
             </div>
-            <div className='md:col-span-4'>
-              <Label className='text-xs'>
-                Berkas/Dokumen Pendukung <span className='text-destructive'>*</span>
+          </Step>
+
+          <Step n={3} title='Alasan & dokumen'>
+            <div className='space-y-1.5'>
+              <Label htmlFor='leave-reason'>
+                Alasan pengajuan <span className='text-destructive'>*</span>
               </Label>
-              <input
-                type='file'
-                required
-                className='mt-1 block w-full text-sm text-muted-foreground file:mr-3 file:rounded-md file:border-0 file:bg-primary file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-primary-foreground hover:file:bg-primary/80'
-                onChange={(e) => setFile(e.target.files?.[0] || null)}
-              />
-              <p className='text-muted-foreground mt-1 text-xs'>
-                Lampirkan dokumen pendukung yang relevan, seperti surat keterangan dokter untuk izin sakit lebih dari 1 hari, atau dokumen lainnya yang diperlukan. Untuk pengajuan izin, harap melampirkan bukti persetujuan dari User/Atasan (misalnya screenshot persetujuan melalui WhatsApp).
-              </p>
-            </div>
-            <div className='md:col-span-4'>
-              <Label className='text-xs'>
-                Alasan Pengajuan <span className='text-destructive'>*</span>
-              </Label>
-              <Input
-                required
-                placeholder='Alasan pengajuan'
+              <textarea
+                id='leave-reason'
+                rows={4}
+                placeholder='Contoh: Acara keluarga di luar kota'
+                className='border-input bg-background w-full rounded-lg border px-3 py-2.5 text-sm'
                 value={form.reason}
                 onChange={(e) => setForm((f) => ({ ...f, reason: e.target.value }))}
               />
             </div>
-            <div className='flex items-center gap-2 md:col-span-4'>
-              <Button type='submit' disabled={submitting}>
-                {submitting ? 'Mengirim...' : 'Kirim Pengajuan'}
-              </Button>
-              <Button type='button' variant='ghost' onClick={() => router.push(redirectTo)} disabled={submitting}>
-                Batal
-              </Button>
+            <div className='space-y-1.5'>
+              <Label>
+                Dokumen pendukung <span className='text-destructive'>*</span>
+              </Label>
+              <div
+                role='button'
+                tabIndex={0}
+                onClick={() => fileInput.current?.click()}
+                onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && fileInput.current?.click()}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  setDragging(true);
+                }}
+                onDragLeave={() => setDragging(false)}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  setDragging(false);
+                  pickFile(e.dataTransfer.files?.[0] ?? null);
+                }}
+                className={cn(
+                  'flex cursor-pointer items-center gap-4 rounded-xl border border-dashed px-4 py-4 transition-colors',
+                  dragging ? 'border-primary bg-primary/5' : 'bg-muted/30 hover:bg-muted/50'
+                )}
+              >
+                <span className='bg-background flex size-11 shrink-0 items-center justify-center rounded-lg border'>
+                  <Icons.upload className='size-5' />
+                </span>
+                <span className='min-w-0 flex-1'>
+                  {file ? (
+                    <>
+                      <span className='block truncate font-medium'>{file.name}</span>
+                      <span className='text-muted-foreground block text-xs'>{(file.size / 1024 / 1024).toFixed(2)} MB · klik untuk mengganti</span>
+                    </>
+                  ) : (
+                    <>
+                      <span className='block font-medium'>Klik untuk unggah atau seret file ke sini</span>
+                      <span className='text-muted-foreground block text-xs'>PDF, JPG atau PNG · maks. {FILE_MAX_MB} MB</span>
+                    </>
+                  )}
+                </span>
+                {file ? (
+                  <Button
+                    type='button'
+                    variant='ghost'
+                    size='sm'
+                    aria-label='Hapus file'
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setFile(null);
+                      if (fileInput.current) fileInput.current.value = '';
+                    }}
+                  >
+                    <Icons.close className='size-4' />
+                  </Button>
+                ) : (
+                  <span className='bg-background shrink-0 rounded-lg border px-4 py-2 text-sm font-medium'>Pilih file</span>
+                )}
+              </div>
+              <input
+                ref={fileInput}
+                type='file'
+                className='hidden'
+                accept='.pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png'
+                onChange={(e) => {
+                  pickFile(e.target.files?.[0] ?? null);
+                  e.target.value = '';
+                }}
+              />
             </div>
-          </form>
-        </CardContent>
-      </Card>
+            <p className='flex items-start gap-2 rounded-lg bg-sky-50 px-4 py-3 text-sm text-sky-900 dark:bg-sky-950/40 dark:text-sky-200'>
+              <Icons.info className='mt-0.5 size-4 shrink-0' />
+              {kind === 'LEAVE'
+                ? 'Lampirkan dokumen pendukung yang relevan untuk pengajuan cuti Anda.'
+                : 'Untuk izin, lampirkan bukti persetujuan atasan (mis. screenshot WhatsApp). Untuk sakit lebih dari 1 hari, lampirkan surat keterangan dokter.'}
+            </p>
+          </Step>
+        </div>
+
+        <Card className='gap-4 px-6 py-6 lg:sticky lg:top-20'>
+          <h3 className='text-base font-semibold'>Ringkasan</h3>
+          <div className='space-y-3.5'>
+            <SummaryRow label='Jenis' value={kind === 'LEAVE' ? 'Cuti' : 'Izin'} />
+            <SummaryRow label='Kategori' value={selectedType?.name ?? '—'} />
+            <SummaryRow label='Tanggal' value={dateSummary} />
+            <SummaryRow label='Total' value={`${formatDays(totalDays)} hari`} />
+            <SummaryRow label='Disetujui oleh' value={managerName || '—'} />
+          </div>
+          {shownQuota && (
+            <div className='space-y-2 border-t pt-4'>
+              <div className='flex items-baseline justify-between text-sm'>
+                <span className='text-muted-foreground'>Sisa cuti setelah pengajuan</span>
+                <span className={cn('font-semibold tabular-nums', overQuota && 'text-destructive')}>
+                  {formatDays(remainingAfter)} / {formatDays(remainingNow)} hari
+                </span>
+              </div>
+              <div className='bg-muted h-2 overflow-hidden rounded-full'>
+                <div
+                  className={cn('h-full rounded-full', overQuota ? 'bg-destructive' : 'bg-primary')}
+                  style={{ width: `${remainingNow > 0 ? Math.max(0, Math.min(100, (remainingAfter / remainingNow) * 100)) : 0}%` }}
+                />
+              </div>
+              <p className={cn('text-xs', overQuota ? 'text-destructive' : 'text-muted-foreground')}>
+                {!selectedType
+                  ? 'Pilih kategori untuk menghitung sisa kuota.'
+                  : overQuota
+                    ? `Melebihi sisa kuota ${quota?.leave_type_name}.`
+                    : quota
+                      ? `Memotong kuota ${quota.leave_type_name}${quota.pending_days > 0 ? ` · ${formatDays(quota.pending_days)} hari masih menunggu persetujuan` : ''}.`
+                      : 'Kategori ini tidak memotong kuota cuti tahunan.'}
+              </p>
+            </div>
+          )}
+          <Button type='submit' size='lg' className='w-full' disabled={submitting || !!missing}>
+            {submitting ? 'Mengirim...' : 'Kirim Pengajuan'}
+          </Button>
+          {missing && <p className='text-muted-foreground -mt-1 text-center text-xs'>Lengkapi {missing} untuk mengirim.</p>}
+          <Button type='button' variant='ghost' className='w-full' onClick={() => router.push(redirectTo)} disabled={submitting}>
+            Batal
+          </Button>
+        </Card>
+      </form>
     </div>
   );
 }
