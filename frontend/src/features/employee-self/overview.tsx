@@ -1,17 +1,17 @@
 'use client';
 
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { buttonVariants } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet';
 import { Icons } from '@/components/icons';
 import { cn } from '@/lib/utils';
 import { WhosOffToday } from '@/features/leaves/whos-off-today';
-import { listAnnouncements, type Announcement } from '@/lib/announcements';
+import { AnnouncementFeed } from '@/features/announcements/announcement-feed';
 import { getUpcomingBirthdays, type UpcomingBirthday } from '@/lib/dashboard';
 import { formatDays, getMyBalances, listLeaveRequests, type LeaveRequest, type MyBalance } from '@/lib/leaves';
+import { listMyPayslips, type MyPayroll } from '@/lib/payroll';
 import { getReimbursementSummary, type ReimbursementSummary } from '@/lib/reimbursements';
 import { useMyEmployee } from './use-my-employee';
 
@@ -59,21 +59,53 @@ function MiniStat({ label, value }: { label: string; value: number | string }) {
   );
 }
 
-function InfoRow({ icon, title, subtitle, children }: { icon: keyof typeof Icons; title: string; subtitle: string; children?: ReactNode }) {
-  const Icon = Icons[icon];
+function rupiah(value: string): string {
+  return `Rp ${Math.round(Number(value) || 0).toLocaleString('id-ID')}`;
+}
+
+/** Latest released payslip; the amount stays hidden until "Tampilkan". */
+export function LatestPayslipCard({
+  payslip,
+  href = '/dashboard/employee/payslip'
+}: {
+  /** undefined = loading, null = none released yet. */
+  payslip: MyPayroll | null | undefined;
+  href?: string;
+}) {
+  const [shown, setShown] = useState(false);
   return (
-    <div className='px-5 py-4'>
-      <div className='flex items-center gap-3'>
-        <span className='bg-muted flex size-10 shrink-0 items-center justify-center rounded-lg'>
-          <Icon className='size-5' />
-        </span>
-        <div className='min-w-0'>
-          <p className='text-sm font-semibold'>{title}</p>
-          <p className='text-muted-foreground truncate text-sm'>{subtitle}</p>
-        </div>
+    <Card className='gap-4 px-5 py-5'>
+      <div className='flex items-center justify-between gap-2'>
+        <h3 className='text-base font-semibold'>Slip gaji terbaru</h3>
+        {payslip && (
+          <button
+            type='button'
+            onClick={() => setShown((v) => !v)}
+            aria-pressed={shown}
+            className={buttonVariants({ variant: 'outline', size: 'sm' })}
+          >
+            {shown ? <Icons.eyeOff className='size-4' /> : <Icons.eye className='size-4' />}
+            {shown ? 'Sembunyikan' : 'Tampilkan'}
+          </button>
+        )}
       </div>
-      {children}
-    </div>
+      {payslip === undefined ? (
+        <Skeleton className='h-14 w-full' />
+      ) : payslip ? (
+        <div>
+          <p className='text-muted-foreground text-sm'>{payslip.period_label} · take home pay</p>
+          <p className='mt-1 text-3xl font-semibold tabular-nums'>
+            {shown ? rupiah(payslip.transfer_amount || payslip.net_salary) : 'Rp ••••••••'}
+          </p>
+        </div>
+      ) : (
+        <p className='text-muted-foreground text-sm'>Belum ada slip gaji yang dirilis.</p>
+      )}
+      <Link href={href} className={cn(buttonVariants({ variant: 'outline' }), 'w-full')}>
+        <Icons.download className='size-4' />
+        Unduh &amp; lihat semua slip
+      </Link>
+    </Card>
   );
 }
 
@@ -87,27 +119,26 @@ export function EmployeeOverview() {
   const { employee, contracts, loading: profileLoading } = useMyEmployee();
   const [balances, setBalances] = useState<MyBalance[]>([]);
   const [requests, setRequests] = useState<LeaveRequest[]>([]);
-  const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [birthdays, setBirthdays] = useState<UpcomingBirthday[]>([]);
   const [reimbursement, setReimbursement] = useState<ReimbursementSummary | null>(null);
   const [loading, setLoading] = useState(true);
-  const [detail, setDetail] = useState<Announcement | null>(null);
+  const [payslip, setPayslip] = useState<MyPayroll | null | undefined>(undefined);
 
   const load = useCallback(async () => {
-    const [b, r, a, rs, bd] = await Promise.all([
+    const [b, r, rs, bd, ps] = await Promise.all([
       getMyBalances().catch(() => [] as MyBalance[]),
       listLeaveRequests(),
-      listAnnouncements(),
       getReimbursementSummary(true).catch(() => null),
-      getUpcomingBirthdays().catch(() => ({ results: [] as UpcomingBirthday[] }))
+      getUpcomingBirthdays().catch(() => ({ results: [] as UpcomingBirthday[] })),
+      listMyPayslips().catch(() => [] as MyPayroll[])
     ]);
     // HR staff sees all data server-side; scope to own employee when linked.
     const myId = employee?.id ?? null;
     setBalances(b);
     setRequests(myId ? r.filter((x) => x.employee === myId) : r);
-    setAnnouncements(a.filter((x) => x.status === 'ACTIVE').slice(0, 3));
     setReimbursement(rs);
     setBirthdays(bd.results);
+    setPayslip(ps[0] ?? null);
     setLoading(false);
   }, [employee?.id]);
 
@@ -282,59 +313,47 @@ export function EmployeeOverview() {
         </Card>
       </div>
 
-      <div className='grid grid-cols-1 items-start gap-4 lg:grid-cols-3'>
-        <WhosOffToday wide className='lg:col-span-2' description='Rekan kerja yang sedang izin atau cuti hari ini' />
+      <div className='grid grid-cols-1 items-start gap-5 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]'>
+        <div className='flex min-w-0 flex-col gap-5'>
+          <AnnouncementFeed />
+          <WhosOffToday wide description='Rekan kerja yang sedang izin atau cuti hari ini' />
+        </div>
 
-        <div className='flex flex-col gap-4'>
-          <Card className='gap-0 divide-y py-0'>
-            <InfoRow
-              icon='speakerphone'
-              title='Pengumuman'
-              subtitle={announcements.length === 0 ? 'Belum ada pengumuman' : `${announcements.length} pengumuman terbaru`}
-            >
-              {announcements.length > 0 && (
-                <ul className='mt-3 space-y-1'>
-                  {announcements.map((a) => (
-                    <li key={a.id}>
-                      <button
-                        type='button'
-                        onClick={() => setDetail(a)}
-                        className='hover:bg-muted block w-full rounded-md px-2 py-1.5 text-left'
-                      >
-                        <p className='truncate text-sm font-medium'>{a.title}</p>
-                        <p className='text-muted-foreground text-xs'>{fmtDate(a.created_at)}</p>
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </InfoRow>
-            <InfoRow
-              icon='cake'
-              title='Ulang Tahun · 7 Hari'
-              subtitle={birthdays.length === 0 ? 'Tidak ada ulang tahun minggu ini' : `${birthdays.length} rekan berulang tahun`}
-            >
-              {birthdays.length > 0 && (
-                <ul className='mt-3 space-y-2'>
-                  {birthdays.map((b) => (
-                    <li key={b.id} className='flex items-center justify-between gap-2 text-sm'>
-                      <span className='min-w-0 truncate'>
-                        {b.full_name}
-                        <span className='text-muted-foreground'> · {b.department_name || '-'}</span>
-                      </span>
-                      <span
-                        className={cn(
-                          'shrink-0 text-xs tabular-nums',
-                          b.days_until === 0 ? 'text-primary font-semibold' : 'text-muted-foreground'
-                        )}
-                      >
-                        {b.days_until === 0 ? 'Hari ini 🎉' : fmtDate(b.next_birthday, { day: 'numeric', month: 'short' })}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </InfoRow>
+        <div className='flex min-w-0 flex-col gap-5'>
+          <LatestPayslipCard payslip={payslip} />
+
+          <Card className='px-5 py-5'>
+            <div className='flex items-center gap-3'>
+              <span className='bg-muted flex size-11 shrink-0 items-center justify-center rounded-xl'>
+                <Icons.cake className='size-5' />
+              </span>
+              <div className='min-w-0'>
+                <p className='text-sm font-semibold'>Ulang tahun · 7 hari</p>
+                <p className='text-muted-foreground truncate text-sm'>
+                  {birthdays.length === 0 ? 'Tidak ada ulang tahun minggu ini' : `${birthdays.length} rekan berulang tahun`}
+                </p>
+              </div>
+            </div>
+            {birthdays.length > 0 && (
+              <ul className='mt-3 space-y-2 pl-14'>
+                {birthdays.map((b) => (
+                  <li key={b.id} className='flex items-center justify-between gap-2 text-sm'>
+                    <span className='min-w-0 truncate'>
+                      {b.full_name}
+                      <span className='text-muted-foreground'> · {b.department_name || '-'}</span>
+                    </span>
+                    <span
+                      className={cn(
+                        'shrink-0 text-xs tabular-nums',
+                        b.days_until === 0 ? 'text-primary font-semibold' : 'text-muted-foreground'
+                      )}
+                    >
+                      {b.days_until === 0 ? 'Hari ini' : fmtDate(b.next_birthday, { day: 'numeric', month: 'short' })}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
           </Card>
 
           <Card className='gap-1 px-5 py-5'>
@@ -356,19 +375,6 @@ export function EmployeeOverview() {
           </Card>
         </div>
       </div>
-
-      <Sheet open={detail !== null} onOpenChange={(o) => !o && setDetail(null)}>
-        <SheetContent side='right' className='w-full sm:max-w-md'>
-          <SheetHeader>
-            <SheetTitle>{detail?.title}</SheetTitle>
-            <SheetDescription>
-              Dipublikasikan {detail ? fmtDate(detail.created_at) : ''}
-              {detail?.created_by_name ? ` · ${detail.created_by_name}` : ''}
-            </SheetDescription>
-          </SheetHeader>
-          <div className='whitespace-pre-wrap px-4 py-4 text-sm'>{detail?.body}</div>
-        </SheetContent>
-      </Sheet>
     </div>
   );
 }

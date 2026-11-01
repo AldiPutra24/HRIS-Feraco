@@ -30,11 +30,13 @@ import { getHrDashboard, type HrDashboard } from '@/lib/dashboard';
 import type { OffTodayItem } from '@/lib/leaves';
 import { WhosOffToday } from '@/features/leaves/whos-off-today';
 import {
+  ANNOUNCEMENT_CATEGORY_LABEL,
   createAnnouncement,
   deleteAnnouncement,
   listAnnouncements,
   updateAnnouncement,
-  type Announcement
+  type Announcement,
+  type AnnouncementCategory
 } from '@/lib/announcements';
 import { RecentActivities } from '@/features/hris-dashboard/components/recent-activities';
 
@@ -267,6 +269,8 @@ export function OverviewDashboard() {
   const [status, setStatus] = useState<'ACTIVE' | 'INACTIVE'>('ACTIVE');
   const [useEndDate, setUseEndDate] = useState(true);
   const [endDate, setEndDate] = useState('');
+  const [category, setCategory] = useState<AnnouncementCategory>('GENERAL');
+  const [isPinned, setIsPinned] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const defaultEndDate = () => {
@@ -283,6 +287,8 @@ export function OverviewDashboard() {
     setStatus('ACTIVE');
     setUseEndDate(true);
     setEndDate('');
+    setCategory('GENERAL');
+    setIsPinned(false);
   };
 
   const startAdd = () => {
@@ -352,7 +358,9 @@ export function OverviewDashboard() {
         body,
         status,
         use_end_date: useEndDate,
-        end_date: useEndDate && endDate ? endDate : null
+        end_date: useEndDate && endDate ? endDate : null,
+        category,
+        is_pinned: isPinned
       };
       if (editing) {
         await updateAnnouncement(editing.id, payload);
@@ -364,7 +372,7 @@ export function OverviewDashboard() {
     } finally {
       setSaving(false);
     }
-  }, [editing, title, body, status, useEndDate, endDate]);
+  }, [editing, title, body, status, useEndDate, endDate, category, isPinned]);
 
   const startEdit = (a: Announcement) => {
     setEditing(a);
@@ -373,6 +381,8 @@ export function OverviewDashboard() {
     setStatus(a.status);
     setUseEndDate(a.use_end_date);
     setEndDate(a.end_date ?? '');
+    setCategory(a.category);
+    setIsPinned(a.is_pinned);
   };
 
   const remove = async (id: number) => {
@@ -627,10 +637,13 @@ export function OverviewDashboard() {
                   {visibleAnnouncements.map((a) => (
                     <li key={a.id} className='flex items-start justify-between gap-3 px-5 py-3.5'>
                       <div className='min-w-0'>
-                        <p className='truncate text-sm font-medium'>{a.title}</p>
+                        <p className='flex items-center gap-1.5 truncate text-sm font-medium'>
+                          {a.is_pinned && <Icons.pin className='size-3.5 shrink-0 text-orange-600' aria-label='Disematkan' />}
+                          {a.title}
+                        </p>
                         <p className='text-muted-foreground line-clamp-1 text-sm'>{a.body}</p>
                         <p className='text-muted-foreground mt-0.5 text-xs'>
-                          Dibuat {fmtDate(a.created_at)}
+                          {ANNOUNCEMENT_CATEGORY_LABEL[a.category]} · Dibuat {fmtDate(a.created_at)}
                           {a.use_end_date && a.end_date ? ` · berakhir ${fmtDate(a.end_date)}` : ''}
                         </p>
                       </div>
@@ -822,6 +835,26 @@ export function OverviewDashboard() {
               rows={5}
               className='border-border w-full rounded-lg border px-3 py-2 text-sm'
             />
+            <div className='flex flex-wrap items-center gap-3'>
+              <label className='flex items-center gap-2 text-sm'>
+                Kategori
+                <select
+                  value={category}
+                  onChange={(e) => setCategory(e.target.value as AnnouncementCategory)}
+                  className='border-border rounded-lg border px-2 py-1 text-sm'
+                >
+                  {(Object.keys(ANNOUNCEMENT_CATEGORY_LABEL) as AnnouncementCategory[]).map((c) => (
+                    <option key={c} value={c}>
+                      {ANNOUNCEMENT_CATEGORY_LABEL[c]}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <div className='flex items-center gap-2 text-sm'>
+                <Switch checked={isPinned} onCheckedChange={setIsPinned} />
+                <span>Sematkan di atas</span>
+              </div>
+            </div>
             <div className='flex flex-wrap items-center gap-3'>
               <label className='flex items-center gap-2 text-sm'>
                 Status

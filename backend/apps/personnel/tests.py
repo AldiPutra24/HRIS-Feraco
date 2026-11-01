@@ -1447,6 +1447,8 @@ class GeneralManagerOverviewTests(TestCase):
         self.assertEqual([c['employee_name'] for c in company['contracts_ending']], ['Deep Report'])
         self.assertEqual(company['contracts_ending'][0]['days_left'], 10)
         self.assertEqual(company['contracts_ending_30d'], 1)
+        self.assertEqual(company['contracts_ending_60d'], 1)
+        self.assertEqual(company['contracts_ending_total'], 1)
         self.assertEqual(len(company['latest_employees']), 4)
 
     def test_attention_lists_only_direct_reports(self):

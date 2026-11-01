@@ -74,6 +74,7 @@ export function WhosOffToday({
   className,
   description = 'Izin & cuti yang disetujui hari ini',
   wide = false,
+  compact = false,
   scope,
   onLoaded
 }: {
@@ -82,6 +83,8 @@ export function WhosOffToday({
   description?: string;
   /** Wide card: tabs beside the title and a two-column list. */
   wide?: boolean;
+  /** Narrow card without category tabs; the description shows the counts. */
+  compact?: boolean;
   /** Department / position filter (HR overview). */
   scope?: OffTodayFilter;
   /** Lets a dashboard reuse the same data (e.g. a "Sedang Cuti" stat card). */
@@ -147,7 +150,11 @@ export function WhosOffToday({
       <div className='flex flex-wrap items-start justify-between gap-x-4 gap-y-3 px-5 pt-5 pb-4'>
         <div>
           <h3 className='text-base font-semibold'>Who&apos;s Off Today</h3>
-          <p className='text-muted-foreground text-sm'>{description}</p>
+          <p className='text-muted-foreground text-sm'>
+            {compact && items
+              ? `${count('ANNUAL')} cuti tahunan · ${count('SICK')} sakit · ${count('OTHER')} lainnya`
+              : description}
+          </p>
         </div>
         {href && (
           <Link href={href} className='inline-flex shrink-0 items-center gap-1 text-sm font-medium hover:underline'>
@@ -158,7 +165,7 @@ export function WhosOffToday({
         {wide && tabBar}
       </div>
 
-      {!wide && <div className='px-5 pb-4'>{tabBar}</div>}
+      {!wide && !compact && <div className='px-5 pb-4'>{tabBar}</div>}
 
       <div className='border-t'>
         {error ? (

@@ -99,6 +99,9 @@ export type CompanyOverview = {
   departments: CompanyDepartment[];
   contracts_ending: CompanyContractEnding[];
   contracts_ending_30d: number;
+  contracts_ending_60d: number;
+  /** All active contracts with a future end date. */
+  contracts_ending_total: number;
   latest_employees: CompanyEmployee[];
 };
 

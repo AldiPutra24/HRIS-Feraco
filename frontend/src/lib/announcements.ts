@@ -35,6 +35,18 @@ export type Announcement = {
   status: 'ACTIVE' | 'INACTIVE';
   use_end_date: boolean;
   end_date: string | null;
+  category: AnnouncementCategory;
+  is_pinned: boolean;
+  /** Read by the current user. */
+  is_read: boolean;
+};
+
+export type AnnouncementCategory = 'GENERAL' | 'POLICY' | 'EVENT';
+
+export const ANNOUNCEMENT_CATEGORY_LABEL: Record<AnnouncementCategory, string> = {
+  GENERAL: 'Umum',
+  POLICY: 'Kebijakan',
+  EVENT: 'Acara'
 };
 
 export function listAnnouncements(): Promise<Announcement[]> {
@@ -47,6 +59,8 @@ export function createAnnouncement(input: {
   status?: 'ACTIVE' | 'INACTIVE';
   use_end_date?: boolean;
   end_date?: string | null;
+  category?: AnnouncementCategory;
+  is_pinned?: boolean;
 }): Promise<Announcement> {
   return request<Announcement>('/', { method: 'POST', body: JSON.stringify(input) });
 }
@@ -59,6 +73,8 @@ export function updateAnnouncement(
     status?: 'ACTIVE' | 'INACTIVE';
     use_end_date?: boolean;
     end_date?: string | null;
+    category?: AnnouncementCategory;
+    is_pinned?: boolean;
   }
 ): Promise<Announcement> {
   return request<Announcement>(`/${id}/`, { method: 'PATCH', body: JSON.stringify(input) });
@@ -66,4 +82,12 @@ export function updateAnnouncement(
 
 export function deleteAnnouncement(id: number): Promise<void> {
   return request<void>(`/${id}/`, { method: 'DELETE' });
+}
+
+export function markAnnouncementRead(id: number): Promise<void> {
+  return request<void>(`/${id}/read/`, { method: 'POST' });
+}
+
+export function markAllAnnouncementsRead(): Promise<{ marked: number }> {
+  return request<{ marked: number }>('/mark-all-read/', { method: 'POST' });
 }

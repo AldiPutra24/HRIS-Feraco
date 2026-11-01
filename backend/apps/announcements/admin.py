@@ -5,5 +5,5 @@ from .models import Announcement
 
 @admin.register(Announcement)
 class AnnouncementAdmin(admin.ModelAdmin):
-    list_display = ('title', 'created_by', 'created_at', 'updated_at')
+    list_display = ('title', 'category', 'is_pinned', 'created_by', 'created_at', 'updated_at')
     search_fields = ('title', 'body')

@@ -7,7 +7,7 @@ from django.utils import timezone
 
 from apps.accounts.models import Role
 
-from .models import Announcement, STATUS_ACTIVE, STATUS_INACTIVE
+from .models import Announcement, AnnouncementRead, CATEGORY_POLICY, STATUS_ACTIVE, STATUS_INACTIVE
 
 User = get_user_model()
 
@@ -134,3 +134,66 @@ class AnnouncementDefaultsAndExpiryTests(TestCase):
         self.client.get(self.list_url)
         a.refresh_from_db()
         self.assertEqual(a.status, STATUS_ACTIVE)
+
+
+class AnnouncementReadTests(TestCase):
+    def setUp(self):
+        self.hr = make_user('HR_STAFF', 'hr@test.com')
+        self.emp_user = make_user('EMPLOYEE', 'emp@test.com')
+        self.other = make_user('EMPLOYEE', 'other@test.com')
+        self.list_url = reverse('announcement-list')
+
+    def _list(self, user):
+        self.client.force_login(user)
+        return self.client.get(self.list_url).json()['results']
+
+    def test_pinned_first_with_category_and_unread(self):
+        Announcement.objects.create(title='old pinned', body='b', is_pinned=True, category=CATEGORY_POLICY)
+        Announcement.objects.create(title='new', body='b')
+        rows = self._list(self.emp_user)
+        self.assertEqual([r['title'] for r in rows], ['old pinned', 'new'])
+        self.assertEqual(rows[0]['category'], CATEGORY_POLICY)
+        self.assertTrue(rows[0]['is_pinned'])
+        self.assertEqual([r['is_read'] for r in rows], [False, False])
+
+    def test_read_is_per_user(self):
+        a = Announcement.objects.create(title='t', body='b')
+        self.client.force_login(self.emp_user)
+        res = self.client.post(reverse('announcement-read', args=[a.pk]))
+        self.assertEqual(res.status_code, 204)
+        # Idempotent.
+        self.assertEqual(self.client.post(reverse('announcement-read', args=[a.pk])).status_code, 204)
+        self.assertEqual(AnnouncementRead.objects.count(), 1)
+        self.assertTrue(self._list(self.emp_user)[0]['is_read'])
+        self.assertFalse(self._list(self.other)[0]['is_read'])
+
+    def test_employee_cannot_read_hidden(self):
+        a = Announcement.objects.create(title='t', body='b', status=STATUS_INACTIVE)
+        self.client.force_login(self.emp_user)
+        self.assertEqual(self.client.post(reverse('announcement-read', args=[a.pk])).status_code, 404)
+
+    def test_mark_all_read_only_visible(self):
+        Announcement.objects.create(title='a', body='b')
+        Announcement.objects.create(title='b', body='b')
+        Announcement.objects.create(title='hidden', body='b', status=STATUS_INACTIVE)
+        self.client.force_login(self.emp_user)
+        res = self.client.post(reverse('announcement-mark-all-read'))
+        self.assertEqual(res.json(), {'marked': 2})
+        self.assertEqual(self.client.post(reverse('announcement-mark-all-read')).json(), {'marked': 0})
+        self.assertTrue(all(r['is_read'] for r in self._list(self.emp_user)))
+
+    def test_employee_cannot_pin(self):
+        a = Announcement.objects.create(title='t', body='b')
+        self.client.force_login(self.emp_user)
+        res = self.client.patch(reverse('announcement-detail', args=[a.pk]), {'is_pinned': True}, content_type='application/json')
+        self.assertEqual(res.status_code, 403)
+
+    def test_hr_sets_category_and_pin(self):
+        self.client.force_login(self.hr)
+        res = self.client.post(
+            self.list_url,
+            {'title': 't', 'body': 'b', 'category': 'EVENT', 'is_pinned': True},
+            content_type='application/json',
+        )
+        self.assertEqual(res.status_code, 201)
+        self.assertEqual((res.json()['category'], res.json()['is_pinned'], res.json()['is_read']), ('EVENT', True, False))

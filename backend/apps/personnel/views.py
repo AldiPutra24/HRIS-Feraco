@@ -968,6 +968,9 @@ class DashboardManagementView(APIView):
             'departments': departments,
             'contracts_ending': contracts_ending,
             'contracts_ending_30d': ending_qs.filter(end_date__lte=today + datetime.timedelta(days=30)).count(),
+            'contracts_ending_60d': ending_qs.filter(end_date__lte=today + datetime.timedelta(days=60)).count(),
+            # All active contracts with a future end date ("dari N kontrak terpantau").
+            'contracts_ending_total': ending_qs.count(),
             'latest_employees': latest,
         }
 
