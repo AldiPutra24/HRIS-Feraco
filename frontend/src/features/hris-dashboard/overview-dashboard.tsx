@@ -49,21 +49,18 @@ type FilterOption = { id: number; name: string; hint?: string };
 
 /** Header dropdown that filters the overview (not a link to the settings page). */
 function FilterMenu({
-  icon,
   label,
   allLabel,
   options,
   value,
   onChange
 }: {
-  icon: keyof typeof Icons;
   label: string;
   allLabel: string;
   options: FilterOption[];
   value: number | null;
   onChange: (id: number | null) => void;
 }) {
-  const Icon = Icons[icon];
   const selected = options.find((o) => o.id === value);
   return (
     <DropdownMenu>
@@ -72,16 +69,15 @@ function FilterMenu({
           <button
             type='button'
             className={cn(
-              buttonVariants({ variant: 'outline' }),
+              buttonVariants({ variant: 'ghost' }),
               'max-w-56',
-              selected && 'border-primary/40 bg-primary/5 text-primary'
+              selected && 'bg-primary/5 text-primary'
             )}
           />
         }
       >
-        <Icon className='size-4 shrink-0' />
         <span className='truncate'>{selected ? selected.name : label}</span>
-        <Icons.chevronDown className='size-4 shrink-0 opacity-60' />
+        {selected && <Icons.chevronDown className='size-4 shrink-0 opacity-60' />}
       </DropdownMenuTrigger>
       <DropdownMenuContent align='end' className='max-h-80 w-64'>
         <DropdownMenuRadioGroup
@@ -108,24 +104,28 @@ function FilterMenu({
   );
 }
 
-/** Contracts within this many days get the "urgent" (orange) treatment. */
-const CONTRACT_URGENT_DAYS = 45;
-/** Contract progress bar scale: a full bar = this many days left. */
-const CONTRACT_BAR_DAYS = 120;
+/** Contracts within this many days are "Segera" (orange); later ones "Pantau". */
+const CONTRACT_URGENT_DAYS = 60;
 
-function fmtDate(iso: string, opts: Intl.DateTimeFormatOptions = { day: '2-digit', month: 'short', year: 'numeric' }): string {
-  if (!iso) return '-';
+type AnnouncementTab = 'LIVE' | 'DRAFT' | 'ARCHIVE';
+
+const ANNOUNCEMENT_TABS: { value: AnnouncementTab; label: string; empty: string }[] = [
+  { value: 'LIVE', label: 'Tayang', empty: 'Belum ada pengumuman' },
+  { value: 'DRAFT', label: 'Draf', empty: 'Tidak ada draf' },
+  { value: 'ARCHIVE', label: 'Arsip', empty: 'Arsip kosong' }
+];
+
+/** Tayang = active & not past its end date; Arsip = past its end date; Draf = inactive otherwise. */
+function announcementTab(a: Announcement, todayIso: string): AnnouncementTab {
+  if (a.use_end_date && a.end_date && a.end_date < todayIso) return 'ARCHIVE';
+  return a.status === 'ACTIVE' ? 'LIVE' : 'DRAFT';
+}
+
+function fmtDate(iso: string | null, opts: Intl.DateTimeFormatOptions = { day: '2-digit', month: 'short', year: 'numeric' }): string {
+  if (!iso) return '—';
   const d = new Date(iso);
   if (isNaN(d.getTime())) return iso;
   return d.toLocaleDateString('id-ID', opts);
-}
-
-function greeting(): string {
-  const h = new Date().getHours();
-  if (h < 11) return 'Selamat pagi';
-  if (h < 15) return 'Selamat siang';
-  if (h < 19) return 'Selamat sore';
-  return 'Selamat malam';
 }
 
 function initials(name: string): string {
@@ -137,58 +137,110 @@ function initials(name: string): string {
     .join('');
 }
 
-function Bar({ value, className }: { value: number; className?: string }) {
-  return (
-    <div className='bg-muted h-1.5 w-full overflow-hidden rounded-full'>
-      <div
-        className={cn('h-full rounded-full', className ?? 'bg-primary')}
-        style={{ width: `${Math.max(0, Math.min(100, value))}%` }}
-      />
-    </div>
-  );
+function localIso(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-function StatCard({
-  label,
-  icon,
-  loading,
-  children
-}: {
-  label: string;
-  icon: keyof typeof Icons;
-  loading: boolean;
-  children: ReactNode;
-}) {
-  const Icon = Icons[icon];
+function Bar({ value, className }: { value: number; className?: string }) {
   return (
-    <Card className='gap-3 px-5 py-5'>
-      <div className='text-muted-foreground flex items-center justify-between text-sm'>
-        <span>{label}</span>
-        <Icon className='size-5' />
-      </div>
-      {loading ? <Skeleton className='h-16 w-full' /> : children}
-    </Card>
+    <div className={cn('bg-muted h-1.5 w-full overflow-hidden rounded-full', className)}>
+      <div className='bg-primary h-full rounded-full' style={{ width: `${Math.max(0, Math.min(100, value))}%` }} />
+    </div>
   );
 }
 
 function SectionHeader({ title, description, action }: { title: string; description?: string; action?: ReactNode }) {
   return (
-    <div className='flex items-start justify-between gap-2 px-5 pt-5 pb-4'>
+    <div className='flex flex-wrap items-start justify-between gap-3 px-5 pt-5 pb-4'>
       <div className='min-w-0'>
         <h3 className='text-base font-semibold'>{title}</h3>
-        {description && <p className='text-muted-foreground text-sm'>{description}</p>}
+        {description && <p className='text-muted-foreground mt-0.5 text-sm'>{description}</p>}
       </div>
       {action}
     </div>
   );
 }
 
-function Avatar({ name, photo }: { name: string; photo?: string | null }) {
+function ArrowLink({ href, onClick, children }: { href?: string; onClick?: () => void; children: ReactNode }) {
+  const className = 'text-primary inline-flex w-fit items-center gap-1 text-sm font-semibold hover:underline';
+  const content = (
+    <>
+      {children}
+      <Icons.arrowRight className='size-4' />
+    </>
+  );
+  return href ? (
+    <Link href={href} className={className}>
+      {content}
+    </Link>
+  ) : (
+    <button type='button' onClick={onClick} className={className}>
+      {content}
+    </button>
+  );
+}
+
+/** "Perlu tindakan" card: chip, big number + label, detail line and an action link. */
+function ActionCard({
+  chip,
+  chipIcon,
+  chipClassName,
+  value,
+  label,
+  detail,
+  action,
+  loading,
+  className
+}: {
+  chip: string;
+  chipIcon: keyof typeof Icons;
+  chipClassName?: string;
+  value: number;
+  label: string;
+  detail: string;
+  action: ReactNode;
+  loading: boolean;
+  className?: string;
+}) {
+  const Icon = Icons[chipIcon];
+  return (
+    <Card className={cn('gap-3 px-5 py-5', className)}>
+      <span
+        className={cn(
+          'inline-flex w-fit items-center gap-1.5 rounded-md px-2 py-0.5 text-xs font-medium',
+          chipClassName ?? 'bg-muted text-foreground'
+        )}
+      >
+        <Icon className='size-3.5' />
+        {chip}
+      </span>
+      {loading ? (
+        <Skeleton className='h-14 w-full' />
+      ) : (
+        <>
+          <p className='flex items-baseline gap-2'>
+            <span className='text-3xl font-semibold tabular-nums'>{value}</span>
+            <span className='text-sm font-medium'>{label}</span>
+          </p>
+          <p className='text-muted-foreground line-clamp-2 text-sm'>{detail}</p>
+        </>
+      )}
+      {action}
+    </Card>
+  );
+}
+
+function Avatar({ name, photo, size = 'size-9' }: { name: string; photo?: string | null; size?: string }) {
   return photo ? (
     // eslint-disable-next-line @next/next/no-img-element
-    <img src={photo} alt='' className='size-8 shrink-0 rounded-full object-cover' />
+    <img src={photo} alt='' className={cn(size, 'shrink-0 rounded-full object-cover')} />
   ) : (
-    <span className='bg-muted text-muted-foreground flex size-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold'>
+    <span
+      className={cn(
+        size,
+        'bg-muted text-muted-foreground flex shrink-0 items-center justify-center rounded-full text-xs font-semibold'
+      )}
+    >
       {initials(name)}
     </span>
   );
@@ -203,9 +255,11 @@ export function OverviewDashboard() {
   const [posFilter, setPosFilter] = useState<number | null>(null);
   const [dashboard, setDashboard] = useState<HrDashboard | null>(null);
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
+  const [announcementTabValue, setAnnouncementTabValue] = useState<AnnouncementTab>('LIVE');
   const [offToday, setOffToday] = useState<OffTodayItem[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [dashLoading, setDashLoading] = useState(true);
+  const [loadedAt, setLoadedAt] = useState<Date | null>(null);
   const [editing, setEditing] = useState<Announcement | null>(null);
   const [adding, setAdding] = useState(false);
   const [title, setTitle] = useState('');
@@ -261,6 +315,7 @@ export function OverviewDashboard() {
         if (cancelled) return;
         setSummary({ total: latest.count, active: active.count, inactive: inactive.count });
         setEmployees(latest.results.slice(0, 5));
+        setLoadedAt(new Date());
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -330,10 +385,16 @@ export function OverviewDashboard() {
     setAnnouncements(await listAnnouncements());
   };
 
+  const todayIso = localIso(new Date());
   const contracts = dashboard?.contracts_ending ?? [];
-  const birthdays = dashboard?.birthdays ?? [];
+  const urgentCount = dashboard?.contracts_ending_60d ?? 0;
   const nearest = contracts[0];
+  const nearestNames = nearest ? contracts.filter((c) => c.end_date === nearest.end_date).map((c) => c.employee_name) : [];
+  const birthdays = dashboard?.birthdays ?? [];
   const offCount = (cat: OffTodayItem['category']) => (offToday ?? []).filter((i) => i.category === cat).length;
+  const tabCount = (t: AnnouncementTab) => announcements.filter((a) => announcementTab(a, todayIso) === t).length;
+  const liveCount = tabCount('LIVE');
+  const visibleAnnouncements = announcements.filter((a) => announcementTab(a, todayIso) === announcementTabValue);
   const deptOptions: FilterOption[] = [...departments]
     .sort((a, b) => a.name.localeCompare(b.name))
     .map((d) => ({ id: d.id, name: d.name }));
@@ -349,7 +410,7 @@ export function OverviewDashboard() {
     .join(' · ');
   const deptRows = [...departments].sort((a, b) => (b.employee_count ?? 0) - (a.employee_count ?? 0));
   const deptMax = Math.max(1, ...deptRows.map((d) => d.employee_count ?? 0));
-  const deptTotal = deptRows.reduce((s, d) => s + (d.employee_count ?? 0), 0);
+  const activePct = summary && summary.total ? Math.round((summary.active / summary.total) * 100) : 0;
   const todayLabel = new Date().toLocaleDateString('id-ID', {
     weekday: 'long',
     day: 'numeric',
@@ -358,22 +419,30 @@ export function OverviewDashboard() {
   });
 
   return (
-    <div className='flex flex-1 flex-col gap-5 p-4 md:p-6'>
+    <div className='flex flex-1 flex-col gap-6 p-4 md:p-8'>
       <div className='flex flex-col gap-4 md:flex-row md:items-end md:justify-between'>
         <div>
-          <p className='text-muted-foreground font-mono text-xs tracking-widest uppercase'>{todayLabel}</p>
-          <h2 className='mt-1 text-3xl font-bold tracking-tight'>{greeting()}</h2>
-          <p className='text-muted-foreground text-sm'>
-            {filterLabel ? (
+          <h2 className='text-3xl font-bold tracking-tight'>Overview HR</h2>
+          <p className='text-muted-foreground mt-1 flex flex-wrap items-center gap-x-1.5 text-sm'>
+            <span>{todayLabel}</span>
+            {loadedAt && (
               <>
-                Ringkasan untuk <span className='text-foreground font-medium'>{filterLabel}</span>.
+                <span>·</span>
+                <span className='bg-primary size-1.5 rounded-full' />
+                <span>
+                  Data per{' '}
+                  {loadedAt.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Jakarta' })} WIB
+                </span>
               </>
-            ) : (
-              'Ringkasan operasional HRIS Feraco hari ini.'
             )}
           </p>
+          {filterLabel && (
+            <p className='text-muted-foreground mt-1 text-sm'>
+              Ringkasan untuk <span className='text-foreground font-medium'>{filterLabel}</span>.
+            </p>
+          )}
         </div>
-        <div className='flex flex-wrap items-center gap-2'>
+        <div className='flex flex-wrap items-center gap-1'>
           {(deptFilter !== null || posFilter !== null) && (
             <button
               type='button'
@@ -384,11 +453,10 @@ export function OverviewDashboard() {
               className={buttonVariants({ variant: 'ghost' })}
             >
               <Icons.close className='size-4' />
-              Reset filter
+              Reset
             </button>
           )}
           <FilterMenu
-            icon='building'
             label='Departments'
             allLabel='Semua department'
             options={deptOptions}
@@ -396,328 +464,188 @@ export function OverviewDashboard() {
             onChange={selectDept}
           />
           <FilterMenu
-            icon='briefcase'
             label='Positions'
             allLabel={deptFilter === null ? 'Semua position' : 'Semua position di department ini'}
             options={posOptions}
             value={posFilter}
             onChange={setPosFilter}
           />
+          <Link href='/dashboard/karyawan?tambah=1' className={cn(buttonVariants({ size: 'lg' }), 'ml-2 h-10 px-4')}>
+            <Icons.plus className='size-4' />
+            Tambah Karyawan
+          </Link>
         </div>
       </div>
 
-      <div className='grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4'>
-        <StatCard label='Total Karyawan' icon='teams' loading={loading || !summary}>
-          <p className='text-4xl font-semibold tabular-nums'>{summary?.total ?? 0}</p>
-          <Bar value={summary && summary.total ? (summary.active / summary.total) * 100 : 0} />
-          <div className='text-muted-foreground flex items-center gap-4 text-xs'>
-            <span className='flex items-center gap-1.5'>
-              <span className='bg-primary size-2 rounded-sm' />
-              {summary?.active ?? 0} aktif
-            </span>
-            <span className='flex items-center gap-1.5'>
-              <span className='bg-muted-foreground/40 size-2 rounded-sm' />
-              {summary?.inactive ?? 0} nonaktif
-            </span>
-          </div>
-        </StatCard>
+      <section className='space-y-3'>
+        <h3 className='text-base font-semibold'>Perlu tindakan</h3>
+        <div className='grid grid-cols-1 gap-4 md:grid-cols-3'>
+          <ActionCard
+            chip='Segera'
+            chipIcon='warning'
+            chipClassName={urgentCount > 0 ? 'bg-orange-500/10 text-orange-700 dark:text-orange-300' : undefined}
+            value={urgentCount}
+            label='kontrak berakhir ≤ 60 hari'
+            detail={
+              nearest && nearest.days_left <= CONTRACT_URGENT_DAYS
+                ? `Terdekat ${fmtDate(nearest.end_date, { day: 'numeric', month: 'short' })} — ${nearestNames.join(' & ')}`
+                : 'Tidak ada kontrak yang berakhir dalam 60 hari'
+            }
+            action={<ArrowLink href='#kontrak'>Tinjau perpanjangan</ArrowLink>}
+            loading={dashLoading}
+            className={cn(urgentCount > 0 && 'border-orange-300 dark:border-orange-500/40')}
+          />
+          <ActionCard
+            chip='Hari ini'
+            chipIcon='calendar'
+            value={offToday?.length ?? 0}
+            label='karyawan sedang cuti'
+            detail={`${offCount('ANNUAL')} cuti tahunan · ${offCount('SICK')} sakit · ${offCount('OTHER')} lainnya`}
+            action={<ArrowLink href='/dashboard/leave'>Lihat jadwal</ArrowLink>}
+            loading={offToday === null}
+          />
+          <ActionCard
+            chip='Komunikasi'
+            chipIcon='speakerphone'
+            value={liveCount}
+            label='pengumuman tayang'
+            detail={
+              birthdays.length === 0
+                ? 'Tidak ada ulang tahun dalam 7 hari'
+                : `${birthdays.length} ulang tahun dalam 7 hari: ${birthdays.map((b) => b.full_name).join(', ')}`
+            }
+            action={<ArrowLink onClick={startAdd}>Buat pengumuman</ArrowLink>}
+            loading={dashLoading}
+            className='border-dashed'
+          />
+        </div>
+      </section>
 
-        <StatCard label='Sedang Cuti Hari Ini' icon='leave' loading={offToday === null}>
-          <p className='text-4xl font-semibold tabular-nums'>
-            {offToday?.length ?? 0}{' '}
-            <span className='text-muted-foreground text-sm font-normal'>dari {summary?.active ?? '-'} karyawan</span>
-          </p>
-          <p className='text-muted-foreground text-xs'>
-            {offCount('ANNUAL')} cuti tahunan · {offCount('SICK')} sakit · {offCount('OTHER')} lainnya
-          </p>
-        </StatCard>
-
-        <StatCard label='Kontrak Akan Berakhir' icon='page' loading={dashLoading}>
-          <p className='text-4xl font-semibold tabular-nums'>{contracts.length}</p>
-          {nearest ? (
-            <span
-              className={cn(
-                'w-fit rounded-md px-2 py-1 text-xs font-medium',
-                nearest.days_left <= CONTRACT_URGENT_DAYS
-                  ? 'bg-orange-500/10 text-orange-700 dark:text-orange-300'
-                  : 'bg-muted text-muted-foreground'
-              )}
-            >
-              Terdekat {fmtDate(nearest.end_date, { day: 'numeric', month: 'short' })} · {nearest.days_left} hari lagi
-            </span>
-          ) : (
-            <p className='text-muted-foreground text-xs'>Tidak ada kontrak yang akan berakhir</p>
-          )}
-        </StatCard>
-
-        <StatCard label='Struktur Organisasi' icon='hierarchy' loading={departments.length === 0 && positions.length === 0}>
-          <div className='flex items-stretch gap-6'>
-            <div>
-              <p className='text-4xl font-semibold tabular-nums'>{departments.length}</p>
-              <p className='text-muted-foreground text-xs'>Department</p>
-            </div>
-            <div className='border-l pl-6'>
-              <p className='text-4xl font-semibold tabular-nums'>{positions.length}</p>
-              <p className='text-muted-foreground text-xs'>Position</p>
-            </div>
-          </div>
-        </StatCard>
-      </div>
-
-      <div className='grid grid-cols-1 gap-4 lg:grid-cols-3'>
-        <div className='flex flex-col gap-4 lg:col-span-2'>
-          <div className='grid grid-cols-1 gap-4 md:grid-cols-2'>
-            <WhosOffToday
-              href='/dashboard/leave'
-              scope={{ department: deptFilter, position: posFilter }}
-              onLoaded={setOffToday}
-            />
-
-            <Card className='gap-0 py-0'>
-              <SectionHeader
-                title='Kontrak Berakhir'
-                description='Urut dari yang paling dekat'
-                action={
-                  <span className='bg-muted rounded-full px-2.5 py-0.5 text-xs font-semibold tabular-nums'>
-                    {contracts.length}
-                  </span>
-                }
-              />
-              {dashLoading ? (
-                <div className='space-y-3 px-5 pb-5'>
-                  {Array.from({ length: 3 }).map((_, i) => (
-                    <Skeleton key={i} className='h-12 w-full' />
-                  ))}
-                </div>
-              ) : contracts.length === 0 ? (
-                <p className='text-muted-foreground border-t px-5 py-8 text-center text-sm'>
-                  Tidak ada kontrak yang akan berakhir
-                </p>
-              ) : (
-                <ul className='divide-y border-t px-5'>
-                  {contracts.map((c) => {
-                    const urgent = c.days_left <= CONTRACT_URGENT_DAYS;
-                    return (
-                      <li key={c.id}>
-                        <Link href='/dashboard/karyawan' className='block space-y-2 py-3.5 hover:opacity-80'>
-                          <div className='flex items-start justify-between gap-2'>
-                            <div className='min-w-0'>
-                              <p className='truncate text-sm font-medium'>{c.employee_name}</p>
-                              <p className='text-muted-foreground truncate text-xs'>
-                                {c.position_name || '-'} · {fmtDate(c.end_date)}
-                              </p>
-                            </div>
-                            <span
-                              className={cn(
-                                'shrink-0 rounded-md px-2 py-0.5 text-xs font-medium tabular-nums',
-                                urgent
-                                  ? 'bg-orange-500/10 text-orange-700 dark:text-orange-300'
-                                  : 'bg-muted text-muted-foreground'
-                              )}
-                            >
-                              {c.days_left} hari
-                            </span>
-                          </div>
-                          <Bar
-                            value={(c.days_left / CONTRACT_BAR_DAYS) * 100}
-                            className={urgent ? 'bg-orange-500' : 'bg-muted-foreground/50'}
-                          />
-                        </Link>
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
-            </Card>
-          </div>
-
-          <Card className='gap-0 py-0'>
+      <div className='grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_360px]'>
+        <div className='flex min-w-0 flex-col gap-5'>
+          <Card id='kontrak' className='scroll-mt-20 gap-0 py-0'>
             <SectionHeader
-              title='Karyawan Terbaru'
-              description='5 karyawan yang terakhir ditambahkan'
+              title='Kontrak akan berakhir'
+              description={`${contracts.length} kontrak aktif terdekat, terdekat lebih dulu`}
               action={
-                <Link
-                  href='/dashboard/karyawan'
-                  className='inline-flex shrink-0 items-center gap-1 text-sm font-medium hover:underline'
-                >
-                  Lihat semua karyawan
+                <Link href='/dashboard/karyawan' className='inline-flex shrink-0 items-center gap-1 text-sm font-semibold hover:underline'>
+                  Semua kontrak
                   <Icons.arrowRight className='size-4' />
                 </Link>
               }
             />
-            {loading ? (
-              <div className='space-y-2 px-5 pb-5'>
-                {Array.from({ length: 5 }).map((_, i) => (
-                  <Skeleton key={i} className='h-8 w-full' />
+            {dashLoading ? (
+              <div className='space-y-3 border-t px-5 py-4'>
+                {Array.from({ length: 3 }).map((_, i) => (
+                  <Skeleton key={i} className='h-12 w-full' />
                 ))}
               </div>
+            ) : contracts.length === 0 ? (
+              <p className='text-muted-foreground border-t px-5 py-10 text-center text-sm'>
+                Tidak ada kontrak yang akan berakhir
+              </p>
             ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className='pl-5'>Nama</TableHead>
-                    <TableHead>Department</TableHead>
-                    <TableHead>Position</TableHead>
-                    <TableHead>Atasan</TableHead>
-                    <TableHead className='pr-5 text-right'>Status</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {employees.map((e) => (
-                    <TableRow key={e.id}>
-                      <TableCell className='pl-5'>
-                        <div className='flex items-center gap-3'>
-                          <Avatar name={e.full_name} photo={e.photo_url} />
-                          <span className='font-medium'>{e.full_name}</span>
-                        </div>
-                      </TableCell>
-                      <TableCell>{e.department_name || '—'}</TableCell>
-                      <TableCell>{e.position_name || '—'}</TableCell>
-                      <TableCell>{e.manager_name || '—'}</TableCell>
-                      <TableCell className='pr-5 text-right'>
-                        {e.employment_status === 'ACTIVE' ? (
-                          <span className='bg-primary/10 text-primary inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium'>
-                            <span className='bg-primary size-1.5 rounded-full' />
-                            Aktif
-                          </span>
-                        ) : (
-                          <span className='bg-muted text-muted-foreground inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium'>
-                            <span className='bg-muted-foreground size-1.5 rounded-full' />
-                            Nonaktif
-                          </span>
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                  {employees.length === 0 && (
-                    <TableRow>
-                      <TableCell colSpan={5} className='text-muted-foreground py-8 text-center'>
-                        Tidak ada data karyawan.
-                      </TableCell>
-                    </TableRow>
-                  )}
-                </TableBody>
-              </Table>
-            )}
-          </Card>
-        </div>
-
-        <div className='flex flex-col gap-4'>
-          <Card className='gap-0 py-0'>
-            <SectionHeader
-              title='Karyawan per Department'
-              description={`${deptTotal} karyawan di ${deptRows.length} department`}
-            />
-            {departments.length === 0 && loading ? (
-              <div className='space-y-3 px-5 pb-5'>
-                {Array.from({ length: 4 }).map((_, i) => (
-                  <Skeleton key={i} className='h-8 w-full' />
-                ))}
-              </div>
-            ) : deptRows.length === 0 ? (
-              <p className='text-muted-foreground px-5 pb-5 text-sm'>Belum ada department.</p>
-            ) : (
-              <div className='space-y-3.5 px-5 pb-5'>
-                {deptRows.map((d) => {
-                  const n = d.employee_count ?? 0;
-                  const dimmed = deptFilter !== null && d.id !== deptFilter;
+              <ul className='divide-y border-t'>
+                {contracts.map((c) => {
+                  const urgent = c.days_left <= CONTRACT_URGENT_DAYS;
                   return (
-                    <button
-                      key={d.id}
-                      type='button'
-                      onClick={() => selectDept(d.id === deptFilter ? null : d.id)}
-                      title={d.id === deptFilter ? 'Hapus filter' : `Filter: ${d.name}`}
-                      className={cn('block w-full space-y-1.5 text-left transition-opacity hover:opacity-80', dimmed && 'opacity-40')}
-                    >
-                      <div className={cn('flex items-center justify-between text-sm', n === 0 && 'text-muted-foreground')}>
-                        <span className='truncate'>{d.name}</span>
-                        <span className='font-medium tabular-nums'>{n}</span>
+                    <li key={c.id} className='flex flex-wrap items-center gap-x-4 gap-y-2 px-5 py-3.5'>
+                      <div className='flex min-w-0 flex-1 items-center gap-3'>
+                        <Avatar name={c.employee_name} />
+                        <div className='min-w-0'>
+                          <p className='truncate text-sm font-medium'>{c.employee_name}</p>
+                          <p className='text-muted-foreground truncate text-xs'>{c.position_name || '—'}</p>
+                        </div>
                       </div>
-                      <Bar value={(n / deptMax) * 100} />
-                    </button>
+                      <span className='text-sm tabular-nums sm:w-28'>{fmtDate(c.end_date)}</span>
+                      <span
+                        className={cn(
+                          'inline-flex w-36 items-center justify-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-semibold whitespace-nowrap',
+                          urgent
+                            ? 'bg-orange-500/10 text-orange-700 dark:text-orange-300'
+                            : 'bg-muted text-muted-foreground'
+                        )}
+                      >
+                        <span className='tabular-nums'>{c.days_left} hari</span>·<span>{urgent ? 'Segera' : 'Pantau'}</span>
+                      </span>
+                      <Link
+                        href={`/dashboard/karyawan/${c.employee_pk}`}
+                        className={buttonVariants({ variant: 'outline', size: 'sm' })}
+                      >
+                        Tinjau
+                      </Link>
+                    </li>
                   );
                 })}
-              </div>
+              </ul>
             )}
           </Card>
 
-          <Card className='gap-0 py-0'>
-            <div className='px-5 py-4'>
-              <div className='flex items-center gap-3'>
-                <span className='bg-muted flex size-10 shrink-0 items-center justify-center rounded-lg'>
-                  <Icons.cake className='size-5' />
-                </span>
-                <div className='min-w-0 flex-1'>
-                  <p className='text-sm font-semibold'>Ulang Tahun · 7 Hari</p>
-                  <p className='text-muted-foreground truncate text-sm'>
-                    {dashLoading
-                      ? 'Memuat…'
-                      : birthdays.length === 0
-                        ? 'Tidak ada ulang tahun minggu ini'
-                        : `${birthdays.length} karyawan berulang tahun`}
-                  </p>
-                </div>
-                <span className='bg-muted rounded-full px-2.5 py-0.5 text-xs font-semibold tabular-nums'>
-                  {birthdays.length}
-                </span>
-              </div>
-              {birthdays.length > 0 && (
-                <ul className='mt-3 space-y-2 pl-13'>
-                  {birthdays.map((b) => (
-                    <li key={b.id} className='flex items-center justify-between gap-2 text-sm'>
-                      <span className='min-w-0 truncate'>
-                        {b.full_name}
-                        <span className='text-muted-foreground'> · {b.department_name || '-'}</span>
-                      </span>
-                      <span className='text-muted-foreground shrink-0 text-xs tabular-nums'>
-                        {fmtDate(b.birth_date, { day: 'numeric', month: 'short' })}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-
-            <div id='pengumuman' className='border-t px-5 py-4'>
-              <div className='flex items-center gap-3'>
-                <span className='bg-muted flex size-10 shrink-0 items-center justify-center rounded-lg'>
-                  <Icons.speakerphone className='size-5' />
-                </span>
-                <div className='min-w-0 flex-1'>
-                  <p className='text-sm font-semibold'>Pengumuman</p>
-                  <p className='text-muted-foreground truncate text-sm'>
-                    {announcements.length === 0
-                      ? 'Belum ada pengumuman'
-                      : `${announcements.filter((a) => a.status === 'ACTIVE').length} aktif`}
-                  </p>
-                </div>
-                <button type='button' onClick={startAdd} className={buttonVariants({ variant: 'outline', size: 'sm' })}>
-                  <Icons.add className='size-4' />
-                  Buat
+          <Card id='pengumuman' className='gap-0 py-0'>
+            <SectionHeader
+              title='Pengumuman'
+              description='Tampil di dashboard karyawan sesuai target penerima'
+              action={
+                <button type='button' onClick={startAdd} className={buttonVariants({ variant: 'outline' })}>
+                  <Icons.plus className='size-4' />
+                  Buat pengumuman
                 </button>
-              </div>
-              {announcements.length > 0 && (
-                <ul className='mt-3 max-h-64 space-y-2 overflow-y-auto'>
-                  {announcements.map((a) => (
-                    <li key={a.id} className='flex items-start justify-between gap-2 rounded-lg border px-3 py-2'>
-                      <div className={cn('min-w-0', a.status !== 'ACTIVE' && 'opacity-60')}>
+              }
+            />
+            <div className='flex flex-wrap gap-2 px-5 pb-4'>
+              {ANNOUNCEMENT_TABS.map((t) => (
+                <button
+                  key={t.value}
+                  type='button'
+                  onClick={() => setAnnouncementTabValue(t.value)}
+                  className={cn(
+                    'rounded-lg border px-3.5 py-1.5 text-sm transition-colors',
+                    announcementTabValue === t.value
+                      ? 'bg-foreground text-background border-foreground font-medium'
+                      : 'hover:bg-muted'
+                  )}
+                >
+                  {t.label} · {tabCount(t.value)}
+                </button>
+              ))}
+            </div>
+            <div className='border-t'>
+              {visibleAnnouncements.length === 0 ? (
+                <div className='px-5 py-10 text-center'>
+                  <p className='text-sm font-semibold'>
+                    {ANNOUNCEMENT_TABS.find((t) => t.value === announcementTabValue)?.empty}
+                  </p>
+                  {announcementTabValue === 'LIVE' && (
+                    <p className='text-muted-foreground mx-auto mt-1 max-w-sm text-sm'>
+                      Klik &ldquo;Buat pengumuman&rdquo; untuk menulis yang pertama. Karyawan akan melihatnya di
+                      dashboard mereka.
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <ul className='max-h-80 divide-y overflow-y-auto'>
+                  {visibleAnnouncements.map((a) => (
+                    <li key={a.id} className='flex items-start justify-between gap-3 px-5 py-3.5'>
+                      <div className='min-w-0'>
                         <p className='truncate text-sm font-medium'>{a.title}</p>
-                        <p className='text-muted-foreground line-clamp-1 text-xs'>{a.body}</p>
-                        <p className='text-muted-foreground text-[11px]'>
-                          {a.status === 'ACTIVE' ? 'Aktif' : 'Nonaktif'}
+                        <p className='text-muted-foreground line-clamp-1 text-sm'>{a.body}</p>
+                        <p className='text-muted-foreground mt-0.5 text-xs'>
+                          Dibuat {fmtDate(a.created_at)}
                           {a.use_end_date && a.end_date ? ` · berakhir ${fmtDate(a.end_date)}` : ''}
                         </p>
                       </div>
                       <div className='flex shrink-0'>
-                        <button
-                          type='button'
-                          onClick={() => toggleStatus(a)}
-                          className={buttonVariants({ variant: 'ghost', size: 'icon-sm' })}
-                          aria-label={a.status === 'ACTIVE' ? 'Nonaktifkan' : 'Aktifkan'}
-                          title={a.status === 'ACTIVE' ? 'Nonaktifkan' : 'Aktifkan'}
-                        >
-                          {a.status === 'ACTIVE' ? <Icons.eyeOff className='size-4' /> : <Icons.eye className='size-4' />}
-                        </button>
+                        {announcementTabValue !== 'ARCHIVE' && (
+                          <button
+                            type='button'
+                            onClick={() => toggleStatus(a)}
+                            className={buttonVariants({ variant: 'ghost', size: 'icon-sm' })}
+                            aria-label={a.status === 'ACTIVE' ? 'Jadikan draf' : 'Tayangkan'}
+                            title={a.status === 'ACTIVE' ? 'Jadikan draf' : 'Tayangkan'}
+                          >
+                            {a.status === 'ACTIVE' ? <Icons.eyeOff className='size-4' /> : <Icons.eye className='size-4' />}
+                          </button>
+                        )}
                         <button
                           type='button'
                           onClick={() => startEdit(a)}
@@ -743,6 +671,132 @@ export function OverviewDashboard() {
               )}
             </div>
           </Card>
+
+          <Card className='gap-0 py-0'>
+            <SectionHeader
+              title='Karyawan terbaru'
+              description='5 data terakhir ditambahkan'
+              action={
+                <Link href='/dashboard/karyawan' className='inline-flex shrink-0 items-center gap-1 text-sm font-semibold hover:underline'>
+                  Semua karyawan
+                  <Icons.arrowRight className='size-4' />
+                </Link>
+              }
+            />
+            {loading ? (
+              <div className='space-y-2 px-5 pb-5'>
+                {Array.from({ length: 5 }).map((_, i) => (
+                  <Skeleton key={i} className='h-10 w-full' />
+                ))}
+              </div>
+            ) : (
+              <Table>
+                <TableHeader className='bg-muted/40'>
+                  <TableRow>
+                    <TableHead className='pl-5'>Nama</TableHead>
+                    <TableHead>Position</TableHead>
+                    <TableHead>Atasan</TableHead>
+                    <TableHead className='pr-5'>Bergabung</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {employees.map((e) => (
+                    <TableRow key={e.id}>
+                      <TableCell className='py-3 pl-5'>
+                        <Link href={`/dashboard/karyawan/${e.id}`} className='flex items-center gap-3 hover:underline'>
+                          <Avatar name={e.full_name} photo={e.photo_url} />
+                          <span className='min-w-0'>
+                            <span className='block font-medium'>{e.full_name}</span>
+                            <span className='text-muted-foreground block font-mono text-xs'>{e.employee_id}</span>
+                          </span>
+                        </Link>
+                      </TableCell>
+                      <TableCell>
+                        <p>{e.position_name || '—'}</p>
+                        <p className='text-muted-foreground text-xs'>{e.department_name || '—'}</p>
+                      </TableCell>
+                      <TableCell>{e.manager_name || '—'}</TableCell>
+                      <TableCell className='pr-5 tabular-nums'>{fmtDate(e.join_date)}</TableCell>
+                    </TableRow>
+                  ))}
+                  {employees.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={4} className='text-muted-foreground py-8 text-center'>
+                        Tidak ada data karyawan.
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            )}
+          </Card>
+        </div>
+
+        <div className='flex min-w-0 flex-col gap-5'>
+          <Card className='gap-0 py-0'>
+            <SectionHeader title='Tenaga kerja' />
+            <div className='px-5 pb-5'>
+              {loading || !summary ? (
+                <Skeleton className='h-20 w-full' />
+              ) : (
+                <>
+                  <div className='grid grid-cols-3 gap-2'>
+                    {[
+                      { value: summary.total, label: 'Karyawan' },
+                      { value: departments.length, label: 'Department' },
+                      { value: positions.length, label: 'Position' }
+                    ].map((s) => (
+                      <div key={s.label}>
+                        <p className='text-2xl font-semibold tabular-nums'>{s.value}</p>
+                        <p className='text-muted-foreground text-xs'>{s.label}</p>
+                      </div>
+                    ))}
+                  </div>
+                  <Bar value={activePct} className='mt-4 h-2' />
+                  <p className='text-muted-foreground mt-2 text-xs'>
+                    {summary.active} aktif ({activePct}%) · {summary.inactive} nonaktif
+                  </p>
+                </>
+              )}
+            </div>
+            <div className='border-t px-5 pt-4 pb-5'>
+              <p className='mb-3 text-sm font-semibold'>Per department</p>
+              {deptRows.length === 0 ? (
+                <p className='text-muted-foreground text-sm'>Belum ada department.</p>
+              ) : (
+                <div className='space-y-2.5'>
+                  {deptRows.map((d) => {
+                    const n = d.employee_count ?? 0;
+                    const dimmed = deptFilter !== null && d.id !== deptFilter;
+                    return (
+                      <button
+                        key={d.id}
+                        type='button'
+                        onClick={() => selectDept(d.id === deptFilter ? null : d.id)}
+                        title={d.id === deptFilter ? 'Hapus filter' : `Filter: ${d.name}`}
+                        className={cn(
+                          'grid w-full grid-cols-[minmax(0,1fr)_96px_28px] items-center gap-3 text-left text-sm transition-opacity hover:opacity-80',
+                          n === 0 && 'text-muted-foreground',
+                          dimmed && 'opacity-40'
+                        )}
+                      >
+                        <span className='truncate'>{d.name}</span>
+                        <Bar value={(n / deptMax) * 100} />
+                        <span className='text-right font-medium tabular-nums'>{n}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </Card>
+
+          <WhosOffToday
+            href='/dashboard/leave'
+            description='Izin & cuti yang disetujui'
+            scope={{ department: deptFilter, position: posFilter }}
+            onLoaded={setOffToday}
+          />
 
           <RecentActivities activities={dashboard?.recent_activities ?? []} loading={dashLoading} />
         </div>
@@ -776,8 +830,8 @@ export function OverviewDashboard() {
                   onChange={(e) => setStatus(e.target.value as 'ACTIVE' | 'INACTIVE')}
                   className='border-border rounded-lg border px-2 py-1 text-sm'
                 >
-                  <option value='ACTIVE'>ACTIVE</option>
-                  <option value='INACTIVE'>INACTIVE</option>
+                  <option value='ACTIVE'>Tayang</option>
+                  <option value='INACTIVE'>Draf</option>
                 </select>
               </label>
               <div className='flex items-center gap-2 text-sm'>

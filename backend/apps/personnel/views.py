@@ -720,6 +720,7 @@ class DashboardHrView(APIView):
         contracts_data = [
             {
                 'id': c.id,
+                'employee_pk': c.employee_id,
                 'employee_name': c.employee.full_name,
                 'employee_id': c.employee.employee_id,
                 'position_name': c.employee.position.name if c.employee.position else None,
@@ -729,6 +730,10 @@ class DashboardHrView(APIView):
             }
             for c in contracts
         ]
+        # "Perlu tindakan" card: every active contract ending within 60 days.
+        contracts_ending_60d = EmployeeContract.objects.filter(
+            status='ACTIVE', end_date__gte=today, end_date__lte=today + datetime.timedelta(days=60), **emp_lookup
+        ).count()
         # Birthday in next 7 days (MM-DD window, ignores year).
         md = today.strftime('%m-%d')
         md_end = (today + datetime.timedelta(days=7)).strftime('%m-%d')
@@ -775,6 +780,7 @@ class DashboardHrView(APIView):
                 'action': log.action,
                 'actor': log.user.username if log.user else None,
                 'object_repr': str(log.content_object) if log.content_object else None,
+                'object_type': log.content_type.model if log.content_type else None,
                 'description': log.description,
                 'timestamp': log.created_at,
             }
@@ -784,6 +790,7 @@ class DashboardHrView(APIView):
             {
                 'leave_today': leave_today_data,
                 'contracts_ending': contracts_data,
+                'contracts_ending_60d': contracts_ending_60d,
                 'birthdays': birthdays,
                 'announcements': announcements_data,
                 'recent_activities': recent_activities,

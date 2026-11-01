@@ -106,6 +106,11 @@ export function EmployeeList() {
     load();
   }
 
+  // "Tambah Karyawan" shortcut from the HR overview (?tambah=1).
+  useEffect(() => {
+    if (!isManagement && new URLSearchParams(window.location.search).get('tambah') === '1') setShowForm(true);
+  }, [isManagement]);
+
   useEffect(() => {
     if (isManagement) {
       setDepartments([]);

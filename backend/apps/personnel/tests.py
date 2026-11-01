@@ -1126,8 +1126,12 @@ class DashboardHrApiTests(TestCase):
             emp = Employee.objects.create(employee_id=f'C{i:03d}', full_name=f'Kontrak {i}', nik=f'99000000{i}')
             EmployeeContract.objects.create(employee=emp, contract_type='PKWT', status='ACTIVE',
                                             start_date=today - timedelta(days=300), end_date=today + timedelta(days=10 + i))
-        rows = self.client.get('/api/dashboard/hr/').data['contracts_ending']
+        data = self.client.get('/api/dashboard/hr/').data
+        rows = data['contracts_ending']
         self.assertEqual([r['employee_name'] for r in rows], [f'Kontrak {i}' for i in range(5)])
+        self.assertEqual(rows[0]['employee_pk'], Employee.objects.get(employee_id='C000').pk)
+        # The 60-day counter is not capped at the 5 listed rows.
+        self.assertEqual(data['contracts_ending_60d'], 7)
 
     def test_filters_by_department_and_position(self):
         today = timezone.localdate()

@@ -35,6 +35,8 @@ export type DashboardLeaveToday = {
 
 export type DashboardContractEnding = {
   id: number;
+  /** Employee primary key (detail page link); `employee_id` is the code. */
+  employee_pk: number;
   employee_name: string;
   employee_id: string;
   position_name: string | null;
@@ -67,6 +69,8 @@ export type DashboardActivity = {
   action: string;
   actor: string | null;
   object_repr: string | null;
+  /** Content-type model name, e.g. 'employeedocument'. */
+  object_type: string | null;
   description: string;
   timestamp: string;
 };
@@ -74,6 +78,8 @@ export type DashboardActivity = {
 export type HrDashboard = {
   leave_today: DashboardLeaveToday[];
   contracts_ending: DashboardContractEnding[];
+  /** Active contracts ending within 60 days (not capped like the list). */
+  contracts_ending_60d: number;
   birthdays: DashboardBirthday[];
   announcements: DashboardAnnouncement[];
   recent_activities: DashboardActivity[];
