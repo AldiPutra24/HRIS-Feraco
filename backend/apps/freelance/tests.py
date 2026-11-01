@@ -88,6 +88,48 @@ class FreelancerInitialListPaginationTests(TestCase):
         self.assertEqual(len(data['results']), 20)
 
 
+class FreelancerListQueryCountTests(TestCase):
+    """The list must not run queries per freelancer (it fetches the whole pool)."""
+
+    def setUp(self):
+        self.client.force_login(make_user())
+        self.skill = Skill.objects.create(name='MC', category=SkillCategory.objects.create(name='Talent'))
+        self.event = Event.objects.create(name='Gala', event_date=date(2026, 5, 1))
+        self.later = Event.objects.create(name='Expo', event_date=date(2026, 6, 1))
+
+    def _add(self, i):
+        fl = make_freelancer(full_name=f'FL {i}', whatsapp=f'08{i}')
+        FreelancerSkill.objects.create(freelancer=fl, skill=self.skill)
+        a1 = EventAssignment.objects.create(freelancer=fl, event=self.event, assigned_at=date(2026, 5, 1))
+        a2 = EventAssignment.objects.create(freelancer=fl, event=self.later, assigned_at=date(2026, 6, 1))
+        FreelancerPerformance.objects.create(assignment=a1, rating=4, recommendation='RECOMMENDED')
+        FreelancerPerformance.objects.create(assignment=a2, rating=5, recommendation='NOT_RECOMMENDED')
+        return fl
+
+    def _count_queries(self):
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        with CaptureQueriesContext(connection) as ctx:
+            res = self.client.get('/api/freelance/freelancers/?page_size=1000')
+        self.assertEqual(res.status_code, 200)
+        return len(ctx.captured_queries), res
+
+    def test_query_count_independent_of_rows_and_values_unchanged(self):
+        self._add(1)
+        few, _ = self._count_queries()
+        for i in range(2, 8):
+            self._add(i)
+        many, res = self._count_queries()
+        self.assertEqual(few, many)
+        row = res.json()['results'][0]
+        self.assertEqual(row['avg_rating'], 4.5)
+        self.assertEqual(row['recommendation'], 'NOT_RECOMMENDED')  # latest evaluation
+        self.assertEqual(row['last_event'], 'Expo')
+        self.assertEqual([e['name'] for e in row['events']], ['Expo', 'Gala'])
+        self.assertEqual(row['skills'], [{'id': self.skill.id, 'name': 'MC', 'category': 'Talent'}])
+
+
 class FreelancerTests(TestCase):
     def setUp(self):
         self.admin = make_user('ADMIN', 'admin@test.com')

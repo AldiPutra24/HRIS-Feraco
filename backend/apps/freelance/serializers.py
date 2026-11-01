@@ -227,6 +227,21 @@ class FreelancerListSerializer(serializers.ModelSerializer):
             'created_at', 'updated_at',
         )
 
+    # Reads the caches prefetched by FreelancerViewSet.get_queryset (list):
+    # skills, and assignments ordered newest first with event + performance.
+
+    def _assignments(self, obj):
+        return list(obj.assignments.all())
+
+    def _performances(self, obj):
+        perfs = []
+        for a in self._assignments(obj):
+            try:
+                perfs.append(a.performance)
+            except FreelancerPerformance.DoesNotExist:
+                pass
+        return perfs
+
     def get_skills(self, obj):
         return [
             {
@@ -234,37 +249,28 @@ class FreelancerListSerializer(serializers.ModelSerializer):
                 'name': fs.skill.name,
                 'category': fs.skill.category.name if fs.skill.category else None,
             }
-            for fs in obj.freelancer_skills.select_related('skill', 'skill__category').all()
+            for fs in obj.freelancer_skills.all()
         ]
 
     def get_avg_rating(self, obj):
-        perfs = FreelancerPerformance.objects.filter(
-            assignment__freelancer=obj, rating__isnull=False
-        )
-        if not perfs.exists():
+        ratings = [p.rating for p in self._performances(obj) if p.rating is not None]
+        if not ratings:
             return None
-        return round(sum(p.rating for p in perfs) / perfs.count(), 2)
+        return round(sum(ratings) / len(ratings), 2)
 
     def get_recommendation(self, obj):
         # Most recent performance recommendation wins for list filtering.
-        perf = (
-            FreelancerPerformance.objects
-            .filter(assignment__freelancer=obj)
-            .exclude(recommendation='')
-            .order_by('-updated_at')
-            .first()
-        )
-        return perf.recommendation if perf else ''
+        perfs = [p for p in self._performances(obj) if p.recommendation]
+        if not perfs:
+            return ''
+        return max(perfs, key=lambda p: (p.updated_at, p.pk)).recommendation
 
     def get_last_event(self, obj):
-        a = obj.assignments.order_by('-assigned_at', '-event__event_date').first()
-        return a.event.name if a else None
+        assignments = self._assignments(obj)
+        return assignments[0].event.name if assignments else None
 
     def get_events(self, obj):
-        return [
-            {'id': a.event_id, 'name': a.event.name}
-            for a in obj.assignments.select_related('event').order_by('-assigned_at', '-event__event_date')
-        ]
+        return [{'id': a.event_id, 'name': a.event.name} for a in self._assignments(obj)]
 
 
 class FreelancerDetailSerializer(serializers.ModelSerializer):

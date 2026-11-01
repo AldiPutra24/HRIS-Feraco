@@ -1,4 +1,4 @@
-from django.db.models import Q
+from django.db.models import Prefetch, Q
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
@@ -107,6 +107,16 @@ class FreelancerViewSet(viewsets.ModelViewSet):
         qs = super().get_queryset()
         if self.action != 'list':
             return qs
+        # One query per relation instead of ~7 per row: the list serializer
+        # reads skills, ratings, recommendation and events from these caches.
+        qs = qs.prefetch_related(
+            Prefetch('freelancer_skills', queryset=FreelancerSkill.objects.select_related('skill__category')),
+            Prefetch(
+                'assignments',
+                queryset=EventAssignment.objects.select_related('event', 'performance')
+                .order_by('-assigned_at', '-event__event_date'),
+            ),
+        )
         params = self.request.query_params
         skill = params.get('skill')
         if skill:
