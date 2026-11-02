@@ -62,7 +62,7 @@ export default function AppSidebar() {
   const homeHref = isEmployee
     ? '/dashboard/employee'
     : isManagement
-      ? '/dashboard/management/overview'
+      ? '/dashboard/management'
       : inEmployeeMode
         ? '/dashboard/employee'
         : '/dashboard/overview';

@@ -11,7 +11,7 @@ import { GmOverview } from './gm-overview';
 import { ManagementTeamOverview } from './management-team-overview';
 
 /**
- * /dashboard/management/overview — loads the dashboard data once and renders
+ * /dashboard/management — loads the dashboard data once and renders
  * the General Manager view (company-wide, backend sends `company`) or the
  * Management view (direct reports). Both share the same visual language.
  */

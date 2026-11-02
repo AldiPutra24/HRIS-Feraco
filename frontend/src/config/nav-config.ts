@@ -104,7 +104,7 @@ export const managementNavGroups: NavGroup[] = [
     items: [
       {
         title: 'Dashboard',
-        url: '/dashboard/management/overview',
+        url: '/dashboard/management',
         icon: 'dashboard',
         isActive: false,
         items: []
@@ -326,14 +326,14 @@ export const navGroups: NavGroup[] = [
       },
       {
         title: 'Manajemen',
-        url: '/dashboard/management/overview',
+        url: '/dashboard/management',
         icon: 'teams',
         isActive: false,
         access: { roles: ['management', 'general_manager'] },
         items: [
           {
             title: 'Overview',
-            url: '/dashboard/management/overview',
+            url: '/dashboard/management',
             isActive: false,
             items: []
           },

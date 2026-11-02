@@ -1,7 +1,6 @@
-import { ManagementOverview } from '@/features/management/management-overview';
+import { redirect } from 'next/navigation';
 
-export const metadata = { title: 'Management Overview' };
-
+// Old URL: the Management/GM overview now lives at /dashboard/management.
 export default function Page() {
-  return <ManagementOverview />;
+  redirect('/dashboard/management');
 }
