@@ -540,3 +540,60 @@ class LoginLockoutTests(TestCase):
                              content_type='application/json', HTTP_X_FORWARDED_FOR=f'1.2.3.{i}')
         res = self._login('Benar#2026x', ip='10.9.9.9')
         self.assertEqual(res.status_code, 429)  # email limit still applies
+
+
+class EmployeeContractDocumentSelfServiceTests(TestCase):
+    """Own contract document download + HR contact for "Hubungi HR"."""
+
+    def setUp(self):
+        from datetime import date
+
+        from apps.personnel.models import Employee, EmployeeContract, EmployeeDocument
+
+        role, _ = Role.objects.get_or_create(key='EMPLOYEE', defaults={'name': 'Employee'})
+        self.user = User.objects.create_user(username='kontrak@feraco.id', email='kontrak@feraco.id', password='x12345678')
+        self.user.role = role
+        self.user.save()
+        me = Employee.objects.create(employee_id='K001', full_name='Saya', user=self.user)
+        other = Employee.objects.create(employee_id='K002', full_name='Orang Lain')
+        self.mine = EmployeeContract.objects.create(employee=me, contract_type='PKWT', start_date=date(2026, 1, 1),
+                                                    end_date=date(2026, 6, 30), status='EXPIRED')
+        self.theirs = EmployeeContract.objects.create(employee=other, contract_type='PKWT', start_date=date(2026, 1, 1),
+                                                      end_date=date(2026, 6, 30), status='EXPIRED')
+        self.no_doc = EmployeeContract.objects.create(employee=me, contract_type='PKWT', start_date=date(2025, 1, 1),
+                                                      end_date=date(2025, 6, 30), status='EXPIRED')
+        EmployeeDocument.objects.create(employee=me, contract=self.mine, name='kontrak.pdf', storage_path='a/kontrak.pdf')
+        EmployeeDocument.objects.create(employee=other, contract=self.theirs, name='lain.pdf', storage_path='b/lain.pdf')
+        self.client.force_login(self.user)
+
+    def _get(self, contract):
+        from unittest import mock
+
+        from django.http import HttpResponse
+
+        with mock.patch('apps.personnel.storage.is_configured', return_value=True), \
+                mock.patch('apps.personnel.storage.stream_file_response', return_value=HttpResponse(b'pdf')) as stream:
+            res = self.client.get(reverse('me-employee-contract-document', args=[contract.pk]))
+        return res, stream
+
+    def test_own_contract_document_streams_as_attachment(self):
+        res, stream = self._get(self.mine)
+        self.assertEqual(res.status_code, 200)
+        stream.assert_called_once_with('employee-documents', 'a/kontrak.pdf', 'kontrak.pdf', attachment=True)
+
+    def test_other_employees_contract_is_hidden(self):
+        res, stream = self._get(self.theirs)
+        self.assertEqual(res.status_code, 404)
+        stream.assert_not_called()
+
+    def test_contract_without_document_404(self):
+        res, _ = self._get(self.no_doc)
+        self.assertEqual(res.status_code, 404)
+
+    def test_hr_contact_uses_notification_setting(self):
+        from apps.notifications.models import NotificationSetting
+
+        setting = NotificationSetting.get_solo()
+        setting.default_hr_emails = 'hr@feraco.id, lead@feraco.id'
+        setting.save()
+        self.assertEqual(self.client.get(reverse('me-hr-contact')).json(), {'email': 'hr@feraco.id'})

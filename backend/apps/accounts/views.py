@@ -263,6 +263,57 @@ class CurrentEmployeeContractsView(APIView):
         return Response(EmployeeContractSerializer(contracts, many=True, context={'request': request}).data)
 
 
+class CurrentEmployeeContractDocumentView(APIView):
+    """Download the latest document of one of the caller's OWN contracts.
+
+    The HR document endpoint (/api/documents/<id>/download/) is HR/GM only;
+    this one is scoped to the logged-in employee's contracts.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, pk):
+        from apps.personnel.models import EmployeeContract
+        from apps.personnel.storage import is_configured, stream_file_response
+
+        personnel = getattr(request.user, 'personnel', None)
+        employee = getattr(personnel, 'employee', None)
+        contract = EmployeeContract.objects.filter(pk=pk, employee=employee).first() if employee else None
+        doc = (
+            contract.documents.filter(deleted_at__isnull=True).order_by('-created_at').first()
+            if contract else None
+        )
+        if doc is None:
+            return Response({'detail': 'Dokumen kontrak tidak ditemukan.'}, status=status.HTTP_404_NOT_FOUND)
+        if not is_configured():
+            return Response({'detail': 'Storage not configured.'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        try:
+            response = stream_file_response('employee-documents', doc.storage_path, doc.name, attachment=True)
+        except Exception as exc:
+            return Response(
+                {'detail': f'Gagal mengambil dokumen dari storage: {str(exc)[:150]}'},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+        log_event(request, 'download', obj=doc, description=f'Own contract document {doc.name} downloaded')
+        return response
+
+
+class HrContactView(APIView):
+    """HR contact address for the "Hubungi HR" button (any logged-in user).
+
+    First of NotificationSetting.default_hr_emails / HR recipients, so HR
+    changes it in Pengaturan Notifikasi, not in code.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        from apps.notifications.services import hr_recipients
+
+        emails = hr_recipients()
+        return Response({'email': emails[0] if emails else None})
+
+
 class CurrentEmployeePhotoView(APIView):
     """Upload/replace/delete the logged-in employee's profile photo (self-service)."""
 

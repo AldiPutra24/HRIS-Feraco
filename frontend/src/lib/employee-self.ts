@@ -42,3 +42,24 @@ export function uploadMyPhoto(file: File): Promise<{ photo: string }> {
 export function deleteMyPhoto(): Promise<void> {
   return request<void>('/auth/me/employee/photo/', { method: 'DELETE' });
 }
+
+/** HR address for the "Hubungi HR" button (from Pengaturan Notifikasi). */
+export function getHrContact(): Promise<{ email: string | null }> {
+  return request<{ email: string | null }>('/auth/me/hr-contact/');
+}
+
+/** Download the latest document of one of the caller's own contracts. */
+export async function downloadMyContractDocument(contractId: number): Promise<void> {
+  const res = await fetch(`${BASE}/auth/me/employee/contracts/${contractId}/document/`, { credentials: 'include' });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(typeof data.detail === 'string' ? data.detail : `API error ${res.status}`);
+  }
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = res.headers.get('Content-Disposition')?.match(/filename="?([^";]+)"?/)?.[1] ?? `kontrak-${contractId}.pdf`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
