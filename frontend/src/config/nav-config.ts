@@ -227,16 +227,6 @@ export const managementNavGroups: NavGroup[] = [
     label: 'Personal',
     items: [
       {
-        // Own employee profile: direct contact edits + data change requests.
-        title: 'Profil',
-        url: '/dashboard/management/profile',
-        icon: 'profile',
-        isActive: false,
-        // MANAGEMENT opens the profile from the avatar in the account menu.
-        access: { roles: ['general_manager'] },
-        items: []
-      },
-      {
         title: 'Kontrak',
         url: '/dashboard/management/contract',
         icon: 'page',

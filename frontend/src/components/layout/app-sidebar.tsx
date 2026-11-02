@@ -69,7 +69,7 @@ export default function AppSidebar() {
   const brandLabel = isEmployee || inEmployeeMode ? 'FERACO People' : 'FERACO HRIS';
   // Own profile opened from the avatar in the account menu (no sidebar item).
   const profileHref =
-    user?.role === 'management'
+    isManagement
       ? '/dashboard/management/profile'
       : isEmployee || inEmployeeMode
         ? '/dashboard/employee/profile'
@@ -190,7 +190,7 @@ export default function AppSidebar() {
               >
                 <DropdownMenuGroup>
                   {user && profileHref ? (
-                    // Employee / Management have no profile sidebar item: the
+                    // Employee / Management / GM have no profile sidebar item: the
                     // avatar block opens their profile instead.
                     <DropdownMenuItem
                       className='p-0 font-normal'
