@@ -1,15 +1,17 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { toast } from 'react-toastify';
 import { buttonVariants } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Icons } from '@/components/icons';
 import { cn } from '@/lib/utils';
-import { downloadMyContractDocument, getHrContact } from '@/lib/employee-self';
+import { downloadMyContractDocument } from '@/lib/employee-self';
 import type { Contract, Employee } from '@/lib/employees';
 import { useMyEmployee } from './use-my-employee';
+
+const HR_EMAIL = 'hrgaferaco@gmail.com';
 
 const STATUS: Record<string, { label: string; className: string }> = {
   ACTIVE: { label: 'Aktif', className: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-300' },
@@ -36,8 +38,8 @@ function daysUntil(iso: string): number {
   return Math.round((end - today.getTime()) / 86_400_000);
 }
 
-/** mailto: with the context HR needs to look the employee up. */
-function hrMailto(email: string, employee: Employee, latest: Contract | null): string {
+/** Gmail compose link with the context HR needs to look the employee up. */
+function hrGmailLink(employee: Employee, latest: Contract | null): string {
   const subject = `Pertanyaan status kontrak - ${employee.full_name} (${employee.employee_id})`;
   const body = [
     'Halo tim HR,',
@@ -53,36 +55,28 @@ function hrMailto(email: string, employee: Employee, latest: Contract | null): s
     '',
     'Terima kasih.'
   ].join('\n');
-  return `mailto:${email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  const qs = new URLSearchParams({ view: 'cm', fs: '1', to: HR_EMAIL, su: subject, body });
+  return `https://mail.google.com/mail/?${qs}`;
 }
 
-function HrButton({ href }: { href: string | null }) {
-  return href ? (
-    <a href={href} className={cn(buttonVariants({ variant: 'outline' }), 'h-11 px-4')}>
-      <Icons.chat className='size-4' />
-      Hubungi HR
-    </a>
-  ) : (
-    <span
-      className={cn(buttonVariants({ variant: 'outline' }), 'pointer-events-none h-11 px-4 opacity-50')}
-      title='Email HR belum diatur'
+function HrButton({ href }: { href: string }) {
+  return (
+    <a
+      href={href}
+      target='_blank'
+      rel='noopener noreferrer'
+      title={`Kirim email ke ${HR_EMAIL} lewat Gmail`}
+      className={cn(buttonVariants({ variant: 'outline' }), 'h-11 px-4')}
     >
       <Icons.chat className='size-4' />
       Hubungi HR
-    </span>
+    </a>
   );
 }
 
 export function EmployeeContractPage() {
   const { employee, contracts, loading, error } = useMyEmployee();
-  const [hrEmail, setHrEmail] = useState<string | null>(null);
   const [downloading, setDownloading] = useState<number | null>(null);
-
-  useEffect(() => {
-    getHrContact()
-      .then((d) => setHrEmail(d.email))
-      .catch(() => setHrEmail(null));
-  }, []);
 
   if (error) {
     return (
@@ -108,7 +102,7 @@ export function EmployeeContractPage() {
   const chronological = [...contracts].sort((a, b) => a.start_date.localeCompare(b.start_date));
   const history = [...chronological].reverse();
   const latest = history[0] ?? null;
-  const mailto = hrEmail ? hrMailto(hrEmail, employee, latest) : null;
+  const hrLink = hrGmailLink(employee, latest);
   const left = current?.end_date ? daysUntil(current.end_date) : null;
   // "2 bulan" -> big number + unit; longer texts ("1 tahun 3 bulan") stay whole.
   const accParts = accumulation?.display?.match(/^(\d+)\s+(\S+)$/);
@@ -179,7 +173,7 @@ export function EmployeeContractPage() {
                   </>
                 )}
               </div>
-              <HrButton href={mailto} />
+              <HrButton href={hrLink} />
             </div>
           </Card>
 
@@ -300,13 +294,9 @@ export function EmployeeContractPage() {
             <Icons.info className='mt-0.5 size-5 shrink-0 text-blue-700 dark:text-blue-300' />
             <p className='text-sm'>
               Data kontrak tidak sesuai?{' '}
-              {mailto ? (
-                <a href={mailto} className='font-medium underline underline-offset-2'>
-                  Hubungi tim HR
-                </a>
-              ) : (
-                'Hubungi tim HR'
-              )}{' '}
+              <a href={hrLink} target='_blank' rel='noopener noreferrer' className='font-medium underline underline-offset-2'>
+                Hubungi tim HR
+              </a>{' '}
               untuk pembaruan.
             </p>
           </Card>

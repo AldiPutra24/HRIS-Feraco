@@ -543,7 +543,7 @@ class LoginLockoutTests(TestCase):
 
 
 class EmployeeContractDocumentSelfServiceTests(TestCase):
-    """Own contract document download + HR contact for "Hubungi HR"."""
+    """Employee downloads the document of their OWN contracts only."""
 
     def setUp(self):
         from datetime import date
@@ -589,11 +589,3 @@ class EmployeeContractDocumentSelfServiceTests(TestCase):
     def test_contract_without_document_404(self):
         res, _ = self._get(self.no_doc)
         self.assertEqual(res.status_code, 404)
-
-    def test_hr_contact_uses_notification_setting(self):
-        from apps.notifications.models import NotificationSetting
-
-        setting = NotificationSetting.get_solo()
-        setting.default_hr_emails = 'hr@feraco.id, lead@feraco.id'
-        setting.save()
-        self.assertEqual(self.client.get(reverse('me-hr-contact')).json(), {'email': 'hr@feraco.id'})

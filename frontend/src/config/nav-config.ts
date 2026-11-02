@@ -236,6 +236,13 @@ export const managementNavGroups: NavGroup[] = [
         items: []
       },
       {
+        title: 'Kontrak',
+        url: '/dashboard/management/contract',
+        icon: 'page',
+        isActive: false,
+        items: []
+      },
+      {
         title: 'Pengaturan Akun',
         url: '/dashboard/settings/account',
         icon: 'account',

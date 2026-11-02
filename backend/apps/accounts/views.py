@@ -298,22 +298,6 @@ class CurrentEmployeeContractDocumentView(APIView):
         return response
 
 
-class HrContactView(APIView):
-    """HR contact address for the "Hubungi HR" button (any logged-in user).
-
-    First of NotificationSetting.default_hr_emails / HR recipients, so HR
-    changes it in Pengaturan Notifikasi, not in code.
-    """
-
-    permission_classes = [IsAuthenticated]
-
-    def get(self, request):
-        from apps.notifications.services import hr_recipients
-
-        emails = hr_recipients()
-        return Response({'email': emails[0] if emails else None})
-
-
 class CurrentEmployeePhotoView(APIView):
     """Upload/replace/delete the logged-in employee's profile photo (self-service)."""
 

@@ -43,11 +43,6 @@ export function deleteMyPhoto(): Promise<void> {
   return request<void>('/auth/me/employee/photo/', { method: 'DELETE' });
 }
 
-/** HR address for the "Hubungi HR" button (from Pengaturan Notifikasi). */
-export function getHrContact(): Promise<{ email: string | null }> {
-  return request<{ email: string | null }>('/auth/me/hr-contact/');
-}
-
 /** Download the latest document of one of the caller's own contracts. */
 export async function downloadMyContractDocument(contractId: number): Promise<void> {
   const res = await fetch(`${BASE}/auth/me/employee/contracts/${contractId}/document/`, { credentials: 'include' });

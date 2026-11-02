@@ -18,7 +18,6 @@ urlpatterns = [
     path('me/employee/contracts/', views.CurrentEmployeeContractsView.as_view(), name='me-employee-contracts'),
     path('me/employee/contracts/<int:pk>/document/', views.CurrentEmployeeContractDocumentView.as_view(),
          name='me-employee-contract-document'),
-    path('me/hr-contact/', views.HrContactView.as_view(), name='me-hr-contact'),
     path('me/employee/photo/', views.CurrentEmployeePhotoView.as_view(), name='me-employee-photo'),
     path('me/employee/change-requests/', views.MyChangeRequestListView.as_view(), name='me-change-requests'),
     path('me/employee/change-requests/<int:pk>/<str:action>/', views.MyChangeRequestDetailView.as_view(),
