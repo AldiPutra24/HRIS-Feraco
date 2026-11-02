@@ -188,7 +188,7 @@ export function AccountSettings() {
         </span>
         {profileHref && (
           <Link href={profileHref} className={cn(buttonVariants({ variant: 'outline' }), 'h-10 px-4')}>
-            Lihat profil karyawan
+            Lihat profil
             <Icons.arrowRight className='size-4' />
           </Link>
         )}
