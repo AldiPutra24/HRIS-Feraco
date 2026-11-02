@@ -99,7 +99,7 @@ export function LatestPayslipCard({
         <div>
           <p className='text-muted-foreground text-sm'>{payslip.period_label} · take home pay</p>
           <p className='mt-1 text-3xl font-semibold tabular-nums'>
-            {shown ? rupiah(payslip.transfer_amount || payslip.net_salary) : 'Rp ••••••••'}
+            {shown ? rupiah(payslip.net_salary) : 'Rp ••••••••'}
           </p>
         </div>
       ) : (

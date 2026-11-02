@@ -34,7 +34,7 @@ import { MyLeaveCard } from './my-leave-card';
 const PERSONAL_LINKS: { label: string; href: string; icon: keyof typeof Icons }[] = [
   { label: 'Ajukan cuti', href: '/dashboard/management/leave/new', icon: 'calendar' },
   { label: 'Reimbursement saya', href: '/dashboard/management/reimbursement', icon: 'receipt' },
-  { label: 'Slip gaji', href: '/dashboard/management/payroll', icon: 'wallet' }
+  { label: 'Slip gaji', href: '/dashboard/payroll', icon: 'wallet' }
 ];
 
 export function ManagementTeamOverview({

@@ -204,10 +204,21 @@ export const managementNavGroups: NavGroup[] = [
     label: 'Finance & Reporting',
     items: [
       {
+        // Same route, different page per role: MANAGEMENT sees only their own
+        // payslips (same as Employee "Slip Gaji"), GM the read-only console.
+        title: 'Slip Gaji',
+        url: '/dashboard/payroll',
+        icon: 'wallet',
+        isActive: false,
+        access: { roles: ['management'] },
+        items: []
+      },
+      {
         title: 'Payroll',
         url: '/dashboard/payroll',
         icon: 'wallet',
         isActive: false,
+        access: { roles: ['general_manager'] },
         items: []
       }
     ]
