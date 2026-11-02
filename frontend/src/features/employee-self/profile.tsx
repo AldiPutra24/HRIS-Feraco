@@ -1,22 +1,21 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useRouter } from 'next/navigation';
-import { Badge } from '@/components/ui/badge';
+import Link from 'next/link';
+import { usePathname, useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Icons } from '@/components/icons';
 import { cn } from '@/lib/utils';
 import { deleteMyPhoto, uploadMyPhoto } from '@/lib/employee-self';
+import type { Employee } from '@/lib/employees';
 import { listMyChangeRequests, type ChangeRequest } from '@/lib/profile-changes';
 import { ChangeRequestHistory, ChangeRequestSheet, ContactEditSheet } from './profile-edit';
 import { useMyEmployee } from './use-my-employee';
 
 const ALLOWED = ['image/jpeg', 'image/png', 'image/webp'];
 const MAX_SIZE = 5 * 1024 * 1024;
-
-type IconName = keyof typeof Icons;
 
 async function toSquare(file: File): Promise<File> {
   const bitmap = await createImageBitmap(file);
@@ -55,6 +54,7 @@ function tenure(iso: string | null): string {
 
 function initials(name: string): string {
   return name
+    .replace(/\([^)]*\)/g, '')
     .split(' ')
     .filter(Boolean)
     .slice(0, 2)
@@ -62,29 +62,68 @@ function initials(name: string): string {
     .join('');
 }
 
-const EMPLOYMENT_TONE: Record<string, string> = {
-  ACTIVE: 'bg-emerald-500/10 text-emerald-700 ring-emerald-500/30 dark:text-emerald-300',
-  INACTIVE: 'bg-slate-500/10 text-slate-600 ring-slate-500/30 dark:text-slate-300',
-  TERMINATED: 'bg-red-500/10 text-red-700 ring-red-500/30 dark:text-red-300'
+const EMPLOYMENT: Record<string, { label: string; cls: string; dot: string }> = {
+  ACTIVE: { label: 'Aktif', cls: 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300', dot: 'bg-emerald-600' },
+  INACTIVE: { label: 'Nonaktif', cls: 'bg-muted text-muted-foreground', dot: 'bg-muted-foreground' },
+  TERMINATED: { label: 'Berhenti', cls: 'bg-red-500/10 text-red-700 dark:text-red-300', dot: 'bg-red-600' }
 };
 
+type Mode = 'direct' | 'request' | 'hr';
+
+const MODE: Record<Mode, { dot: string; legend: string; subtitle: string }> = {
+  direct: { dot: 'bg-primary', legend: 'Bisa diedit langsung', subtitle: 'Bisa diedit langsung' },
+  request: { dot: 'bg-orange-600', legend: 'Perlu persetujuan HR', subtitle: 'Perubahan perlu persetujuan HR' },
+  hr: { dot: 'bg-muted-foreground/60', legend: 'Dikelola HR', subtitle: 'Dikelola HR · hubungi HR untuk perubahan' }
+};
+
+type SectionKey = 'pribadi' | 'kontak' | 'bank' | 'kepegawaian';
+
+const SECTIONS: { key: SectionKey; title: string; mode: Mode }[] = [
+  { key: 'pribadi', title: 'Data Pribadi', mode: 'request' },
+  { key: 'kontak', title: 'Kontak & Alamat', mode: 'direct' },
+  { key: 'bank', title: 'Bank & Pajak', mode: 'request' },
+  { key: 'kepegawaian', title: 'Kepegawaian', mode: 'hr' }
+];
+
+/** Fields counted for "Kelengkapan profil" (what the employee/HR can fill in). */
+function completenessFields(e: Employee): { label: string; section: SectionKey; filled: boolean }[] {
+  const rows: [string, SectionKey, unknown][] = [
+    ['Nama lengkap', 'pribadi', e.full_name],
+    ['NIK', 'pribadi', e.nik],
+    ['Jenis kelamin', 'pribadi', e.gender_display],
+    ['Tempat lahir', 'pribadi', e.birth_place],
+    ['Tanggal lahir', 'pribadi', e.birth_date],
+    ['Agama', 'pribadi', e.religion_display],
+    ['Status pernikahan', 'pribadi', e.marital_status_display],
+    ['Alamat', 'kontak', e.address],
+    ['Nomor telepon', 'kontak', e.phone],
+    ['Email pribadi', 'kontak', e.personal_email],
+    ['Kontak darurat', 'kontak', e.emergency_contact_name],
+    ['Nomor kontak darurat', 'kontak', e.emergency_contact_phone],
+    ['Nomor rekening', 'bank', e.bank_account_number],
+    ['Nama pemilik rekening', 'bank', e.bank_account_name],
+    ['NPWP', 'bank', e.npwp],
+    ['BPJS Kesehatan', 'bank', e.bpjs_kesehatan],
+    ['BPJS Ketenagakerjaan', 'bank', e.bpjs_ketenagakerjaan],
+    ['Penempatan', 'kepegawaian', e.placement_display]
+  ];
+  return rows.map(([label, section, value]) => ({ label, section, filled: !!value }));
+}
+
 /** One labelled value; pending = a change request is waiting for HR. */
-function Field({
-  label,
-  value,
-  pending,
-  wide
-}: {
-  label: string;
-  value?: string | null;
-  pending?: boolean;
-  wide?: boolean;
-}) {
+function Field({ label, value, pending, mono }: { label: string; value?: string | null; pending?: boolean; mono?: boolean }) {
   return (
-    <div className={cn('min-w-0 space-y-1', wide && 'sm:col-span-2')}>
-      <dt className='text-muted-foreground text-xs font-medium'>{label}</dt>
-      <dd className={cn('text-sm font-medium break-words', !value && 'text-muted-foreground/70 font-normal')}>
-        {value || 'Belum diisi'}
+    <div className='min-w-0 space-y-1'>
+      <dt className='text-muted-foreground text-sm'>{label}</dt>
+      <dd className={cn('break-words', mono && 'font-mono')}>
+        {value ? (
+          value
+        ) : (
+          <span className='inline-flex items-center gap-1.5 text-orange-700 dark:text-orange-300'>
+            <Icons.alertCircle className='size-4' />
+            Belum diisi
+          </span>
+        )}
       </dd>
       {pending && (
         <span className='inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:text-amber-300'>
@@ -96,69 +135,40 @@ function Field({
   );
 }
 
-/** Section card: icon + title, an edit-mode pill, optional action. */
 function Section({
-  icon,
+  id,
   title,
   mode,
   action,
   children
 }: {
-  icon: IconName;
+  id: SectionKey;
   title: string;
-  mode?: 'direct' | 'request' | 'hr';
+  mode: Mode;
   action?: React.ReactNode;
   children: React.ReactNode;
 }) {
-  const Icon = Icons[icon];
-  const pill = {
-    direct: { text: 'Bisa diedit langsung', cls: 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' },
-    request: { text: 'Perlu persetujuan HR', cls: 'bg-amber-500/10 text-amber-700 dark:text-amber-300' },
-    hr: { text: 'Dikelola HR', cls: 'bg-muted text-muted-foreground' }
-  }[mode ?? 'hr'];
   return (
-    <Card className='gap-0 py-0'>
-      <div className='flex flex-wrap items-center justify-between gap-2 border-b px-5 py-3.5'>
-        <div className='flex items-center gap-2.5'>
-          <span className='bg-primary/10 text-primary flex size-8 items-center justify-center rounded-lg'>
-            <Icon className='size-4' />
-          </span>
+    <Card id={`profil-${id}`} className='scroll-mt-20 gap-0 py-0'>
+      <div className='flex flex-wrap items-center justify-between gap-3 border-b px-6 py-4'>
+        <div className='flex items-start gap-3'>
+          <span className={cn('mt-2 size-2 shrink-0 rounded-full', MODE[mode].dot)} />
           <div>
-            <h3 className='text-sm font-semibold'>{title}</h3>
-            <span className={cn('mt-0.5 inline-block rounded-full px-2 py-px text-[11px] font-medium', pill.cls)}>
-              {pill.text}
-            </span>
+            <h3 className='text-lg font-semibold'>{title}</h3>
+            <p className='text-muted-foreground text-sm'>{MODE[mode].subtitle}</p>
           </div>
         </div>
         {action}
       </div>
-      <CardContent className='px-5 py-4'>
-        <dl className='grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2'>{children}</dl>
-      </CardContent>
+      <dl className='grid grid-cols-1 gap-x-8 gap-y-5 px-6 py-5 sm:grid-cols-2 lg:grid-cols-3'>{children}</dl>
     </Card>
-  );
-}
-
-/** Small stat chip in the hero (icon + label + value). */
-function HeroStat({ icon, label, value, hint }: { icon: IconName; label: string; value: string; hint?: string }) {
-  const Icon = Icons[icon];
-  return (
-    <div className='bg-background/70 flex min-w-0 items-center gap-3 rounded-xl border px-3.5 py-2.5 backdrop-blur'>
-      <span className='bg-primary/10 text-primary flex size-9 shrink-0 items-center justify-center rounded-lg'>
-        <Icon className='size-4' />
-      </span>
-      <div className='min-w-0'>
-        <p className='text-muted-foreground text-[11px] font-medium tracking-wide uppercase'>{label}</p>
-        <p className='truncate text-sm font-semibold'>{value || '-'}</p>
-        {hint && <p className='text-muted-foreground truncate text-xs'>{hint}</p>}
-      </div>
-    </div>
   );
 }
 
 export function EmployeeProfile() {
   const { employee, contracts, loading, error, refresh } = useMyEmployee();
   const router = useRouter();
+  const pathname = usePathname();
   const fileRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [photoError, setPhotoError] = useState('');
@@ -223,7 +233,7 @@ export function EmployeeProfile() {
 
   if (error) {
     return (
-      <div className='p-4 md:p-6'>
+      <div className='p-4 md:p-8'>
         <Card className='border-destructive/30'>
           <CardContent className='flex items-center gap-3 p-6'>
             <Icons.alertCircle className='text-destructive size-5' />
@@ -236,12 +246,11 @@ export function EmployeeProfile() {
 
   if (loading || !employee) {
     return (
-      <div className='flex flex-1 flex-col gap-5 p-4 md:p-6'>
+      <div className='flex flex-1 flex-col gap-5 p-4 md:p-8'>
         <Skeleton className='h-56 w-full rounded-2xl' />
-        <div className='grid grid-cols-1 gap-4 lg:grid-cols-2'>
-          {Array.from({ length: 4 }).map((_, i) => (
-            <Skeleton key={i} className='h-52 w-full' />
-          ))}
+        <div className='grid grid-cols-1 gap-4 lg:grid-cols-[1fr_380px]'>
+          <Skeleton className='h-96 w-full' />
+          <Skeleton className='h-72 w-full' />
         </div>
       </div>
     );
@@ -253,25 +262,38 @@ export function EmployeeProfile() {
       ? `PKWT ke-${current.pkwt_sequence}`
       : current.contract_type
     : '';
+  // Same page serves Employee and Management/GM profiles.
+  const contractHref = pathname.startsWith('/dashboard/management') ? '/dashboard/management/contract' : '/dashboard/employee/contract';
+  const status = EMPLOYMENT[employee.employment_status] ?? EMPLOYMENT.INACTIVE;
+  const fields = completenessFields(employee);
+  const missing = fields.filter((f) => !f.filled);
+  const completeness = Math.round(((fields.length - missing.length) / fields.length) * 100);
+  const sectionTitle = (key: SectionKey) => SECTIONS.find((s) => s.key === key)?.title ?? '';
+  // Backend masks identity/bank numbers for non-HR viewers ("32******0007").
+  const masked = [employee.nik, employee.bank_account_number, employee.npwp, employee.bpjs_kesehatan, employee.bpjs_ketenagakerjaan].some(
+    (v) => v?.includes('*')
+  );
+  const goTo = (key: SectionKey) =>
+    document.getElementById(`profil-${key}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  const requestButton = (
+    <Button variant='outline' className='h-10' onClick={() => setRequestOpen(true)}>
+      <Icons.edit className='size-4' />
+      Ajukan perubahan
+    </Button>
+  );
 
   return (
-    <div className='flex flex-1 flex-col gap-5 p-4 md:p-6'>
-      {/* Hero */}
-      <section className='from-primary/15 via-primary/5 to-background relative overflow-hidden rounded-2xl border bg-gradient-to-br p-5 md:p-6'>
-        <div className='bg-primary/10 pointer-events-none absolute -top-20 -right-16 size-64 rounded-full blur-3xl' />
-        <div className='relative flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between'>
-          <div className='flex flex-col items-center gap-4 text-center sm:flex-row sm:text-left'>
-            {/* Avatar with change / remove controls */}
+    <div className='flex flex-1 flex-col gap-6 p-4 md:p-8'>
+      {/* Header card */}
+      <Card className='gap-0 overflow-hidden py-0'>
+        <div className='flex flex-col gap-5 px-6 py-6 lg:flex-row lg:items-center lg:justify-between'>
+          <div className='flex flex-col items-center gap-5 text-center sm:flex-row sm:text-left'>
             <div className='group relative shrink-0'>
               {employee.photo_url ? (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={employee.photo_url}
-                  alt={employee.full_name}
-                  className='ring-background size-24 rounded-full object-cover shadow-md ring-4'
-                />
+                <img src={employee.photo_url} alt={employee.full_name} className='size-28 rounded-full object-cover' />
               ) : (
-                <div className='bg-primary text-primary-foreground ring-background flex size-24 items-center justify-center rounded-full text-3xl font-semibold shadow-md ring-4'>
+                <div className='bg-primary/10 text-primary flex size-28 items-center justify-center rounded-full text-4xl font-semibold'>
                   {initials(employee.full_name)}
                 </div>
               )}
@@ -290,10 +312,10 @@ export function EmployeeProfile() {
                 disabled={busy}
                 aria-label={employee.photo_url ? 'Ganti foto profil' : 'Unggah foto profil'}
                 title={employee.photo_url ? 'Ganti foto' : 'Unggah foto'}
-                className='bg-primary text-primary-foreground border-background absolute right-0 bottom-0 flex size-8 items-center justify-center rounded-full border-2 shadow transition-transform hover:scale-105 disabled:opacity-50'
+                className='bg-foreground text-background border-card absolute right-0 bottom-0 flex size-10 items-center justify-center rounded-full border-4 transition-transform hover:scale-105 disabled:opacity-50'
                 onClick={() => fileRef.current?.click()}
               >
-                {busy ? <Icons.spinner className='size-3.5 animate-spin' /> : <Icons.upload className='size-3.5' />}
+                {busy ? <Icons.spinner className='size-4 animate-spin' /> : <Icons.camera className='size-4' />}
               </button>
               {employee.photo_url && (
                 <button
@@ -301,65 +323,74 @@ export function EmployeeProfile() {
                   disabled={busy}
                   aria-label='Hapus foto profil'
                   title='Hapus foto'
-                  className='bg-destructive border-background absolute top-0 right-0 flex size-7 items-center justify-center rounded-full border-2 text-white opacity-0 shadow transition-opacity group-hover:opacity-100 focus-visible:opacity-100 disabled:opacity-50'
+                  className='bg-destructive border-card absolute top-0 right-0 flex size-8 items-center justify-center rounded-full border-2 text-white opacity-0 shadow transition-opacity group-hover:opacity-100 focus-visible:opacity-100 disabled:opacity-50'
                   onClick={onDeletePhoto}
                 >
-                  <Icons.trash className='size-3' />
+                  <Icons.trash className='size-3.5' />
                 </button>
               )}
             </div>
 
             <div className='min-w-0'>
-              <h2 className='text-2xl font-bold tracking-tight md:text-3xl'>{employee.full_name}</h2>
-              <p className='text-muted-foreground mt-1 text-sm'>
+              <h2 className='text-3xl font-bold tracking-tight'>{employee.full_name}</h2>
+              <p className='text-muted-foreground mt-1'>
                 {employee.position_name || 'Posisi belum diatur'}
                 {employee.department_name ? ` · ${employee.department_name}` : ''}
               </p>
-              <div className='mt-2.5 flex flex-wrap items-center justify-center gap-2 sm:justify-start'>
-                <span
-                  className={cn(
-                    'rounded-full px-2.5 py-0.5 text-xs font-semibold ring-1',
-                    EMPLOYMENT_TONE[employee.employment_status] ?? EMPLOYMENT_TONE.INACTIVE
-                  )}
-                >
-                  {employee.employment_status}
+              <div className='mt-3 flex flex-wrap items-center justify-center gap-2 sm:justify-start'>
+                <span className={cn('inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-sm font-medium', status.cls)}>
+                  <span className={cn('size-1.5 rounded-full', status.dot)} />
+                  {status.label}
                 </span>
-                <Badge variant='outline' className='font-mono text-xs'>
-                  {employee.employee_id}
-                </Badge>
-                {employee.placement_display && (
-                  <Badge variant='outline' className='text-xs'>
-                    {employee.placement_display}
-                  </Badge>
-                )}
+                <span className='bg-muted rounded-md px-2.5 py-1 font-mono text-sm'>{employee.employee_id}</span>
               </div>
               {photoError && <p className='text-destructive mt-2 text-xs'>{photoError}</p>}
             </div>
           </div>
 
           <div className='flex flex-wrap justify-center gap-2 lg:justify-end'>
-            <Button onClick={() => setRequestOpen(true)}>
-              <Icons.edit className='size-4' />
-              Ajukan Perubahan Data
-            </Button>
-            <Button variant='outline' className='bg-background/70' onClick={() => router.push('/dashboard/settings/account')}>
+            <Button variant='outline' className='h-11 px-4' onClick={() => router.push('/dashboard/settings/account')}>
               <Icons.lock className='size-4' />
               Pengaturan Akun
+            </Button>
+            <Button className='h-11 px-4' onClick={() => setRequestOpen(true)}>
+              <Icons.edit className='size-4' />
+              Ajukan Perubahan Data
             </Button>
           </div>
         </div>
 
-        <div className='relative mt-5 grid grid-cols-1 gap-3 sm:grid-cols-3'>
-          <HeroStat icon='calendar' label='Bergabung' value={fmtDate(employee.join_date)} hint={tenure(employee.join_date)} />
-          <HeroStat
-            icon='briefcase'
-            label='Kontrak Aktif'
-            value={contractValue}
-            hint={current?.end_date ? `Berakhir ${fmtDate(current.end_date)}` : current ? 'Tanpa tanggal berakhir' : ''}
-          />
-          <HeroStat icon='user' label='Reporting To' value={employee.manager_name ?? ''} />
+        <div className='grid grid-cols-1 divide-y border-t sm:grid-cols-3 sm:divide-x sm:divide-y-0'>
+          <div className='px-6 py-4'>
+            <p className='text-muted-foreground text-sm'>Bergabung</p>
+            <p className='mt-1 font-semibold'>{fmtDate(employee.join_date) || '—'}</p>
+            {employee.join_date && <p className='text-muted-foreground text-sm'>{tenure(employee.join_date)} masa kerja</p>}
+          </div>
+          <div className='px-6 py-4'>
+            <p className='text-muted-foreground text-sm'>Kontrak aktif</p>
+            {current ? (
+              <>
+                <p className='mt-1 font-semibold'>{contractValue}</p>
+                <p className='text-muted-foreground text-sm'>
+                  {current.end_date ? `Berakhir ${fmtDate(current.end_date)}` : 'Tanpa tanggal berakhir'}
+                </p>
+              </>
+            ) : (
+              <>
+                <p className='mt-1 font-semibold text-orange-700 dark:text-orange-300'>Tidak ada kontrak aktif</p>
+                <Link href={contractHref} className='text-primary text-sm font-medium hover:underline'>
+                  Lihat riwayat kontrak →
+                </Link>
+              </>
+            )}
+          </div>
+          <div className='px-6 py-4'>
+            <p className='text-muted-foreground text-sm'>Atasan langsung</p>
+            <p className='mt-1 font-semibold'>{employee.manager_name || '—'}</p>
+            {employee.manager_name && <p className='text-muted-foreground text-sm'>Menyetujui izin &amp; cuti</p>}
+          </div>
         </div>
-      </section>
+      </Card>
 
       {pendingCount > 0 && (
         <div className='flex items-center gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-800 dark:text-amber-200'>
@@ -371,74 +402,132 @@ export function EmployeeProfile() {
         </div>
       )}
 
-      <div className='grid grid-cols-1 gap-4 xl:grid-cols-2'>
-        <Section
-          icon='user'
-          title='Data Pribadi'
-          mode='request'
-          action={
-            <Button size='sm' variant='outline' onClick={() => setRequestOpen(true)}>
-              Ajukan Perubahan
-            </Button>
-          }
-        >
-          <Field label='Nama Lengkap' value={employee.full_name} pending={pending('full_name')} wide />
-          <Field label='NIK' value={employee.nik} pending={pending('nik')} />
-          <Field label='Jenis Kelamin' value={employee.gender_display} pending={pending('gender')} />
-          <Field label='Tempat Lahir' value={employee.birth_place} pending={pending('birth_place')} />
-          <Field label='Tanggal Lahir' value={fmtDate(employee.birth_date)} pending={pending('birth_date')} />
-          <Field label='Agama' value={employee.religion_display} pending={pending('religion')} />
-          <Field label='Status Pernikahan' value={employee.marital_status_display} pending={pending('marital_status')} />
-        </Section>
+      <div className='grid grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(0,1fr)_380px]'>
+        <div className='flex min-w-0 flex-col gap-5'>
+          <div className='text-muted-foreground flex flex-wrap items-center justify-between gap-x-6 gap-y-2 text-sm'>
+            <div className='flex flex-wrap gap-x-5 gap-y-1'>
+              {(Object.keys(MODE) as Mode[]).map((m) => (
+                <span key={m} className='flex items-center gap-1.5'>
+                  <span className={cn('size-2 rounded-full', MODE[m].dot)} />
+                  {MODE[m].legend}
+                </span>
+              ))}
+            </div>
+            {masked && (
+              <span className='flex items-center gap-1.5'>
+                <Icons.lock className='size-4' />
+                Nomor identitas &amp; rekening ditampilkan sebagian
+              </span>
+            )}
+          </div>
 
-        <Section
-          icon='phone'
-          title='Kontak & Alamat'
-          mode='direct'
-          action={
-            <Button size='sm' variant='outline' onClick={() => setEditOpen(true)}>
-              <Icons.edit className='size-3.5' />
-              Edit
-            </Button>
-          }
-        >
-          <Field label='Alamat' value={employee.address} wide />
-          <Field label='Nomor Telepon' value={employee.phone} />
-          <Field label='Email Pribadi' value={employee.personal_email} />
-          <Field label='Kontak Darurat' value={employee.emergency_contact_name} />
-          <Field label='Nomor Kontak Darurat' value={employee.emergency_contact_phone} />
-        </Section>
+          <Section id='pribadi' title='Data Pribadi' mode='request' action={requestButton}>
+            <Field label='Nama lengkap' value={employee.full_name} pending={pending('full_name')} />
+            <Field label='NIK' value={employee.nik} pending={pending('nik')} mono />
+            <Field label='Jenis kelamin' value={employee.gender_display} pending={pending('gender')} />
+            <Field label='Tempat lahir' value={employee.birth_place} pending={pending('birth_place')} />
+            <Field label='Tanggal lahir' value={fmtDate(employee.birth_date)} pending={pending('birth_date')} />
+            <Field label='Agama' value={employee.religion_display} pending={pending('religion')} />
+            <Field label='Status pernikahan' value={employee.marital_status_display} pending={pending('marital_status')} />
+          </Section>
 
-        <Section
-          icon='wallet'
-          title='Bank & Pajak'
-          mode='request'
-          action={
-            <Button size='sm' variant='outline' onClick={() => setRequestOpen(true)}>
-              Ajukan Perubahan
-            </Button>
-          }
-        >
-          <Field label='Nomor Rekening' value={employee.bank_account_number} pending={pending('bank_account_number')} />
-          <Field label='Nama Pemilik Rekening' value={employee.bank_account_name} pending={pending('bank_account_name')} />
-          <Field label='NPWP' value={employee.npwp} pending={pending('npwp')} />
-          <Field label='BPJS Kesehatan' value={employee.bpjs_kesehatan} pending={pending('bpjs_kesehatan')} />
-          <Field label='BPJS Ketenagakerjaan' value={employee.bpjs_ketenagakerjaan} pending={pending('bpjs_ketenagakerjaan')} />
-        </Section>
+          <Section
+            id='kontak'
+            title='Kontak & Alamat'
+            mode='direct'
+            action={
+              <Button variant='outline' className='h-10' onClick={() => setEditOpen(true)}>
+                <Icons.edit className='size-4' />
+                Edit
+              </Button>
+            }
+          >
+            <Field label='Alamat' value={employee.address} />
+            <Field label='Nomor telepon' value={employee.phone} mono />
+            <Field label='Email pribadi' value={employee.personal_email} />
+            <Field label='Kontak darurat' value={employee.emergency_contact_name} />
+            <Field label='Nomor kontak darurat' value={employee.emergency_contact_phone} mono />
+          </Section>
 
-        <Section icon='briefcase' title='Kepegawaian' mode='hr'>
-          <Field label='Employee ID' value={employee.employee_id} />
-          <Field label='Email Kantor' value={employee.company_email} />
-          <Field label='Department' value={employee.department_name} />
-          <Field label='Position' value={employee.position_name} />
-          <Field label='Reporting To' value={employee.manager_name} />
-          <Field label='Penempatan' value={employee.placement_display} />
-          <Field label='Join Date' value={fmtDate(employee.join_date)} />
-          <Field label='Employment Status' value={employee.employment_status} />
-        </Section>
+          <Section id='bank' title='Bank & Pajak' mode='request' action={requestButton}>
+            <Field label='Nomor rekening' value={employee.bank_account_number} pending={pending('bank_account_number')} mono />
+            <Field label='Nama pemilik rekening' value={employee.bank_account_name} pending={pending('bank_account_name')} />
+            <Field label='NPWP' value={employee.npwp} pending={pending('npwp')} mono />
+            <Field label='BPJS Kesehatan' value={employee.bpjs_kesehatan} pending={pending('bpjs_kesehatan')} mono />
+            <Field
+              label='BPJS Ketenagakerjaan'
+              value={employee.bpjs_ketenagakerjaan}
+              pending={pending('bpjs_ketenagakerjaan')}
+              mono
+            />
+          </Section>
+
+          <Section id='kepegawaian' title='Kepegawaian' mode='hr'>
+            <Field label='Employee ID' value={employee.employee_id} mono />
+            <Field label='Email kantor' value={employee.company_email} />
+            <Field label='Department' value={employee.department_name} />
+            <Field label='Position' value={employee.position_name} />
+            <Field label='Reporting to' value={employee.manager_name} />
+            <Field label='Penempatan' value={employee.placement_display} />
+            <Field label='Join date' value={fmtDate(employee.join_date)} />
+            <Field label='Employment status' value={status.label} />
+          </Section>
+
+          <ChangeRequestHistory items={requests} onChanged={loadRequests} />
+        </div>
+
+        <div className='flex min-w-0 flex-col gap-5 lg:sticky lg:top-20'>
+          <Card className='gap-4 px-6 py-6'>
+            <div className='flex items-baseline justify-between gap-2'>
+              <h3 className='text-lg font-semibold'>Kelengkapan profil</h3>
+              <span className='text-3xl font-semibold tabular-nums'>{completeness}%</span>
+            </div>
+            <div className='bg-muted h-2 overflow-hidden rounded-full'>
+              <div className='bg-primary h-full rounded-full' style={{ width: `${completeness}%` }} />
+            </div>
+            {missing.length === 0 ? (
+              <p className='text-muted-foreground flex items-center gap-2 text-sm'>
+                <Icons.circleCheck className='text-primary size-4' />
+                Semua data sudah lengkap.
+              </p>
+            ) : (
+              <>
+                <p className='text-muted-foreground text-sm'>{missing.length} data belum diisi:</p>
+                <ul className='space-y-1.5'>
+                  {missing.map((f) => (
+                    <li key={f.label}>
+                      <button
+                        type='button'
+                        onClick={() => goTo(f.section)}
+                        className='bg-muted/40 hover:bg-muted flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm transition-colors'
+                      >
+                        <span className='size-1.5 shrink-0 rounded-full bg-orange-600' />
+                        <span className='flex-1 font-medium'>{f.label}</span>
+                        <span className='text-muted-foreground text-xs'>{sectionTitle(f.section)}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+          </Card>
+
+          <Card className='gap-1 px-4 py-4'>
+            {SECTIONS.map((s) => (
+              <button
+                key={s.key}
+                type='button'
+                onClick={() => goTo(s.key)}
+                className='hover:bg-muted flex items-center gap-3 rounded-lg px-2 py-2.5 text-left font-medium'
+              >
+                <span className={cn('size-2 shrink-0 rounded-full', MODE[s.mode].dot)} />
+                <span className='flex-1'>{s.title}</span>
+                <Icons.chevronRight className='text-muted-foreground size-4' />
+              </button>
+            ))}
+          </Card>
+        </div>
       </div>
-
-      <ChangeRequestHistory items={requests} onChanged={loadRequests} />
 
       <ContactEditSheet employee={employee} open={editOpen} onOpenChange={setEditOpen} onSaved={refresh} />
       <ChangeRequestSheet

@@ -240,10 +240,12 @@ export const managementNavGroups: NavGroup[] = [
     items: [
       {
         // Own employee profile: direct contact edits + data change requests.
-        title: 'Profil Karyawan',
+        title: 'Profil',
         url: '/dashboard/management/profile',
         icon: 'profile',
         isActive: false,
+        // MANAGEMENT opens the profile from the avatar in the account menu.
+        access: { roles: ['general_manager'] },
         items: []
       },
       {

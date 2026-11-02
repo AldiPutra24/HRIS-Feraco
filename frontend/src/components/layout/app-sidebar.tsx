@@ -182,17 +182,36 @@ export default function AppSidebar() {
                 sideOffset={4}
               >
                 <DropdownMenuGroup>
-                  <DropdownMenuLabel className='p-0 font-normal'>
-                    <div className='px-1 py-1.5'>
-                      {user && (
+                  {user?.role === 'management' ? (
+                    // Management has no "Profil Karyawan" sidebar item: the
+                    // avatar block opens their profile instead.
+                    <DropdownMenuItem
+                      className='p-0 font-normal'
+                      title='Lihat profil'
+                      onClick={() => router.push('/dashboard/management/profile')}
+                    >
+                      <div className='flex w-full items-center gap-2 px-1 py-1.5'>
                         <UserAvatarProfile
                           className='h-8 w-8 rounded-lg'
                           showInfo
                           user={{ name: user.name, email: user.email, photoUrl: user.photoUrl }}
                         />
-                      )}
-                    </div>
-                  </DropdownMenuLabel>
+                        <Icons.chevronRight className='text-muted-foreground ml-auto size-4' />
+                      </div>
+                    </DropdownMenuItem>
+                  ) : (
+                    <DropdownMenuLabel className='p-0 font-normal'>
+                      <div className='px-1 py-1.5'>
+                        {user && (
+                          <UserAvatarProfile
+                            className='h-8 w-8 rounded-lg'
+                            showInfo
+                            user={{ name: user.name, email: user.email, photoUrl: user.photoUrl }}
+                          />
+                        )}
+                      </div>
+                    </DropdownMenuLabel>
+                  )}
                 </DropdownMenuGroup>
                 <DropdownMenuSeparator />
                 <DropdownMenuGroup>
@@ -210,12 +229,6 @@ export default function AppSidebar() {
                     <Icons.account className='mr-2 h-4 w-4' />
                     Account
                   </DropdownMenuItem>
-                  {!isEmployee && (
-                    <DropdownMenuItem onClick={() => router.push('/dashboard/settings')}>
-                      <Icons.settings className='mr-2 h-4 w-4' />
-                      Settings
-                    </DropdownMenuItem>
-                  )}
                 </DropdownMenuGroup>
                 <DropdownMenuSeparator />
                 <DropdownMenuGroup>
