@@ -4,7 +4,11 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { Card } from '@/components/ui/card';
 import { Icons } from '@/components/icons';
-import { AnnouncementFeed } from '@/features/announcements/announcement-feed';
+import {
+  AnnouncementBanner,
+  AnnouncementFeed,
+  useAnnouncementFeed
+} from '@/features/announcements/announcement-feed';
 import { WhosOffToday } from '@/features/leaves/whos-off-today';
 import { useAuth } from '@/lib/auth/auth-provider';
 import type { OffTodayItem } from '@/lib/leaves';
@@ -22,6 +26,7 @@ import {
   StatusPill,
   pct
 } from './overview-parts';
+import { MyLeaveCard } from './my-leave-card';
 
 // Management dashboard. Data is the manager's direct reports only (backend
 // /dashboard/management/ scope).
@@ -48,6 +53,7 @@ export function ManagementTeamOverview({
   const { user } = useAuth();
   const { team, leave, pending_leave_items: pending, team_members: members } = data;
   const [offToday, setOffToday] = useState<OffTodayItem[]>([]);
+  const announcementFeed = useAnnouncementFeed(reloadKey);
   const memberIds = new Set(members.map((m) => m.id));
   const teamOff = offToday.filter((o) => memberIds.has(o.employee_id)).length;
 
@@ -64,6 +70,8 @@ export function ManagementTeamOverview({
         </HeaderLink>
         <ApprovalButton count={leave.awaiting_me} />
       </DashboardHeader>
+
+      <AnnouncementBanner feed={announcementFeed} />
 
       <div className='grid grid-cols-1 items-start gap-5 lg:grid-cols-[minmax(0,1fr)_360px]'>
         <div className='flex min-w-0 flex-col gap-5'>
@@ -119,7 +127,7 @@ export function ManagementTeamOverview({
             </div>
           </Card>
 
-          <AnnouncementFeed reloadKey={reloadKey} />
+          <AnnouncementFeed feed={announcementFeed} />
 
           <div className='grid grid-cols-1 items-start gap-5 md:grid-cols-2'>
             <WhosOffToday href='/dashboard/management/leave' onLoaded={setOffToday} />
@@ -128,6 +136,8 @@ export function ManagementTeamOverview({
         </div>
 
         <div className='flex min-w-0 flex-col gap-5'>
+          <MyLeaveCard reloadKey={reloadKey} />
+
           <Card className='gap-0 py-0'>
             <div className='px-5 pt-5 pb-5'>
               <div className='flex items-start justify-between gap-2'>

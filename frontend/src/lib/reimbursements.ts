@@ -127,6 +127,10 @@ export type ReimbursementSummary = {
   paid_amount: number | string;
   /** PAID within the current month (paid_at, local time). */
   paid_this_month?: { count: number; amount: number | string };
+  /** PAID within the current year (paid_at, local time). */
+  paid_this_year?: number | string;
+  /** Sum requested of records still in approval (PENDING + WAITING_HR_LEAD). */
+  pending_amount?: number | string;
 };
 
 /** Live status counts from the backend (`mine` = caller's own records only). */
@@ -249,4 +253,24 @@ export function uploadReimbursementAttachment(id: number, file: File): Promise<R
 
 export function listReimbursementNotifications(): Promise<ReimbursementNotification[]> {
   return request<ReimbursementNotification[]>('/notifications/');
+}
+
+/** Official template for combining several transaction proofs into one PDF. */
+export const REIMBURSEMENT_TEMPLATE_URL =
+  'https://docs.google.com/document/d/1Cgj5DKr-8xaqM7F_IVuJogO99R2zCxiUUJ9v4v_Gpuk/edit?usp=sharing';
+
+/** Kategori Project choices (backend `project_category`). */
+export const REIMBURSEMENT_PROJECTS: { value: string; label: string }[] = [
+  { value: 'OPERASIONAL_FERACO_JAKARTA', label: 'Operasional Feraco Jakarta' },
+  { value: 'OPERASIONAL_FERACO_JOGJA', label: 'Operasional Feraco Jogja' },
+  { value: 'GPFE', label: 'GPFE' },
+  { value: 'INACRAFT', label: 'Inacraft' },
+  { value: 'PENAS', label: 'Penas' },
+  { value: 'LEARNING_DEVELOPMENT', label: 'Learning & Development' },
+  { value: 'OTHER', label: 'Other' }
+];
+
+export function reimbursementProjectLabel(r: Pick<Reimbursement, 'project_category' | 'project_category_other'>): string {
+  if (r.project_category === 'OTHER') return r.project_category_other || 'Other';
+  return REIMBURSEMENT_PROJECTS.find((p) => p.value === r.project_category)?.label ?? r.project_category.replace(/_/g, ' ');
 }

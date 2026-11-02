@@ -5,7 +5,11 @@ import Link from 'next/link';
 import { Card } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Icons } from '@/components/icons';
-import { AnnouncementFeed } from '@/features/announcements/announcement-feed';
+import {
+  AnnouncementBanner,
+  AnnouncementFeed,
+  useAnnouncementFeed
+} from '@/features/announcements/announcement-feed';
 import { WhosOffToday } from '@/features/leaves/whos-off-today';
 import { useAuth } from '@/lib/auth/auth-provider';
 import { cn } from '@/lib/utils';
@@ -102,6 +106,7 @@ export function GmOverview({
   const s = company.summary;
   const [contractWindow, setContractWindow] = useState<ContractWindow>('ALL');
   const [offToday, setOffToday] = useState<OffTodayItem[] | null>(null);
+  const announcementFeed = useAnnouncementFeed(reloadKey);
 
   const contracts = company.contracts_ending.filter((c) => contractWindow === 'ALL' || c.days_left <= contractWindow);
   const nearest = company.contracts_ending[0];
@@ -126,6 +131,8 @@ export function GmOverview({
         </HeaderLink>
         <ApprovalButton count={leave.awaiting_me} />
       </DashboardHeader>
+
+      <AnnouncementBanner feed={announcementFeed} />
 
       <div className='grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4'>
         <KpiCard label='Total Karyawan'>
@@ -225,7 +232,7 @@ export function GmOverview({
             </div>
           </Card>
 
-          <AnnouncementFeed reloadKey={reloadKey} />
+          <AnnouncementFeed feed={announcementFeed} />
 
           <Card className='gap-0 py-0'>
             <div className='flex items-start justify-between gap-3 px-5 pt-5 pb-4'>

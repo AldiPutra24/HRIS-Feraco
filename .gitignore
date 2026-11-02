@@ -1,10 +1,10 @@
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
 # dependencies
-frontend/node_modules/
+node_modules/
 
-# next.js
-frontend/.next/
+# next.js (any depth: a build run from a subfolder must not flood git)
+.next/
 frontend/next-env.d.ts
 
 # Python / Django
@@ -54,7 +54,8 @@ CLAUDE.md
 SESSION.md
 project-analysis.md
 production.md
-payroll-note.mdbackend/test_out.txt
+payroll-note.md
+backend/test_out.txt
 
 backend/err.txt
 .freebuff

@@ -8,7 +8,11 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Icons } from '@/components/icons';
 import { cn } from '@/lib/utils';
 import { WhosOffToday } from '@/features/leaves/whos-off-today';
-import { AnnouncementFeed } from '@/features/announcements/announcement-feed';
+import {
+  AnnouncementBanner,
+  AnnouncementFeed,
+  useAnnouncementFeed
+} from '@/features/announcements/announcement-feed';
 import { getUpcomingBirthdays, type UpcomingBirthday } from '@/lib/dashboard';
 import { formatDays, getMyBalances, listLeaveRequests, type LeaveRequest, type MyBalance } from '@/lib/leaves';
 import { listMyPayslips, type MyPayroll } from '@/lib/payroll';
@@ -123,6 +127,7 @@ export function EmployeeOverview() {
   const [reimbursement, setReimbursement] = useState<ReimbursementSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [payslip, setPayslip] = useState<MyPayroll | null | undefined>(undefined);
+  const announcementFeed = useAnnouncementFeed();
 
   const load = useCallback(async () => {
     const [b, r, rs, bd, ps] = await Promise.all([
@@ -222,6 +227,8 @@ export function EmployeeOverview() {
         </div>
       </div>
 
+      <AnnouncementBanner feed={announcementFeed} />
+
       <div className='grid grid-cols-1 gap-4 lg:grid-cols-3'>
         <Card className='bg-primary text-primary-foreground flex flex-col justify-between gap-6 border-0 px-5 py-5 ring-0'>
           <div className='flex items-center justify-between text-sm font-medium'>
@@ -315,7 +322,7 @@ export function EmployeeOverview() {
 
       <div className='grid grid-cols-1 items-start gap-5 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]'>
         <div className='flex min-w-0 flex-col gap-5'>
-          <AnnouncementFeed />
+          <AnnouncementFeed feed={announcementFeed} />
           <WhosOffToday wide description='Rekan kerja yang sedang izin atau cuti hari ini' />
         </div>
 

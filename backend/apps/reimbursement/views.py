@@ -149,6 +149,15 @@ class ReimbursementViewSet(viewsets.ModelViewSet):
             return qs.none()
         return qs.filter(employee_id=employee.id)
 
+    def filter_queryset(self, queryset):
+        qs = super().filter_queryset(queryset)
+        # `?status_in=PENDING,WAITING_HR_LEAD`: several statuses at once
+        # ("Pending" chip on Pengajuan Saya covers both approval layers).
+        statuses = [s for s in self.request.query_params.get('status_in', '').split(',') if s]
+        if statuses:
+            qs = qs.filter(status__in=statuses)
+        return qs
+
     def _block_management_write(self):
         """Management must stay within their own reimbursement flow: they may
         create/edit/submit/cancel their OWN drafts, but never touch another
@@ -526,11 +535,18 @@ class ReimbursementViewSet(viewsets.ModelViewSet):
         today = timezone.localdate()
         month_paid = qs.filter(status='PAID', paid_at__date__year=today.year, paid_at__date__month=today.month)
         month = month_paid.aggregate(n=Count('id'), total=paid_total)
+        year_paid = qs.filter(status='PAID', paid_at__date__year=today.year).aggregate(total=paid_total)['total']
+        # Still in approval (either layer): what the claimant asked for.
+        pending_amount = qs.filter(status__in=['PENDING', 'WAITING_HR_LEAD']).aggregate(
+            total=Coalesce(Sum('amount'), 0, output_field=DecimalField())
+        )['total']
         return Response({
             'counts': counts,
             'total': sum(counts.values()),
             'paid_amount': paid,
             'paid_this_month': {'count': month['n'], 'amount': month['total']},
+            'paid_this_year': year_paid,
+            'pending_amount': pending_amount,
         })
 
     @action(detail=False, methods=['get'])

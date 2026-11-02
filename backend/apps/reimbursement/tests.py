@@ -762,6 +762,23 @@ class ReimbursementRevisionTests(TestCase):
         self.assertEqual(self.client.get('/api/reimbursements/summary/?mine=1').json()['total'], 0)
         self.assertEqual(self.client.get('/api/reimbursements/summary/').json()['counts']['PENDING'], 1)
 
+    def test_summary_amounts_and_status_in_filter(self):
+        rid = self._draft()
+        emp_id = Reimbursement.objects.get(pk=rid).employee_id
+        Reimbursement.objects.filter(pk=rid).update(status='PENDING', amount=1000)
+        Reimbursement.objects.create(employee_id=emp_id, category=self.cat, transaction_date=date.today(),
+                                     amount=500, status='WAITING_HR_LEAD')
+        Reimbursement.objects.create(employee_id=emp_id, category=self.cat, transaction_date=date.today(),
+                                     amount=700, approved_amount=600, status='PAID', paid_at=timezone.now())
+        Reimbursement.objects.create(employee_id=emp_id, category=self.cat, transaction_date=date.today(),
+                                     amount=900, status='REJECTED')
+        data = self.client.get('/api/reimbursements/summary/?mine=1').json()
+        self.assertEqual(float(data['pending_amount']), 1500)
+        self.assertEqual(float(data['paid_this_year']), 600)
+        res = self.client.get('/api/reimbursements/?mine=1&status_in=PENDING,WAITING_HR_LEAD').json()
+        self.assertEqual(sorted(r['status'] for r in res['results']), ['PENDING', 'WAITING_HR_LEAD'])
+        self.assertEqual(res['count'], 2)
+
 
 
 @override_settings(EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend')
