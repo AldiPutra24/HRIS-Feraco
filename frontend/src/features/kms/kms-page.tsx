@@ -48,12 +48,13 @@ const ROLE_LABELS: Record<string, string> = {
 };
 
 // Quick searches under the hero.
-const TOPICS = ['Cuti', 'Reimbursement'];
+const TOPICS = ['Cuti', 'Reimbursement', 'Aktivasi akun'];
 
 // "Baru pakai HRIS?" row: shown only for the starter articles that exist
 // (matched by title, so HR can rename/remove them without code changes).
 const STARTERS = [
   { match: 'mengenal hris', title: 'Mengenal HRIS FERACO', text: 'Fungsi sistem dan fitur yang dapat digunakan karyawan.' },
+  { match: 'aktivasi akun', title: 'Aktivasi Akun & Langkah Pertama', text: 'Aktifkan akun lalu kenali menu-menu utama HRIS.' },
 ];
 
 function visibilityLabel(article: KmsArticle): string {
