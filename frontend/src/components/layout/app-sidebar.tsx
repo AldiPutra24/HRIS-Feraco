@@ -67,6 +67,13 @@ export default function AppSidebar() {
         ? '/dashboard/employee'
         : '/dashboard/overview';
   const brandLabel = isEmployee || inEmployeeMode ? 'FERACO People' : 'FERACO HRIS';
+  // Own profile opened from the avatar in the account menu (no sidebar item).
+  const profileHref =
+    user?.role === 'management'
+      ? '/dashboard/management/profile'
+      : isEmployee || inEmployeeMode
+        ? '/dashboard/employee/profile'
+        : null;
 
   function switchMode() {
     if (!isHrStaff) return;
@@ -182,13 +189,13 @@ export default function AppSidebar() {
                 sideOffset={4}
               >
                 <DropdownMenuGroup>
-                  {user?.role === 'management' ? (
-                    // Management has no "Profil Karyawan" sidebar item: the
+                  {user && profileHref ? (
+                    // Employee / Management have no profile sidebar item: the
                     // avatar block opens their profile instead.
                     <DropdownMenuItem
                       className='p-0 font-normal'
                       title='Lihat profil'
-                      onClick={() => router.push('/dashboard/management/profile')}
+                      onClick={() => router.push(profileHref)}
                     >
                       <div className='flex w-full items-center gap-2 px-1 py-1.5'>
                         <UserAvatarProfile
@@ -227,7 +234,7 @@ export default function AppSidebar() {
                   )}
                   <DropdownMenuItem onClick={() => router.push('/dashboard/settings/account')}>
                     <Icons.account className='mr-2 h-4 w-4' />
-                    Account
+                    Setting Account
                   </DropdownMenuItem>
                 </DropdownMenuGroup>
                 <DropdownMenuSeparator />

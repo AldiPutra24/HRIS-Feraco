@@ -15,18 +15,6 @@ export const employeeNavGroups: NavGroup[] = [
     ]
   },
   {
-    label: 'People',
-    items: [
-      {
-        title: 'Profile',
-        url: '/dashboard/employee/profile',
-        icon: 'profile',
-        isActive: false,
-        items: []
-      }
-    ]
-  },
-  {
     label: 'Operations',
     items: [
       {
@@ -255,13 +243,6 @@ export const managementNavGroups: NavGroup[] = [
         isActive: false,
         // MANAGEMENT only; the General Manager has no Kontrak menu.
         access: { roles: ['management'] },
-        items: []
-      },
-      {
-        title: 'Pengaturan Akun',
-        url: '/dashboard/settings/account',
-        icon: 'account',
-        isActive: false,
         items: []
       }
     ]
