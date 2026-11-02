@@ -75,6 +75,13 @@ class KnowledgeCategoryViewSet(viewsets.ModelViewSet):
         if not is_manager:
             roots = roots.filter(is_active=True)
             children = children.filter(is_active=True)
+        # `visible_count`: articles this user sees in the default listing
+        # (managers: all but archived; others: published + accessible), so
+        # the sidebar never counts drafts or restricted articles.
+        if is_manager:
+            visible = KnowledgeArticle.objects.exclude(status=STATUS_ARCHIVED)
+        else:
+            visible = KnowledgeArticle.accessible_to(request.user).filter(status=STATUS_PUBLISHED)
         data = []
         for root in roots:
             data.append({
@@ -82,12 +89,14 @@ class KnowledgeCategoryViewSet(viewsets.ModelViewSet):
                 'name': root.name,
                 'description': root.description,
                 'is_active': root.is_active,
+                'visible_count': visible.filter(Q(category_id=root.id) | Q(subcategory__parent_id=root.id)).count(),
                 'children': [
                     {
                         'id': c.id,
                         'name': c.name,
                         'is_active': c.is_active,
                         'article_count': c.article_count(),
+                        'visible_count': visible.filter(subcategory_id=c.id).count(),
                     }
                     for c in children if c.parent_id == root.id
                 ],

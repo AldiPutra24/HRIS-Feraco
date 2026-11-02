@@ -68,11 +68,14 @@ export type KmsCategoryNode = {
   name: string;
   description: string;
   is_active: boolean;
+  /** Articles this user sees in the default listing (category + its subcategories). */
+  visible_count: number;
   children: Array<{
     id: number;
     name: string;
     is_active: boolean;
     article_count: number;
+    visible_count: number;
   }>;
 };
 

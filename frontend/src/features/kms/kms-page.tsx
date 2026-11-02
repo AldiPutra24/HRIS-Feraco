@@ -3,12 +3,13 @@
 /**
  * KMS main page — knowledge base, not an admin table.
  *
- * Layout per spec: header (title + description + search + "Tambah Knowledge"
- * for KMS managers), sticky category navigation (Semua / Kategori /
- * Subkategori tree), knowledge cards with summary + meta + status badge
- * (managers only) + updated date. Filter: category, subcategory, status
- * (managers). Pagination via the shared DRF PageNumberPagination.
- * Server-side filtering only (?search= hits title/summary/content/category).
+ * Layout: search hero ("Ada yang bisa kami bantu?") with topic chips, a
+ * "Baru pakai HRIS?" starter row (when those articles exist), sticky
+ * category navigation with per-user visible counts, and the article list.
+ * KMS managers additionally get Kelola Kategori / Tambah Knowledge, a status
+ * filter and status/visibility badges. Server-side filtering only
+ * (?search= hits title/summary/content/category). Pagination via the shared
+ * DRF PageNumberPagination.
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -16,8 +17,7 @@ import Link from 'next/link';
 import { toast } from 'react-toastify';
 import { Icons } from '@/components/icons';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
+import { Card } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useAuth } from '@/lib/auth/auth-provider';
 import {
@@ -47,6 +47,15 @@ const ROLE_LABELS: Record<string, string> = {
   EMPLOYEE: 'Employee',
 };
 
+// Quick searches under the hero.
+const TOPICS = ['Cuti', 'Reimbursement'];
+
+// "Baru pakai HRIS?" row: shown only for the starter articles that exist
+// (matched by title, so HR can rename/remove them without code changes).
+const STARTERS = [
+  { match: 'mengenal hris', title: 'Mengenal HRIS FERACO', text: 'Fungsi sistem dan fitur yang dapat digunakan karyawan.' },
+];
+
 function visibilityLabel(article: KmsArticle): string {
   switch (article.visibility) {
     case 'ROLE':
@@ -67,6 +76,19 @@ function formatDate(iso: string | null): string {
   return new Date(iso).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
+function CountBadge({ n, active }: { n: number; active?: boolean }) {
+  return (
+    <span
+      className={cn(
+        'min-w-6 rounded-full px-2 py-0.5 text-center text-xs font-semibold tabular-nums',
+        active ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground',
+      )}
+    >
+      {n}
+    </span>
+  );
+}
+
 export function KmsPage() {
   const { user } = useAuth();
   const canManage = KMS_ROLES.has(user?.role ?? '');
@@ -75,6 +97,8 @@ export function KmsPage() {
   const [error, setError] = useState<string | null>(null);
   const [tree, setTree] = useState<KmsCategoryNode[]>([]);
   const [page, setPage] = useState<KmsPage<KmsArticle> | null>(null);
+  const [pageNo, setPageNo] = useState(1);
+  const [starters, setStarters] = useState<{ article: KmsArticle; title: string; text: string }[]>([]);
 
   const [search, setSearch] = useState('');
   const [searchInput, setSearchInput] = useState('');
@@ -104,6 +128,7 @@ export function KmsPage() {
       ]);
       setTree(t);
       setPage(p);
+      setPageNo(1);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Gagal memuat knowledge.');
     } finally {
@@ -116,6 +141,21 @@ export function KmsPage() {
     load();
   }, [load]);
 
+  const loadStarters = useCallback(async () => {
+    const found = await Promise.all(
+      STARTERS.map(async (s) => {
+        const res = await listKmsArticles({ search: s.match }).catch(() => null);
+        const article = res?.results.find((a) => a.status === 'PUBLISHED' && a.title.toLowerCase().includes(s.match));
+        return article ? { article, title: s.title, text: s.text } : null;
+      }),
+    );
+    setStarters(found.filter((x): x is NonNullable<typeof x> => x !== null));
+  }, []);
+
+  useEffect(() => {
+    loadStarters();
+  }, [loadStarters]);
+
   function loadPage(next: number) {
     setLoading(true);
     listKmsArticles({
@@ -125,116 +165,149 @@ export function KmsPage() {
       status: status || undefined,
       page: next,
     })
-      .then(setPage)
+      .then((p) => {
+        setPage(p);
+        setPageNo(next);
+      })
       .catch((err) => toast.error(err instanceof Error ? err.message : 'Gagal memuat halaman.'))
       .finally(() => setLoading(false));
   }
 
-  const activeCategory = useMemo(
-    () => tree.find((n) => n.id === category) ?? null,
-    [tree, category],
-  );
+  const activeCategory = useMemo(() => tree.find((n) => n.id === category) ?? null, [tree, category]);
+  const activeSub = activeCategory?.children.find((c) => c.id === subcategory) ?? null;
+  const totalVisible = tree.reduce((sum, n) => sum + (n.visible_count ?? 0), 0);
 
   function pickCategory(id: number | null) {
     setCategory(id);
     setSubcategory(null);
   }
 
+  function runSearch(q: string) {
+    setSearchInput(q);
+    setSearch(q.trim());
+  }
+
   const hasFilters = search !== '' || category !== null || subcategory !== null || status !== '';
+  const listTitle = search
+    ? `Hasil untuk “${search}”`
+    : activeSub
+      ? activeSub.name
+      : activeCategory
+        ? activeCategory.name
+        : 'Semua artikel';
 
   return (
-    <div className='space-y-6 p-4 md:p-6'>
-      {/* Header */}
-      <div className='flex flex-wrap items-start justify-between gap-4'>
-        <div>
-          <h1 className='flex items-center gap-2 text-2xl font-bold tracking-tight'>
-            <Icons.books className='size-6 text-primary' />
-            Knowledge Management
-          </h1>
-          <p className='text-muted-foreground mt-1 text-sm'>
-            Pusat knowledge, panduan, SOP, dan informasi internal FERACO.
-          </p>
+    <div className='flex flex-1 flex-col gap-6 p-4 md:p-8'>
+      {canManage && (
+        <div className='flex flex-wrap items-center justify-end gap-2'>
+          <Button variant='outline' onClick={() => setCategoryModal(true)}>
+            <Icons.folder className='size-4' />
+            Kelola Kategori
+          </Button>
+          <Button onClick={() => setArticleModal({ open: true, article: null })}>
+            <Icons.add className='size-4' />
+            Tambah Knowledge
+          </Button>
         </div>
-        <div className='flex items-center gap-2'>
-          {canManage && (
-            <Button variant='outline' onClick={() => setCategoryModal(true)}>
-              <Icons.folder className='size-4' />
-              Kelola Kategori
-            </Button>
-          )}
-          {canManage && (
-            <Button onClick={() => setArticleModal({ open: true, article: null })}>
-              <Icons.add className='size-4' />
-              Tambah Knowledge
-            </Button>
-          )}
-        </div>
-      </div>
+      )}
 
-      {/* Search + status filter */}
-      <div className='flex flex-wrap items-center gap-2'>
+      {/* Search hero */}
+      <Card className='items-center gap-0 px-6 py-12 text-center'>
+        <span className='bg-primary/10 text-primary flex size-14 items-center justify-center rounded-2xl'>
+          <Icons.books className='size-6' />
+        </span>
+        <h1 className='mt-5 text-3xl font-bold tracking-tight md:text-4xl'>Ada yang bisa kami bantu?</h1>
+        <p className='text-muted-foreground mt-2'>Panduan, SOP, dan informasi internal FERACO di satu tempat.</p>
         <form
-          className='relative w-full max-w-md'
+          className='relative mt-6 w-full max-w-2xl'
           onSubmit={(e) => {
             e.preventDefault();
-            setSearch(searchInput.trim());
+            runSearch(searchInput);
           }}
         >
-          <Icons.search className='text-muted-foreground pointer-events-none absolute top-2.5 left-3 size-4' />
-          <Input
+          <Icons.search className='text-muted-foreground pointer-events-none absolute top-1/2 left-4 size-5 -translate-y-1/2' />
+          <input
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
             placeholder='Cari judul, ringkasan, isi, kategori…'
-            className='pl-9'
+            aria-label='Cari knowledge'
+            className='border-input bg-background focus-visible:border-ring focus-visible:ring-ring/50 h-14 w-full rounded-xl border pr-24 pl-12 text-base outline-none focus-visible:ring-3'
           />
+          {searchInput && (
+            <button
+              type='button'
+              onClick={() => runSearch('')}
+              className='text-muted-foreground hover:text-foreground absolute top-1/2 right-4 -translate-y-1/2 text-sm'
+            >
+              Hapus
+            </button>
+          )}
         </form>
-        {canManage && (
-          <select
-            value={status}
-            onChange={(e) => setStatus(e.target.value as KmsStatus | '')}
-            className='bg-background h-9 rounded-xl border px-2 text-sm'
-            aria-label='Filter status'
-          >
-            <option value=''>Semua status</option>
-            <option value='PUBLISHED'>Terbit</option>
-            <option value='DRAFT'>Draft</option>
-            <option value='ARCHIVED'>Arsip</option>
-          </select>
-        )}
-        {hasFilters && (
-          <Button
-            variant='ghost'
-            size='sm'
-            onClick={() => {
-              setSearch('');
-              setSearchInput('');
-              pickCategory(null);
-              setStatus('');
-            }}
-          >
-            <Icons.close className='size-4' />
-            Reset filter
-          </Button>
-        )}
-      </div>
+        <div className='mt-4 flex flex-wrap items-center justify-center gap-2 text-sm'>
+          <span className='text-muted-foreground'>Topik populer:</span>
+          {TOPICS.map((t) => (
+            <button
+              key={t}
+              type='button'
+              onClick={() => runSearch(t)}
+              className={cn(
+                'rounded-full border px-3.5 py-1.5 transition-colors',
+                search.toLowerCase() === t.toLowerCase() ? 'bg-foreground text-background border-foreground' : 'hover:bg-muted',
+              )}
+            >
+              {t}
+            </button>
+          ))}
+        </div>
+      </Card>
+
+      {/* Starter guides */}
+      {starters.length > 0 && !hasFilters && (
+        <section className='space-y-3'>
+          <h2 className='font-semibold'>Baru pakai HRIS? Mulai di sini</h2>
+          <div className={cn('grid gap-4', starters.length > 1 && 'md:grid-cols-2')}>
+            {starters.map((s, i) => (
+              <Link
+                key={s.article.id}
+                href={`/kms/${s.article.id}`}
+                className={cn(
+                  'flex items-center gap-4 rounded-xl border px-5 py-5 transition-colors',
+                  i === 0 ? 'bg-primary text-primary-foreground border-primary hover:bg-primary/90' : 'bg-card hover:bg-muted/40',
+                )}
+              >
+                <span
+                  className={cn(
+                    'flex size-10 shrink-0 items-center justify-center rounded-lg font-semibold',
+                    i === 0 ? 'bg-white/15' : 'bg-primary/10 text-primary',
+                  )}
+                >
+                  {i + 1}
+                </span>
+                <span className='min-w-0'>
+                  <span className='block font-semibold'>{s.title}</span>
+                  <span className={cn('block text-sm', i === 0 ? 'opacity-90' : 'text-muted-foreground')}>{s.text}</span>
+                </span>
+              </Link>
+            ))}
+          </div>
+        </section>
+      )}
 
       <div className='grid gap-6 lg:grid-cols-[240px_1fr]'>
         {/* Category navigation */}
         <aside className='lg:sticky lg:top-20 lg:self-start'>
-          <p className='text-muted-foreground mb-2 text-xs font-semibold tracking-wide uppercase'>
-            Kategori
-          </p>
+          <p className='text-muted-foreground mb-2 px-3 font-mono text-xs tracking-widest uppercase'>Kategori</p>
           <nav className='space-y-1'>
             <button
               type='button'
               onClick={() => pickCategory(null)}
               className={cn(
-                'hover:bg-muted flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm',
-                category === null && 'bg-muted font-medium',
+                'flex w-full items-center gap-2 rounded-xl border px-3 py-2.5 text-left text-sm transition-colors',
+                category === null ? 'bg-card font-semibold shadow-xs' : 'hover:bg-muted border-transparent',
               )}
             >
-              <Icons.dashboard className='text-muted-foreground size-4' />
-              Semua
+              <span className='flex-1'>Semua</span>
+              <CountBadge n={totalVisible} active={category === null} />
             </button>
             {tree.map((node) => (
               <div key={node.id}>
@@ -242,15 +315,17 @@ export function KmsPage() {
                   type='button'
                   onClick={() => pickCategory(node.id)}
                   className={cn(
-                    'hover:bg-muted flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm',
-                    category === node.id && 'bg-muted font-medium',
+                    'flex w-full items-center gap-2 rounded-xl border px-3 py-2.5 text-left text-sm transition-colors',
+                    category === node.id && subcategory === null
+                      ? 'bg-card font-semibold shadow-xs'
+                      : 'hover:bg-muted border-transparent',
                   )}
                 >
-                  <Icons.folder className='text-muted-foreground size-4' />
                   <span className='flex-1 truncate'>{node.name}</span>
+                  <CountBadge n={node.visible_count ?? 0} active={category === node.id && subcategory === null} />
                 </button>
-                {(category === node.id || subcategory !== null) && node.children.length > 0 && (
-                  <div className='ml-4 space-y-0.5 border-l pl-2'>
+                {category === node.id && node.children.length > 0 && (
+                  <div className='mt-1 ml-4 space-y-0.5 border-l pl-2'>
                     {node.children.map((child) => (
                       <button
                         key={child.id}
@@ -260,12 +335,12 @@ export function KmsPage() {
                           setSubcategory(child.id);
                         }}
                         className={cn(
-                          'text-muted-foreground hover:bg-muted flex w-full items-center gap-2 rounded-lg px-2 py-1 text-left text-xs',
+                          'text-muted-foreground hover:bg-muted flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm',
                           subcategory === child.id && 'bg-muted text-foreground font-medium',
                         )}
                       >
                         <span className='flex-1 truncate'>{child.name}</span>
-                        <span className='tabular-nums opacity-60'>{child.article_count}</span>
+                        <span className='text-xs tabular-nums'>{child.visible_count ?? 0}</span>
                       </button>
                     ))}
                   </div>
@@ -275,17 +350,51 @@ export function KmsPage() {
           </nav>
         </aside>
 
-        {/* Knowledge cards */}
-        <main className='space-y-3'>
-          {loading && !page ? (
-            <div className='space-y-3'>
-              {[1, 2, 3, 4].map((i) => (
-                <Skeleton key={i} className='h-28 w-full rounded-xl' />
-              ))}
+        {/* Articles */}
+        <Card className='gap-0 overflow-hidden py-0'>
+          <div className='flex flex-wrap items-center justify-between gap-3 px-6 py-5'>
+            <h2 className='text-lg font-semibold'>{listTitle}</h2>
+            <div className='flex flex-wrap items-center gap-2'>
+              {canManage && (
+                <select
+                  value={status}
+                  onChange={(e) => setStatus(e.target.value as KmsStatus | '')}
+                  className='bg-background h-9 rounded-lg border px-2 text-sm'
+                  aria-label='Filter status'
+                >
+                  <option value=''>Semua status</option>
+                  <option value='PUBLISHED'>Terbit</option>
+                  <option value='DRAFT'>Draft</option>
+                  <option value='ARCHIVED'>Arsip</option>
+                </select>
+              )}
+              {hasFilters && (
+                <Button
+                  variant='ghost'
+                  size='sm'
+                  onClick={() => {
+                    runSearch('');
+                    pickCategory(null);
+                    setStatus('');
+                  }}
+                >
+                  <Icons.close className='size-4' />
+                  Reset
+                </Button>
+              )}
+              {page && <span className='text-muted-foreground text-sm'>{page.count} artikel</span>}
             </div>
-          ) : error ? (
-            <Card>
-              <CardContent className='flex flex-col items-center gap-3 py-12 text-center'>
+          </div>
+
+          <div className='border-t'>
+            {loading && !page ? (
+              <div className='space-y-3 px-6 py-5'>
+                {[1, 2, 3, 4].map((i) => (
+                  <Skeleton key={i} className='h-16 w-full rounded-xl' />
+                ))}
+              </div>
+            ) : error ? (
+              <div className='flex flex-col items-center gap-3 px-6 py-12 text-center'>
                 <Icons.circleX className='text-destructive size-8' />
                 <p className='text-sm font-medium'>Gagal memuat knowledge</p>
                 <p className='text-muted-foreground text-xs'>{error}</p>
@@ -293,16 +402,12 @@ export function KmsPage() {
                   <Icons.refresh className='size-4' />
                   Coba lagi
                 </Button>
-              </CardContent>
-            </Card>
-          ) : !page || page.results.length === 0 ? (
-            <Card>
-              <CardContent className='flex flex-col items-center gap-3 py-12 text-center'>
+              </div>
+            ) : !page || page.results.length === 0 ? (
+              <div className='flex flex-col items-center gap-3 px-6 py-12 text-center'>
                 <Icons.books className='text-muted-foreground/50 size-10' />
-                <p className='text-sm font-medium'>
-                  {hasFilters ? 'Tidak ada knowledge yang cocok.' : 'Belum ada knowledge.'}
-                </p>
-                <p className='text-muted-foreground max-w-sm text-xs'>
+                <p className='text-sm font-medium'>{hasFilters ? 'Tidak ada knowledge yang cocok.' : 'Belum ada knowledge.'}</p>
+                <p className='text-muted-foreground max-w-sm text-sm'>
                   {hasFilters
                     ? 'Coba kata kunci lain atau reset filter.'
                     : canManage
@@ -315,91 +420,67 @@ export function KmsPage() {
                     Tambah Knowledge
                   </Button>
                 )}
-              </CardContent>
-            </Card>
-          ) : (
-            <>
-              <p className='text-muted-foreground text-xs'>
-                {page.count} knowledge
-                {activeCategory ? ` dalam ${activeCategory.name}` : ''}
-                {search ? ` untuk “${search}”` : ''}
-              </p>
-              <div className='grid gap-3 md:grid-cols-2'>
+              </div>
+            ) : (
+              <ul className={cn('divide-y', loading && 'opacity-60')}>
                 {page.results.map((article) => (
-                  <Link key={article.id} href={`/kms/${article.id}`} className='group' aria-label={article.title}>
-                    <Card className='group-hover:border-ring h-full transition-colors'>
-                      <CardContent className='flex h-full flex-col gap-2 p-4'>
-                        <div className='flex items-start justify-between gap-2'>
-                          <h2 className='group-hover:text-primary line-clamp-2 text-sm font-semibold'>
-                            {article.title}
-                          </h2>
-                          {canManage && (
+                  <li key={article.id}>
+                    <Link
+                      href={`/kms/${article.id}`}
+                      className='group hover:bg-muted/40 flex items-center gap-4 px-6 py-5 transition-colors'
+                    >
+                      <span className='bg-muted text-muted-foreground flex size-11 shrink-0 items-center justify-center self-start rounded-xl'>
+                        <Icons.page className='size-5' />
+                      </span>
+                      <div className='min-w-0 flex-1'>
+                        <div className='flex flex-wrap items-center gap-2'>
+                          <h3 className='group-hover:text-primary font-semibold'>{article.title}</h3>
+                          {canManage && article.status !== 'PUBLISHED' && (
                             <span
                               className={cn(
-                                'shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium',
-                                article.status === 'PUBLISHED' && 'bg-emerald-500/10 text-emerald-600',
+                                'rounded-full px-2 py-0.5 text-[11px] font-medium',
                                 article.status === 'DRAFT' && 'bg-muted text-muted-foreground',
-                                article.status === 'ARCHIVED' && 'bg-amber-500/10 text-amber-600',
+                                article.status === 'ARCHIVED' && 'bg-amber-500/10 text-amber-700',
                               )}
                             >
                               {KMS_STATUS_LABELS[article.status]}
                             </span>
                           )}
                         </div>
-                        <p className='text-muted-foreground line-clamp-2 text-xs'>
-                          {article.summary || article.title}
-                        </p>
-                        <div className='mt-auto flex flex-wrap items-center gap-1.5 pt-1 text-[11px] text-muted-foreground'>
-                          <span className='bg-muted rounded px-1.5 py-0.5'>
-                            {article.category_name}
-                          </span>
-                          {article.visibility !== 'ALL' && (
-                            <span className='bg-muted rounded px-1.5 py-0.5'>
-                              {visibilityLabel(article)}
-                            </span>
-                          )}
+                        {article.summary && (
+                          <p className='text-muted-foreground mt-1 line-clamp-2 text-sm'>{article.summary}</p>
+                        )}
+                        <div className='text-muted-foreground mt-2 flex flex-wrap items-center gap-1.5 text-xs'>
+                          <span className='bg-primary/10 text-primary rounded px-2 py-0.5 font-medium'>{article.category_name}</span>
                           {article.subcategory_name && (
-                            <span className='bg-muted rounded px-1.5 py-0.5'>
-                              {article.subcategory_name}
-                            </span>
+                            <span className='bg-muted text-foreground rounded px-2 py-0.5'>{article.subcategory_name}</span>
                           )}
-                          <span className='ml-auto flex items-center gap-1'>
-                            <Icons.clock className='size-3' />
-                            {formatDate(article.updated_at)}
-                          </span>
+                          {canManage && article.visibility !== 'ALL' && (
+                            <span className='bg-muted rounded px-2 py-0.5'>{visibilityLabel(article)}</span>
+                          )}
+                          <span>· Diperbarui {formatDate(article.updated_at)}</span>
                         </div>
-                      </CardContent>
-                    </Card>
-                  </Link>
+                      </div>
+                      <Icons.chevronRight className='text-muted-foreground size-5 shrink-0' />
+                    </Link>
+                  </li>
                 ))}
-              </div>
-              {/* Pagination */}
-              {(page.next || page.previous) && (
-                <div className='flex items-center justify-end gap-2 pt-1'>
-                  <Button
-                    variant='outline'
-                    size='sm'
-                    disabled={!page.previous || loading}
-                    onClick={() => loadPage((page?.next ? Number(new URL(page.next).searchParams.get('page')) : 1) - 1 || 1)}
-                  >
-                    Sebelumnya
-                  </Button>
-                  <Button
-                    variant='outline'
-                    size='sm'
-                    disabled={!page.next || loading}
-                    onClick={() => {
-                      const u = page?.next ? new URL(page.next) : null;
-                      loadPage(Number(u?.searchParams.get('page') ?? 1));
-                    }}
-                  >
-                    Berikutnya
-                  </Button>
-                </div>
-              )}
-            </>
+              </ul>
+            )}
+          </div>
+
+          {page && (page.next || page.previous) && (
+            <div className='flex items-center justify-end gap-2 border-t px-6 py-3.5'>
+              <Button variant='outline' size='sm' disabled={!page.previous || loading} onClick={() => loadPage(pageNo - 1)}>
+                Sebelumnya
+              </Button>
+              <span className='text-muted-foreground text-sm tabular-nums'>Hal. {pageNo}</span>
+              <Button variant='outline' size='sm' disabled={!page.next || loading} onClick={() => loadPage(pageNo + 1)}>
+                Berikutnya
+              </Button>
+            </div>
           )}
-        </main>
+        </Card>
       </div>
 
       {articleModal.open && (
@@ -410,15 +491,12 @@ export function KmsPage() {
           onSaved={() => {
             setArticleModal({ open: false, article: null });
             load();
+            loadStarters();
           }}
         />
       )}
       {categoryModal && (
-        <CategoryManagerModal
-          tree={tree}
-          onClose={() => setCategoryModal(false)}
-          onChanged={load}
-        />
+        <CategoryManagerModal tree={tree} onClose={() => setCategoryModal(false)} onChanged={load} />
       )}
     </div>
   );

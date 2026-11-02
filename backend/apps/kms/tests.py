@@ -610,3 +610,24 @@ class KmsVisibilityDuplicateTests(BaseKmsTests):
         self.client.force_login(other)
         ids = [a['id'] for a in self.client.get(ARTICLES_URL).data['results']]
         self.assertEqual(ids, [self.all_art.id])
+
+
+class KmsTreeVisibleCountTests(BaseKmsTests):
+    def test_visible_count_excludes_drafts_for_employees(self):
+        KnowledgeArticle.objects.create(title='a', content='<p>a</p>', category=self.cat, subcategory=self.sub,
+                                        status='PUBLISHED', created_by=self.hr)
+        KnowledgeArticle.objects.create(title='b', content='<p>b</p>', category=self.cat,
+                                        status='PUBLISHED', created_by=self.hr)
+        KnowledgeArticle.objects.create(title='draft', content='<p>c</p>', category=self.cat,
+                                        status='DRAFT', created_by=self.hr)
+        KnowledgeArticle.objects.create(title='old', content='<p>d</p>', category=self.cat,
+                                        status='ARCHIVED', created_by=self.hr)
+
+        self.client.force_login(self.emp)
+        root = self.client.get(f'{CATEGORIES_URL}tree/').json()[0]
+        self.assertEqual(root['visible_count'], 2)
+        self.assertEqual(root['children'][0]['visible_count'], 1)
+
+        self.client.force_login(self.hr)
+        root = self.client.get(f'{CATEGORIES_URL}tree/').json()[0]
+        self.assertEqual(root['visible_count'], 3)  # drafts yes, archived no
