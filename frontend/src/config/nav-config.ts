@@ -240,6 +240,8 @@ export const managementNavGroups: NavGroup[] = [
         url: '/dashboard/management/contract',
         icon: 'page',
         isActive: false,
+        // MANAGEMENT only; the General Manager has no Kontrak menu.
+        access: { roles: ['management'] },
         items: []
       },
       {
