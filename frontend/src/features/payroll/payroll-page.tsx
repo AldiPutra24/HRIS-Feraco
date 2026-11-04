@@ -70,7 +70,19 @@ function apiError(err: unknown): string {
   return 'Terjadi kesalahan.';
 }
 
-// ---------- (1) Payment Type CRUD ----------
+// ---------- (1) Komponen gaji ----------
+
+const COMPONENT_GROUPS: {
+  value: PayrollComponent['category'];
+  label: string;
+  hint: string;
+  sign: '+' | '−';
+  tone: string;
+}[] = [
+  { value: 'EARNING_FIXED', label: 'Pendapatan tetap', hint: 'dibayar tiap bulan dari struktur gaji', sign: '+', tone: 'text-primary bg-primary/10' },
+  { value: 'EARNING_VARIABLE', label: 'Pendapatan tidak tetap', hint: 'diisi per periode', sign: '+', tone: 'text-blue-700 bg-blue-500/10 dark:text-blue-300' },
+  { value: 'DEDUCTION', label: 'Potongan', hint: 'mengurangi THP', sign: '−', tone: 'text-red-700 bg-red-500/10 dark:text-red-300' },
+];
 
 function ComponentForm({
   editing,
@@ -122,7 +134,7 @@ function ComponentForm({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>{editing ? 'Edit Payment Type' : 'Tambah Payment Type'}</CardTitle>
+        <CardTitle>{editing ? `Edit komponen · ${editing.name}` : 'Komponen baru'}</CardTitle>
       </CardHeader>
       <CardContent>
         <form onSubmit={submit} className='space-y-4'>
@@ -138,6 +150,7 @@ function ComponentForm({
                 value={form.code}
                 onChange={(e) => setForm((f) => ({ ...f, code: e.target.value }))}
                 placeholder='CONTOH'
+                className='font-mono'
               />
             </div>
             <div className='space-y-1.5'>
@@ -188,21 +201,13 @@ function ComponentForm({
               />
             </div>
             <div className='space-y-1.5'>
-              <Label>Urutan</Label>
-              <Input
-                type='number'
-                value={form.sort_order}
-                onChange={(e) => setForm((f) => ({ ...f, sort_order: Number(e.target.value) }))}
-              />
-            </div>
-            <div className='space-y-1.5'>
               <Label>Deskripsi</Label>
               <Input
                 value={form.description}
                 onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
               />
             </div>
-            <div className='flex items-center gap-2 pt-5'>
+            <div className='flex items-center gap-2 pt-1'>
               <Switch
                 checked={form.is_reimbursement}
                 onCheckedChange={(v) => setForm((f) => ({ ...f, is_reimbursement: v }))}
@@ -226,18 +231,22 @@ function ComponentForm({
 
 function ComponentsTable({ readOnly = false }: { readOnly?: boolean }) {
   const [components, setComponents] = useState<PayrollComponent[]>([]);
+  const [structures, setStructures] = useState<SalaryStructure[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
-  const [catFilter, setCatFilter] = useState('');
+  const [catFilter, setCatFilter] = useState<'' | PayrollComponent['category']>('');
   const [editing, setEditing] = useState<PayrollComponent | null>(null);
   const [showForm, setShowForm] = useState(false);
+  const [busy, setBusy] = useState(false);
 
   async function load() {
     setLoading(true);
     setError('');
     try {
-      setComponents(await listComponents());
+      const [c, s] = await Promise.all([listComponents(), listStructures().catch(() => [] as SalaryStructure[])]);
+      setComponents(c);
+      setStructures(s);
     } catch (err) {
       setError(apiError(err));
     } finally {
@@ -247,11 +256,14 @@ function ComponentsTable({ readOnly = false }: { readOnly?: boolean }) {
 
   useEffect(() => { load(); }, []);
 
-  const filtered = components.filter((c) => {
-    if (catFilter && c.category !== catFilter) return false;
-    if (search && !`${c.name} ${c.code}`.toLowerCase().includes(search.toLowerCase())) return false;
-    return true;
-  });
+  // Display order inside each category (sort_order, then name).
+  const ordered = (cat: PayrollComponent['category']) =>
+    components
+      .filter((c) => c.category === cat)
+      .sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name));
+  const matches = (c: PayrollComponent) =>
+    !search || `${c.name} ${c.code}`.toLowerCase().includes(search.toLowerCase());
+  const usage = (code: string) => structures.filter((s) => s.components.some((x) => x.code === code)).length;
 
   function openAdd() { setEditing(null); setShowForm(true); }
   function openEdit(c: PayrollComponent) { setEditing(c); setShowForm(true); }
@@ -267,120 +279,229 @@ function ComponentsTable({ readOnly = false }: { readOnly?: boolean }) {
     }
   }
 
-  const catLabel = (v: string) => CATEGORY.find((c) => c.value === v)?.label ?? v;
+  async function toggleActive(c: PayrollComponent) {
+    setBusy(true);
+    try {
+      const updated = await updateComponent(c.id, { is_active: !c.is_active });
+      setComponents((prev) => prev.map((x) => (x.id === c.id ? updated : x)));
+    } catch (err) { setError(apiError(err)); }
+    finally { setBusy(false); }
+  }
+
+  /** Move one step up/down inside its category; renumbers sort_order 10, 20, ... */
+  async function move(c: PayrollComponent, dir: -1 | 1) {
+    const list = ordered(c.category);
+    const i = list.findIndex((x) => x.id === c.id);
+    const j = i + dir;
+    if (j < 0 || j >= list.length) return;
+    [list[i], list[j]] = [list[j], list[i]];
+    setBusy(true);
+    try {
+      const changed = list.map((x, k) => ({ x, order: (k + 1) * 10 })).filter(({ x, order }) => x.sort_order !== order);
+      const updated = await Promise.all(changed.map(({ x, order }) => updateComponent(x.id, { sort_order: order })));
+      setComponents((prev) => prev.map((x) => updated.find((u) => u.id === x.id) ?? x));
+    } catch (err) { setError(apiError(err)); }
+    finally { setBusy(false); }
+  }
+
+  const count = (cat: PayrollComponent['category']) => components.filter((c) => c.category === cat).length;
+  const chips: { value: '' | PayrollComponent['category']; label: string }[] = [
+    { value: '', label: `Semua · ${components.length}` },
+    ...COMPONENT_GROUPS.map((g) => ({ value: g.value, label: `${g.label} · ${count(g.value)}` })),
+  ];
+  const activeEarnings = [...ordered('EARNING_FIXED'), ...ordered('EARNING_VARIABLE')].filter((c) => c.is_active);
+  const activeDeductions = ordered('DEDUCTION').filter((c) => c.is_active);
 
   return (
-    <div className='flex flex-col gap-4'>
-      <div className='flex items-center justify-between'>
-        <h3 className='text-lg font-semibold tracking-tight'>Payment Types</h3>
-        {!readOnly && <Button onClick={openAdd}><Icons.add />Tambah</Button>}
-      </div>
+    <div className='grid grid-cols-1 items-start gap-6 xl:grid-cols-[minmax(0,1fr)_360px]'>
+      <div className='flex min-w-0 flex-col gap-4'>
+        {showForm && (
+          <ComponentForm editing={editing} onClose={closeForm} onSaved={() => { closeForm(); load(); }} />
+        )}
+        <Card className='gap-0 overflow-hidden py-0'>
+          <div className='flex flex-wrap items-start justify-between gap-3 px-6 pt-5 pb-4'>
+            <div>
+              <h3 className='text-lg font-semibold'>Komponen gaji</h3>
+              <p className='text-muted-foreground mt-0.5 text-sm'>
+                Pendapatan dan potongan yang bisa dipakai di struktur gaji &amp; proses payroll.
+              </p>
+            </div>
+            <div className='flex flex-wrap items-center gap-2'>
+              <div className='relative'>
+                <Icons.search className='text-muted-foreground pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2' />
+                <Input
+                  placeholder='Cari nama / kode'
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className='h-10 w-60 pl-9'
+                />
+              </div>
+              {!readOnly && (
+                <Button className='h-10' onClick={openAdd}><Icons.add />Komponen baru</Button>
+              )}
+            </div>
+          </div>
+          <div className='flex flex-wrap gap-2 px-6 pb-4'>
+            {chips.map((c) => (
+              <button
+                key={c.label}
+                type='button'
+                onClick={() => setCatFilter(c.value)}
+                className={`rounded-full border px-3.5 py-1.5 text-sm transition-colors ${
+                  catFilter === c.value ? 'bg-foreground text-background border-foreground font-medium' : 'hover:bg-muted'
+                }`}
+              >
+                {c.label}
+              </button>
+            ))}
+          </div>
 
-      {showForm && (
-        <ComponentForm editing={editing} onClose={closeForm} onSaved={() => { closeForm(); load(); }} />
-      )}
+          {error && <p className='text-destructive border-t px-6 py-3 text-sm'>{error}</p>}
 
-      <div className='flex flex-wrap gap-2'>
-        <div className='relative w-64'>
-          <Icons.search className='text-muted-foreground absolute top-1/2 left-2.5 h-4 w-4 -translate-y-1/2' />
-          <Input
-            placeholder='Cari nama / kode'
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className='pl-8'
-          />
-        </div>
-        <select
-          value={catFilter}
-          onChange={(e) => setCatFilter(e.target.value)}
-          className='border-input h-8 rounded-lg border bg-transparent px-2.5 text-sm'
-        >
-          <option value=''>Semua Kategori</option>
-          {CATEGORY.map((c) => (
-            <option key={c.value} value={c.value}>
-              {c.label}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      {error && <p className='text-destructive text-sm'>{error}</p>}
-
-      <Card>
-        <CardContent className='p-0'>
           {loading ? (
-            <div className='space-y-2 p-4'>
-              {Array.from({ length: 5 }).map((_, i) => (
-                <Skeleton key={i} className='h-8 w-full' />
-              ))}
+            <div className='space-y-2 border-t p-6'>
+              {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className='h-14 w-full' />)}
             </div>
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Kode</TableHead>
-                  <TableHead>Nama</TableHead>
-                  <TableHead>Kategori</TableHead>
-                  <TableHead>Tipe</TableHead>
-                  <TableHead>Default</TableHead>
-                  <TableHead>Aktif</TableHead>
-                  <TableHead className='text-right'>Aksi</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filtered.map((c) => (
-                  <TableRow key={c.id}>
-                    <TableCell className='font-mono text-xs font-medium'>{c.code}</TableCell>
-                    <TableCell>{c.name}</TableCell>
-                    <TableCell>
-                      <Badge variant='outline'>{catLabel(c.category)}</Badge>
-                    </TableCell>
-                    <TableCell className='text-xs'>{CALC.find((x) => x.value === c.calculation_type)?.label ?? c.calculation_type}</TableCell>
-                    <TableCell>{c.default_amount ? Number(c.default_amount).toLocaleString('id') : '-'}</TableCell>
-                    <TableCell>
-                      <Badge variant={c.is_active ? 'default' : 'secondary'}>{c.is_active ? 'YA' : 'TIDAK'}</Badge>
-                    </TableCell>
-                    <TableCell className='text-right'>
-                      <div className='flex items-center justify-end gap-2'>
-                        {!readOnly && (
-                          <>
-                            <Button variant='ghost' size='sm' onClick={() => openEdit(c)}><Icons.edit />Edit</Button>
-                            <Button variant='ghost' size='sm' onClick={() => handleDelete(c)}><Icons.trash />Hapus</Button>
-                          </>
-                        )}
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
-                {filtered.length === 0 && (
-                  <TableRow>
-                    <TableCell colSpan={7} className='text-muted-foreground py-8 text-center'>
-                      Tidak ada data.
-                    </TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
-            </Table>
+            COMPONENT_GROUPS.filter((g) => !catFilter || catFilter === g.value).map((g) => {
+              const list = ordered(g.value);
+              const visible = list.filter(matches);
+              if (search && visible.length === 0) return null;
+              return (
+                <section key={g.value} className='border-t'>
+                  <p className='bg-muted/30 flex items-center gap-2 px-6 py-3 text-sm'>
+                    <span className={`flex size-6 items-center justify-center rounded-md font-bold ${g.tone}`}>{g.sign === '+' ? '+' : '–'}</span>
+                    <span className={`font-semibold ${g.tone.split(' ')[0]}`}>{g.label}</span>
+                    <span className='text-muted-foreground'>· {g.hint}</span>
+                  </p>
+                  {visible.length === 0 ? (
+                    <p className='text-muted-foreground border-t px-6 py-4 text-sm'>Belum ada komponen.</p>
+                  ) : (
+                    <ul className='divide-y border-t'>
+                      {visible.map((c) => {
+                        const i = list.findIndex((x) => x.id === c.id);
+                        const used = usage(c.code);
+                        return (
+                          <li key={c.id} className={`flex flex-wrap items-center gap-4 px-6 py-4 ${c.is_active ? '' : 'opacity-60'}`}>
+                            {!readOnly && !search && (
+                              <div className='flex flex-col gap-1'>
+                                <button
+                                  type='button'
+                                  disabled={busy || i === 0}
+                                  onClick={() => move(c, -1)}
+                                  aria-label={`Naikkan ${c.name}`}
+                                  className='hover:bg-muted flex size-7 items-center justify-center rounded-md border disabled:opacity-30'
+                                >
+                                  <Icons.chevronUp className='size-4' />
+                                </button>
+                                <button
+                                  type='button'
+                                  disabled={busy || i === list.length - 1}
+                                  onClick={() => move(c, 1)}
+                                  aria-label={`Turunkan ${c.name}`}
+                                  className='hover:bg-muted flex size-7 items-center justify-center rounded-md border disabled:opacity-30'
+                                >
+                                  <Icons.chevronDown className='size-4' />
+                                </button>
+                              </div>
+                            )}
+                            <div className='min-w-0 flex-1'>
+                              <p className='flex flex-wrap items-center gap-2'>
+                                <span className='font-semibold'>{c.name}</span>
+                                <span className='bg-muted rounded px-1.5 py-0.5 font-mono text-xs'>{c.code}</span>
+                                {c.is_reimbursement && (
+                                  <span className='rounded bg-sky-500/10 px-1.5 py-0.5 text-xs font-medium text-sky-700 dark:text-sky-300'>Reimbursement</span>
+                                )}
+                                {c.is_taxable === false && (
+                                  <span className='rounded bg-amber-500/10 px-1.5 py-0.5 text-xs font-medium text-amber-700 dark:text-amber-300'>Tidak kena pajak</span>
+                                )}
+                              </p>
+                              <p className='text-muted-foreground mt-0.5 text-sm'>
+                                {CALC.find((x) => x.value === c.calculation_type)?.label ?? c.calculation_type} ·{' '}
+                                {c.default_amount ? `default ${fmtRp(Number(c.default_amount))}` : 'tanpa nilai default'}
+                                {g.value === 'EARNING_FIXED' && ` · ${used ? `dipakai di ${used} struktur gaji` : 'belum dipakai di struktur gaji'}`}
+                              </p>
+                            </div>
+                            <label className='flex items-center gap-2 text-sm'>
+                              <Switch checked={c.is_active} disabled={readOnly || busy} onCheckedChange={() => toggleActive(c)} />
+                              {c.is_active ? 'Aktif' : 'Nonaktif'}
+                            </label>
+                            {!readOnly && (
+                              <div className='flex items-center gap-2'>
+                                <Button variant='outline' size='sm' onClick={() => openEdit(c)}>Edit</Button>
+                                <Button
+                                  variant='outline'
+                                  size='icon-sm'
+                                  className='text-destructive'
+                                  onClick={() => handleDelete(c)}
+                                  aria-label={`Hapus ${c.name}`}
+                                >
+                                  <Icons.trash />
+                                </Button>
+                              </div>
+                            )}
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
+                </section>
+              );
+            })
           )}
-        </CardContent>
+        </Card>
+      </div>
+
+      <Card className='gap-4 px-6 py-6 xl:sticky xl:top-20'>
+        <div>
+          <h3 className='text-lg font-semibold'>Urutan di slip gaji</h3>
+          <p className='text-muted-foreground mt-0.5 text-sm'>
+            Hanya komponen aktif.{readOnly ? '' : ' Ubah urutan dengan tombol panah di daftar.'}
+          </p>
+        </div>
+        <div className='space-y-2 rounded-xl border border-dashed px-4 py-4 text-sm'>
+          <p className='text-primary text-xs font-bold tracking-wide'>PENDAPATAN</p>
+          {activeEarnings.length === 0 && <p className='text-muted-foreground'>—</p>}
+          {activeEarnings.map((c) => (
+            <p key={c.id} className='flex justify-between gap-2'>
+              <span>{c.name}</span>
+              <span className='text-muted-foreground'>+ Rp •••</span>
+            </p>
+          ))}
+          <p className='pt-2 text-xs font-bold tracking-wide text-red-700 dark:text-red-300'>POTONGAN</p>
+          {activeDeductions.length === 0 && <p className='text-muted-foreground'>—</p>}
+          {activeDeductions.map((c) => (
+            <p key={c.id} className='flex justify-between gap-2'>
+              <span>{c.name}</span>
+              <span className='text-muted-foreground'>− Rp •••</span>
+            </p>
+          ))}
+          <p className='flex justify-between gap-2 border-t pt-3 font-semibold'>
+            <span>Take home pay</span>
+            <span>Rp •••</span>
+          </p>
+        </div>
       </Card>
     </div>
   );
 }
 
-// ---------- (2) Salary Structure ----------
+// ---------- (2) Struktur gaji ----------
 
 function StructureForm({
+  initialEmployee,
   onClose,
   onSaved,
 }: {
+  /** Preselected employee (from "Atur struktur" / "Ubah gaji"). */
+  initialEmployee?: number | null;
   onClose: () => void;
   onSaved: () => void;
 }) {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [components, setComponents] = useState<PayrollComponent[]>([]);
   const [form, setForm] = useState({
-    employee: '',
+    employee: initialEmployee ? String(initialEmployee) : '',
     effective_from: '',
     basic_salary: '',
   });
@@ -421,7 +542,7 @@ function StructureForm({
       return;
     }
     if (rows.some((r) => !r.code)) {
-      setError('Pilih Payment Type untuk setiap baris komponen.');
+      setError('Pilih komponen untuk setiap baris.');
       return;
     }
     setSaving(true);
@@ -443,7 +564,7 @@ function StructureForm({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Tambah Struktur Gaji</CardTitle>
+        <CardTitle>{initialEmployee ? 'Struktur gaji (versi baru)' : 'Struktur gaji baru'}</CardTitle>
       </CardHeader>
       <CardContent>
         <form onSubmit={submit} className='space-y-4'>
@@ -485,9 +606,9 @@ function StructureForm({
 
           <div className='space-y-2'>
             <div className='flex items-center justify-between'>
-              <Label>Komponen Gaji (Payment Type)</Label>
+              <Label>Komponen tetap</Label>
               <Button type='button' variant='outline' size='sm' onClick={addRow}>
-                <Icons.plusCircle />Tambah Payment Type
+                <Icons.plusCircle />Tambah komponen
               </Button>
             </div>
             {rows.length === 0 && (
@@ -502,7 +623,7 @@ function StructureForm({
                   onChange={(e) => updateRow(idx, { code: e.target.value })}
                   className='border-input h-8 flex-1 rounded-lg border bg-transparent px-2.5 text-sm'
                 >
-                  <option value=''>Pilih Payment Type</option>
+                  <option value=''>Pilih komponen</option>
                   {(fixedOptions.some((c) => c.code === row.code)
                     ? fixedOptions
                     : [...components.filter((c) => c.code === row.code), ...fixedOptions]
@@ -557,13 +678,28 @@ function StructureForm({
   );
 }
 
+function localIsoToday(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+/** Structure in force today (latest effective_from that has started and not ended). */
+function currentStructure(list: SalaryStructure[], today: string): SalaryStructure | null {
+  return (
+    list
+      .filter((s) => s.is_active && s.effective_from <= today && (!s.effective_to || s.effective_to >= today))
+      .sort((a, b) => b.effective_from.localeCompare(a.effective_from))[0] ?? null
+  );
+}
+
 function StructuresSection({ readOnly = false }: { readOnly?: boolean }) {
   const [structures, setStructures] = useState<SalaryStructure[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [empFilter, setEmpFilter] = useState('');
-  const [showForm, setShowForm] = useState(false);
+  const [filter, setFilter] = useState<'ALL' | 'MISSING' | 'HAS'>('ALL');
+  const [search, setSearch] = useState('');
+  const [form, setForm] = useState<{ employee: number | null } | null>(null);
   const [history, setHistory] = useState<{ empId: number; empName: string; rows: SalaryStructure[] } | null>(null);
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin';
@@ -584,18 +720,34 @@ function StructuresSection({ readOnly = false }: { readOnly?: boolean }) {
 
   useEffect(() => { load(); }, []);
 
-  const filtered = structures.filter((s) => {
-    if (empFilter && s.employee !== Number(empFilter)) return false;
+  const today = localIsoToday();
+  const rows = employees
+    .filter((e) => e.employment_status === 'ACTIVE')
+    .map((e) => {
+      const own = structures.filter((s) => s.employee === e.id);
+      return { employee: e, current: currentStructure(own, today), versions: own.length };
+    })
+    // Missing first, then by name (like the reference list).
+    .sort((a, b) => Number(!!a.current) - Number(!!b.current) || a.employee.full_name.localeCompare(b.employee.full_name));
+  const hasCount = rows.filter((r) => r.current).length;
+  const missingCount = rows.length - hasCount;
+  const visible = rows.filter((r) => {
+    if (filter === 'MISSING' && r.current) return false;
+    if (filter === 'HAS' && !r.current) return false;
+    if (search && !`${r.employee.full_name} ${r.employee.employee_id}`.toLowerCase().includes(search.toLowerCase())) return false;
     return true;
   });
 
-  function closeForm() { setShowForm(false); }
+  function openForm(employee: number | null) {
+    setForm({ employee });
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
 
   async function showHistory(empId: number) {
     try {
-      const rows = await historyStructures(empId);
+      const list = await historyStructures(empId);
       const emp = employees.find((e) => e.id === empId);
-      setHistory({ empId, empName: emp?.full_name ?? `#${empId}`, rows });
+      setHistory({ empId, empName: emp?.full_name ?? `#${empId}`, rows: list });
     } catch (err) {
       setError(apiError(err));
     }
@@ -610,6 +762,7 @@ function StructuresSection({ readOnly = false }: { readOnly?: boolean }) {
     try {
       await deactivateStructure(s.id, raw || undefined);
       await load();
+      if (history) await showHistory(history.empId);
     } catch (err) {
       setError(apiError(err));
     }
@@ -620,152 +773,248 @@ function StructuresSection({ readOnly = false }: { readOnly?: boolean }) {
     try {
       await deleteStructure(s.id);
       await load();
+      if (history) await showHistory(history.empId);
     } catch (err) {
       setError(apiError(err));
     }
   }
 
+  const pct = rows.length ? (hasCount / rows.length) * 100 : 0;
+
   return (
-    <div className='flex flex-col gap-4'>
-      <div className='flex items-center justify-between'>
-        <h3 className='text-lg font-semibold tracking-tight'>Struktur Gaji Karyawan</h3>
-        {!readOnly && <Button onClick={() => setShowForm(true)}><Icons.add />Tambah</Button>}
-      </div>
+    <div className='grid grid-cols-1 items-start gap-6 xl:grid-cols-[minmax(0,1fr)_380px]'>
+      <div className='flex min-w-0 flex-col gap-5'>
+        {form && (
+          <StructureForm
+            key={form.employee ?? 'new'}
+            initialEmployee={form.employee}
+            onClose={() => setForm(null)}
+            onSaved={() => { setForm(null); load(); }}
+          />
+        )}
 
-      {showForm && <StructureForm onClose={closeForm} onSaved={() => { closeForm(); load(); }} />}
-
-      <div className='flex flex-wrap gap-2'>
-        <select
-          value={empFilter}
-          onChange={(e) => setEmpFilter(e.target.value)}
-          className='border-input h-8 rounded-lg border bg-transparent px-2.5 text-sm'
-        >
-          <option value=''>Semua Karyawan</option>
-          {employees.map((e) => (
-            <option key={e.id} value={e.id}>
-              {e.employee_id} - {e.full_name}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      {error && <p className='text-destructive text-sm'>{error}</p>}
-
-      {history && (
-        <Card>
-          <CardHeader>
-            <CardTitle className='flex items-center justify-between'>
-              <span>Riwayat Gaji: {history.empName}</span>
-              <Button variant='ghost' size='sm' onClick={() => setHistory(null)}>
-                Tutup
-              </Button>
-            </CardTitle>
-          </CardHeader>
-          <CardContent className='p-0'>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Berlaku Dari</TableHead>
-                  <TableHead>Berlaku Sampai</TableHead>
-                  <TableHead>Gaji Pokok</TableHead>
-                  <TableHead>Status</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {history.rows.map((r) => (
-                  <TableRow key={r.id}>
-                    <TableCell>{r.effective_from}</TableCell>
-                    <TableCell>{r.effective_to ?? 'Sekarang'}</TableCell>
-                    <TableCell className='text-right font-medium'>
-                      Rp {Number(r.basic_salary).toLocaleString('id')}
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant={r.is_active ? 'default' : 'secondary'}>
-                        {r.is_active ? 'Aktif' : 'Nonaktif'}
-                      </Badge>
-                    </TableCell>
-                  </TableRow>
-                ))}
-                {history.rows.length === 0 && (
-                  <TableRow>
-                    <TableCell colSpan={4} className='text-muted-foreground py-8 text-center'>
-                      Belum ada riwayat.
-                    </TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
-            </Table>
-          </CardContent>
+        <Card className='flex-row flex-wrap items-center gap-5 px-6 py-5'>
+          <p className='flex items-baseline gap-1.5'>
+            <span className='text-4xl font-semibold tabular-nums'>{hasCount}</span>
+            <span className='text-muted-foreground'>/ {rows.length} karyawan</span>
+          </p>
+          <div className='min-w-56 flex-1 space-y-1.5'>
+            <p className='text-sm font-semibold'>Sudah punya struktur gaji berlaku</p>
+            <div className='flex h-2.5 overflow-hidden rounded-full bg-amber-200 bg-[repeating-linear-gradient(135deg,transparent_0_6px,rgba(255,255,255,0.45)_6px_12px)] dark:bg-amber-500/30'>
+              <div className='bg-primary h-full' style={{ width: `${pct}%` }} />
+            </div>
+            {missingCount > 0 ? (
+              <p className='text-sm text-orange-700 dark:text-orange-300'>
+                {missingCount} karyawan belum ikut payroll sampai struktur gajinya dibuat.
+              </p>
+            ) : (
+              <p className='text-primary text-sm'>Semua karyawan aktif sudah punya struktur gaji.</p>
+            )}
+          </div>
+          {missingCount > 0 && (
+            <Button
+              variant='outline'
+              className='border-amber-300 bg-amber-50 text-amber-900 hover:bg-amber-100 dark:bg-amber-500/10 dark:text-amber-200'
+              onClick={() => setFilter('MISSING')}
+            >
+              Tampilkan yang belum ada
+            </Button>
+          )}
         </Card>
-      )}
 
-      <Card>
-        <CardContent className='p-0'>
+        {history && (
+          <Card className='gap-0 overflow-hidden py-0'>
+            <div className='flex items-center justify-between gap-2 px-6 py-4'>
+              <h3 className='font-semibold'>Riwayat gaji · {history.empName}</h3>
+              <Button variant='ghost' size='sm' onClick={() => setHistory(null)}>Tutup</Button>
+            </div>
+            <div className='overflow-x-auto border-t'>
+              <table className='w-full text-sm'>
+                <thead className='bg-muted/40 text-muted-foreground text-left'>
+                  <tr>
+                    <th className='px-6 py-2.5 font-medium'>Berlaku dari</th>
+                    <th className='px-4 py-2.5 font-medium'>Sampai</th>
+                    <th className='px-4 py-2.5 text-right font-medium'>Gaji pokok</th>
+                    <th className='px-4 py-2.5 font-medium'>Status</th>
+                    <th className='px-6 py-2.5' />
+                  </tr>
+                </thead>
+                <tbody className='divide-y'>
+                  {history.rows.map((r) => (
+                    <tr key={r.id}>
+                      <td className='px-6 py-3'>{fmtDay(r.effective_from)}</td>
+                      <td className='px-4 py-3'>{r.effective_to ? fmtDay(r.effective_to) : 'Sekarang'}</td>
+                      <td className='px-4 py-3 text-right font-medium tabular-nums'>{fmtRp(Number(r.basic_salary))}</td>
+                      <td className='px-4 py-3'>
+                        <Badge variant={r.is_active ? 'default' : 'secondary'}>{r.is_active ? 'Aktif' : 'Nonaktif'}</Badge>
+                      </td>
+                      <td className='px-6 py-3 text-right'>
+                        <div className='flex justify-end gap-1'>
+                          {!readOnly && r.is_active && !r.effective_to && (
+                            <Button variant='ghost' size='sm' onClick={() => handleDeactivate(r)}>
+                              <Icons.close />Nonaktifkan
+                            </Button>
+                          )}
+                          {isAdmin && !readOnly && (
+                            <Button variant='ghost' size='sm' className='text-destructive' onClick={() => handleDelete(r)}>
+                              <Icons.trash />Hapus
+                            </Button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                  {history.rows.length === 0 && (
+                    <tr>
+                      <td colSpan={5} className='text-muted-foreground py-8 text-center'>Belum ada riwayat.</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </Card>
+        )}
+
+        <Card className='gap-0 overflow-hidden py-0'>
+          <div className='flex flex-wrap items-center justify-between gap-3 px-6 py-5'>
+            <h3 className='text-lg font-semibold'>Struktur gaji karyawan</h3>
+            <div className='flex flex-wrap items-center gap-2'>
+              <div className='bg-muted flex rounded-lg p-1' role='group' aria-label='Filter status struktur'>
+                {(
+                  [
+                    ['ALL', `Semua · ${rows.length}`],
+                    ['MISSING', `Belum ada · ${missingCount}`],
+                    ['HAS', `Sudah ada · ${hasCount}`],
+                  ] as const
+                ).map(([value, label]) => (
+                  <button
+                    key={value}
+                    type='button'
+                    aria-pressed={filter === value}
+                    onClick={() => setFilter(value)}
+                    className={`rounded-md px-3 py-1.5 text-sm transition-colors ${
+                      filter === value ? 'bg-background font-semibold shadow-sm' : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <div className='relative'>
+                <Icons.search className='text-muted-foreground pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2' />
+                <Input placeholder='Cari nama / ID' value={search} onChange={(e) => setSearch(e.target.value)} className='h-10 w-56 pl-9' />
+              </div>
+            </div>
+          </div>
+          {error && <p className='text-destructive border-t px-6 py-3 text-sm'>{error}</p>}
           {loading ? (
-            <div className='space-y-2 p-4'>
-              {Array.from({ length: 5 }).map((_, i) => (
-                <Skeleton key={i} className='h-8 w-full' />
-              ))}
+            <div className='space-y-2 border-t p-6'>
+              {Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className='h-12 w-full' />)}
             </div>
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Karyawan</TableHead>
-                  <TableHead>Berlaku Dari</TableHead>
-                  <TableHead>Berlaku Sampai</TableHead>
-                  <TableHead>Gaji Pokok</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead className='text-right'>Aksi</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filtered.map((s) => (
-                  <TableRow key={s.id}>
-                    <TableCell className='font-medium'>{s.employee_name}</TableCell>
-                    <TableCell>{s.effective_from}</TableCell>
-                    <TableCell>{s.effective_to ?? 'Sekarang'}</TableCell>
-                    <TableCell className='text-right font-medium'>
-                      Rp {Number(s.basic_salary).toLocaleString('id')}
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant={s.is_active ? 'default' : 'secondary'}>
-                        {s.is_active ? 'Aktif' : 'Nonaktif'}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className='text-right'>
-                      <div className='flex justify-end gap-1'>
-                        <Button variant='ghost' size='sm' onClick={() => showHistory(s.employee)}>
-                          <Icons.clock />
-                          Riwayat
-                        </Button>
-                        {!readOnly && s.is_active && !s.effective_to && (
-                          <Button variant='ghost' size='sm' onClick={() => handleDeactivate(s)}>
-                            <Icons.close />
-                            Nonaktifkan
-                          </Button>
+            <div className='overflow-x-auto border-t'>
+              <table className='w-full text-sm'>
+                <thead className='bg-muted/40 text-muted-foreground text-left'>
+                  <tr>
+                    <th className='px-6 py-3 font-medium'>Karyawan</th>
+                    <th className='px-4 py-3 text-right font-medium'>Gaji pokok</th>
+                    <th className='px-4 py-3 font-medium'>Komponen tetap</th>
+                    <th className='px-4 py-3 font-medium'>Berlaku sejak</th>
+                    <th className='px-4 py-3 font-medium'>Status</th>
+                    <th className='px-6 py-3' />
+                  </tr>
+                </thead>
+                <tbody className='divide-y'>
+                  {visible.map(({ employee: e, current, versions }) => (
+                    <tr key={e.id}>
+                      <td className='px-6 py-3.5'>
+                        <div className='flex items-center gap-3'>
+                          <span
+                            className={`flex size-9 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${
+                              current ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'
+                            }`}
+                          >
+                            {initialsOf(e.full_name)}
+                          </span>
+                          <span className='min-w-0'>
+                            <span className='block font-medium'>{e.full_name}</span>
+                            <span className='text-muted-foreground block font-mono text-xs'>{e.employee_id}</span>
+                          </span>
+                        </div>
+                      </td>
+                      <td className='px-4 py-3.5 text-right font-semibold whitespace-nowrap tabular-nums'>
+                        {current ? fmtRp(Number(current.basic_salary)) : <span className='text-muted-foreground font-normal'>—</span>}
+                      </td>
+                      <td className='px-4 py-3.5'>
+                        {current && current.components.length > 0 ? (
+                          <span title={current.components.map((c) => `${c.name}: ${fmtRp(Number(c.amount))}`).join('\n')}>
+                            {current.components.length} komponen ·{' '}
+                            {fmtRp(current.components.reduce((sum, c) => sum + Number(c.amount || 0), 0))}
+                          </span>
+                        ) : (
+                          <span className='text-muted-foreground'>—</span>
                         )}
-                        {isAdmin && !readOnly && (
-                          <Button variant='ghost' size='sm' className='text-destructive' onClick={() => handleDelete(s)}>
-                            <Icons.trash />
-                            Hapus
-                          </Button>
+                      </td>
+                      <td className='px-4 py-3.5 whitespace-nowrap'>{current ? fmtDay(current.effective_from) : <span className='text-muted-foreground'>—</span>}</td>
+                      <td className='px-4 py-3.5'>
+                        {current ? (
+                          <span className='bg-primary/10 text-primary inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium'>
+                            <span className='bg-primary size-1.5 rounded-full' />Berlaku
+                          </span>
+                        ) : (
+                          <span className='inline-flex items-center gap-1.5 rounded-full bg-orange-500/10 px-2.5 py-1 text-xs font-medium whitespace-nowrap text-orange-700 dark:text-orange-300'>
+                            <Icons.warning className='size-3.5' />Belum ada
+                          </span>
                         )}
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
-                {filtered.length === 0 && (
-                  <TableRow>
-                    <TableCell colSpan={6} className='text-muted-foreground py-8 text-center'>
-                      Tidak ada data.
-                    </TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
-            </Table>
+                      </td>
+                      <td className='px-6 py-3.5'>
+                        <div className='flex justify-end gap-2'>
+                          {versions > 0 && (
+                            <Button variant='outline' size='sm' onClick={() => showHistory(e.id)}>
+                              Riwayat · {versions}
+                            </Button>
+                          )}
+                          {!readOnly &&
+                            (current ? (
+                              <Button variant='outline' size='sm' onClick={() => openForm(e.id)}>Ubah gaji</Button>
+                            ) : (
+                              <Button size='sm' onClick={() => openForm(e.id)}>Atur struktur</Button>
+                            ))}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                  {visible.length === 0 && (
+                    <tr>
+                      <td colSpan={6} className='text-muted-foreground py-10 text-center'>Tidak ada karyawan yang cocok.</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
           )}
-        </CardContent>
+        </Card>
+      </div>
+
+      <Card className='gap-4 px-6 py-6 xl:sticky xl:top-20'>
+        <h3 className='text-lg font-semibold'>Atur struktur gaji</h3>
+        {!readOnly && (
+          <>
+            <p className='text-muted-foreground text-sm'>
+              Pilih <b className='text-foreground'>Atur struktur</b> atau <b className='text-foreground'>Ubah gaji</b> pada daftar, atau mulai dari sini.
+            </p>
+            <Button className='h-11 w-full' onClick={() => openForm(null)}>
+              <Icons.add />Struktur gaji baru
+            </Button>
+          </>
+        )}
+        <div className='bg-muted/40 space-y-2 rounded-xl border px-4 py-4 text-sm'>
+          <p>
+            Perubahan gaji dibuat sebagai <b>versi baru</b>, bukan menimpa. Riwayat tetap tersimpan.
+          </p>
+          <p>Versi lama otomatis berakhir sehari sebelum tanggal efektif versi baru.</p>
+          <p>Periode payroll yang sudah dikunci tidak ikut berubah.</p>
+        </div>
       </Card>
     </div>
   );
@@ -1484,8 +1733,18 @@ function TaxConfigSection({ readOnly = false }: { readOnly?: boolean }) {
 
   const selected = configs.find((c) => c.id === selectedId) ?? null;
 
+  async function toggleActive(config: TaxConfig) {
+    setError('');
+    try {
+      await updateTaxConfig(config.id, { is_active: !config.is_active });
+      load();
+    } catch (err) {
+      setError(apiError(err));
+    }
+  }
+
   return (
-    <div className='flex flex-col gap-4'>
+    <div className='flex flex-col gap-5'>
       {error && <p className='text-destructive text-sm'>{error}</p>}
       {loading ? (
         <div className='space-y-2'>
@@ -1505,23 +1764,36 @@ function TaxConfigSection({ readOnly = false }: { readOnly?: boolean }) {
         </Card>
       ) : (
         <>
-          <div className='flex flex-wrap items-center gap-2'>
-            <select
-              value={selectedId ?? ''}
-              onChange={(e) => setSelectedId(Number(e.target.value))}
-              className='border-input h-8 rounded-lg border bg-transparent px-2.5 text-sm'
-            >
-              {configs.map((c) => (
-                <option key={c.id} value={c.id}>
-                  Tahun {c.year}{c.is_active ? ' (aktif)' : ''}
-                </option>
-              ))}
-            </select>
-            {selected?.is_active && (
-              <Badge variant='default'>Konfigurasi Aktif</Badge>
+          <div className='flex flex-wrap items-center gap-3'>
+            <label className='bg-card flex h-10 items-center gap-2 rounded-lg border px-3 text-sm'>
+              <span className='text-muted-foreground'>Tahun pajak</span>
+              <select
+                value={selectedId ?? ''}
+                onChange={(e) => setSelectedId(Number(e.target.value))}
+                className='bg-transparent font-semibold outline-none'
+              >
+                {configs.map((c) => (
+                  <option key={c.id} value={c.id}>{c.year}</option>
+                ))}
+              </select>
+            </label>
+            {selected && (
+              <span
+                className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold ${
+                  selected.is_active ? 'bg-primary/10 text-primary' : 'bg-amber-500/10 text-amber-700 dark:text-amber-300'
+                }`}
+              >
+                <span className='size-1.5 rounded-full bg-current' />
+                {selected.is_active ? 'Konfigurasi aktif' : 'Belum aktif — payroll tahun ini belum memakai konfigurasi ini'}
+              </span>
+            )}
+            {selected && !readOnly && (
+              <Button variant='outline' size='sm' onClick={() => toggleActive(selected)}>
+                {selected.is_active ? 'Nonaktifkan' : 'Aktifkan'}
+              </Button>
             )}
           </div>
-          {selected && <TaxConfigDetail config={selected} onChanged={load} readOnly={readOnly} />}
+          {selected && <TaxConfigDetail key={selected.id} config={selected} onChanged={load} readOnly={readOnly} />}
           <TaxProfilesCard
             profiles={profiles}
             employees={employees}
@@ -1538,6 +1810,13 @@ function TaxConfigSection({ readOnly = false }: { readOnly?: boolean }) {
   );
 }
 
+const DEFAULT_LAYER_LIMITS = [60_000_000, 250_000_000, 500_000_000, 5_000_000_000];
+const DEFAULT_LAYER_RATES = [5, 15, 25, 30, 35];
+
+function fmtPct(v: string | number): string {
+  return `${Number(v).toLocaleString('id-ID', { maximumFractionDigits: 2 })}%`;
+}
+
 function TaxConfigDetail({ config, onChanged, readOnly = false }: { config: TaxConfig; onChanged: () => void; readOnly?: boolean }) {
   const [dtp, setDtp] = useState(String(Number(config.dtp_threshold)));
   const [layerLimits, setLayerLimits] = useState(
@@ -1545,11 +1824,10 @@ function TaxConfigDetail({ config, onChanged, readOnly = false }: { config: TaxC
   );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
-
-  useEffect(() => {
-    setDtp(String(Number(config.dtp_threshold)));
-    setLayerLimits((config.annual_layer_limits ?? []).map((v) => String(Number(v))));
-  }, [config.id]);
+  const [terCat, setTerCat] = useState<'A' | 'B' | 'C'>('A');
+  const [showAllTer, setShowAllTer] = useState(false);
+  const [editTer, setEditTer] = useState(false);
+  const [editLayers, setEditLayers] = useState(false);
 
   async function saveGeneral(e: React.FormEvent) {
     e.preventDefault();
@@ -1580,90 +1858,192 @@ function TaxConfigDetail({ config, onChanged, readOnly = false }: { config: TaxC
     }
   }
 
-  async function toggleActive() {
-    setError('');
-    try {
-      await updateTaxConfig(config.id, { is_active: !config.is_active });
-      onChanged();
-    } catch (err) {
-      setError(apiError(err));
-    }
-  }
+  // Effective annual layers: full override rows, else (custom or default) limits @ statutory rates.
+  const overridden = config.annual_brackets.length > 0;
+  const limits = DEFAULT_LAYER_LIMITS.map((d, i) => Number(config.annual_layer_limits?.[i] ?? 0) || d);
+  const layers = overridden
+    ? [...config.annual_brackets]
+        .sort((a, b) => a.layer_order - b.layer_order)
+        .map((b) => ({ lower: Number(b.pkp_lower), upper: b.pkp_upper === null ? null : Number(b.pkp_upper), rate: Number(b.rate_pct) }))
+    : DEFAULT_LAYER_RATES.map((rate, i) => ({ lower: i === 0 ? 0 : limits[i - 1], upper: i < limits.length ? limits[i] : null, rate }));
+  const customLimits = !overridden && (config.annual_layer_limits ?? []).some((v) => v !== null && v !== '');
+
+  const terRows = config.ter_brackets
+    .filter((b) => b.ter_category === terCat)
+    .sort((a, b) => Number(a.bruto_lower) - Number(b.bruto_lower));
+  const shownTer = showAllTer ? terRows : terRows.slice(0, 7);
+  const maxRate = Math.max(...shownTer.map((b) => Number(b.rate_pct)), 0.0001);
 
   return (
-    <div className='grid gap-4 lg:grid-cols-2'>
-      <Card>
-        <CardHeader>
-          <CardTitle className='flex items-center justify-between'>
-            <span>Umum — Tahun {config.year}</span>
-            {!readOnly && (
-              <div className='flex items-center gap-2'>
-                <Switch checked={config.is_active} onCheckedChange={toggleActive} />
-                <Label className='text-sm'>Aktif</Label>
-              </div>
-            )}
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={saveGeneral} className='space-y-4'>
+    <div className='flex flex-col gap-5'>
+      <div className='grid gap-5 lg:grid-cols-2'>
+        <Card className='gap-4 px-6 py-6'>
+          <h3 className='text-lg font-semibold'>PPh 21 DTP (ditanggung pemerintah)</h3>
+          <form onSubmit={saveGeneral} className='space-y-3'>
             {error && <p className='text-destructive text-sm'>{error}</p>}
             <div className='space-y-1.5'>
-              <Label>Ambang DTP (Rp) — THP ≤ nilai ini: PPh tidak dipotong dari transfer</Label>
-              <Input
-                type='number'
-                min='0'
-                value={dtp}
-                disabled={readOnly}
-                onChange={(e) => setDtp(e.target.value)}
-              />
+              <Label htmlFor='dtp-threshold'>Ambang THP</Label>
+              <div className='border-input focus-within:border-ring focus-within:ring-ring/50 flex h-11 items-center gap-2 rounded-lg border px-3 focus-within:ring-3'>
+                <span className='text-muted-foreground text-sm'>Rp</span>
+                <input
+                  id='dtp-threshold'
+                  inputMode='numeric'
+                  value={dtp ? Number(dtp).toLocaleString('id-ID') : ''}
+                  disabled={readOnly}
+                  onChange={(e) => setDtp(e.target.value.replace(/\D/g, ''))}
+                  className='w-full bg-transparent tabular-nums outline-none'
+                />
+              </div>
+              <p className='text-muted-foreground text-xs'>Jika THP ≤ ambang, PPh 21 tidak dipotong dari transfer.</p>
             </div>
             {!readOnly && (
               <div className='flex justify-end'>
-                <Button type='submit' disabled={saving}>
-                  {saving ? 'Menyimpan...' : 'Simpan'}
-                </Button>
+                <Button type='submit' disabled={saving}>{saving ? 'Menyimpan...' : 'Simpan'}</Button>
               </div>
             )}
           </form>
-        </CardContent>
-      </Card>
+        </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Batas Lapisan Tahunan (Pasal 17)</CardTitle>
-        </CardHeader>
-        <CardContent className='space-y-3'>
-          <p className='text-muted-foreground text-sm'>
-            Default: 60 jt / 250 jt / 500 jt / 5 M @ 5/15/25/30/35%. Kosongkan untuk kembali ke default.
-          </p>
-          <div className='grid grid-cols-2 gap-3 sm:grid-cols-4'>
-            {layerLimits.map((v, i) => (
-              <div key={i} className='space-y-1.5'>
-                <Label className='text-xs'>Lapisan {i + 1} → {i + 2}</Label>
-                <Input
-                  type='number'
-                  min='0'
-                  value={v}
-                  disabled={readOnly}
-                  onChange={(e) =>
-                    setLayerLimits((prev) => prev.map((p, j) => (j === i ? e.target.value : p)))
-                  }
-                />
-              </div>
-            ))}
+        <Card className='gap-4 px-6 py-6'>
+          <div className='flex items-center justify-between gap-2'>
+            <h3 className='text-lg font-semibold'>Lapisan tarif tahunan (Pasal 17)</h3>
+            <span className='bg-muted rounded-full px-2.5 py-1 text-xs font-medium'>
+              {overridden ? 'Override' : customLimits ? 'Batas kustom' : 'Statutory'}
+            </span>
           </div>
+          <table className='w-full text-sm'>
+            <thead className='text-muted-foreground text-xs'>
+              <tr className='border-b'>
+                <th className='py-2 text-left font-medium'>Penghasilan kena pajak per tahun</th>
+                <th className='py-2 text-right font-medium'>Tarif</th>
+              </tr>
+            </thead>
+            <tbody className='divide-y'>
+              {layers.map((l, i) => (
+                <tr key={i}>
+                  <td className='py-2.5 tabular-nums'>
+                    {l.upper === null ? `> ${fmtRp(l.lower)}` : `${fmtRp(l.lower)} – ${fmtRp(l.upper)}`}
+                  </td>
+                  <td className='py-2.5 text-right font-semibold'>{fmtPct(l.rate)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
           {!readOnly && (
             <div className='flex justify-end'>
-              <Button onClick={saveLayers} disabled={saving}>
-                {saving ? 'Menyimpan...' : 'Simpan Batas'}
+              <Button variant='outline' size='sm' onClick={() => setEditLayers((v) => !v)}>
+                {editLayers ? 'Tutup editor' : 'Override lapisan'}
               </Button>
             </div>
           )}
-        </CardContent>
+        </Card>
+      </div>
+
+      {editLayers && !readOnly && (
+        <div className='grid gap-5 lg:grid-cols-2'>
+          <Card className='gap-3 px-6 py-6'>
+            <h3 className='font-semibold'>Batas lapisan (tarif statutory)</h3>
+            <p className='text-muted-foreground text-sm'>
+              Default: 60 jt / 250 jt / 500 jt / 5 M @ 5/15/25/30/35%. Kosongkan untuk kembali ke default.
+            </p>
+            <div className='grid grid-cols-2 gap-3 sm:grid-cols-4'>
+              {layerLimits.map((v, i) => (
+                <div key={i} className='space-y-1.5'>
+                  <Label className='text-xs'>Lapisan {i + 1} → {i + 2}</Label>
+                  <Input
+                    type='number'
+                    min='0'
+                    value={v}
+                    onChange={(e) => setLayerLimits((prev) => prev.map((p, j) => (j === i ? e.target.value : p)))}
+                  />
+                </div>
+              ))}
+            </div>
+            <div className='flex justify-end'>
+              <Button onClick={saveLayers} disabled={saving}>{saving ? 'Menyimpan...' : 'Simpan batas'}</Button>
+            </div>
+          </Card>
+          <AnnualBracketsCard config={config} onChanged={onChanged} readOnly={readOnly} />
+        </div>
+      )}
+
+      <Card className='gap-0 overflow-hidden py-0'>
+        <div className='flex flex-wrap items-start justify-between gap-3 px-6 py-5'>
+          <div>
+            <h3 className='text-lg font-semibold'>Tarif efektif rata-rata (TER) bulanan</h3>
+            <p className='text-muted-foreground mt-0.5 text-sm'>Kategori ditentukan dari status PTKP karyawan.</p>
+          </div>
+          <div className='bg-muted flex rounded-lg p-1' role='group' aria-label='Kategori TER'>
+            {(['A', 'B', 'C'] as const).map((c) => (
+              <button
+                key={c}
+                type='button'
+                aria-pressed={terCat === c}
+                onClick={() => setTerCat(c)}
+                className={`rounded-md px-3.5 py-1.5 text-sm transition-colors ${
+                  terCat === c ? 'bg-background font-semibold shadow-sm' : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                Kategori {c}
+              </button>
+            ))}
+          </div>
+        </div>
+        {terRows.length === 0 ? (
+          <p className='text-muted-foreground border-t px-6 py-8 text-center text-sm'>Belum ada tarif untuk kategori {terCat}.</p>
+        ) : (
+          <table className='w-full border-t text-sm'>
+            <thead className='bg-muted/40 text-muted-foreground text-left'>
+              <tr>
+                <th className='px-6 py-3 font-medium'>Penghasilan bruto per bulan</th>
+                <th className='px-4 py-3 text-right font-medium'>Tarif</th>
+                <th className='hidden w-2/5 px-6 py-3 sm:table-cell' />
+              </tr>
+            </thead>
+            <tbody className='divide-y'>
+              {shownTer.map((b) => (
+                <tr key={b.id}>
+                  <td className='px-6 py-3 tabular-nums'>
+                    {b.bruto_upper === null
+                      ? `> ${fmtRp(Number(b.bruto_lower))}`
+                      : `${fmtRp(Number(b.bruto_lower))} – ${fmtRp(Number(b.bruto_upper))}`}
+                  </td>
+                  <td className='px-4 py-3 text-right font-semibold tabular-nums'>{fmtPct(b.rate_pct)}</td>
+                  <td className='hidden px-6 py-3 sm:table-cell'>
+                    <div className='bg-muted h-1.5 overflow-hidden rounded-full'>
+                      <div
+                        className='bg-primary h-full rounded-full'
+                        style={{ width: `${Math.max(2, (Number(b.rate_pct) / maxRate) * 100)}%` }}
+                      />
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+        <div className='text-muted-foreground flex flex-wrap items-center justify-between gap-2 border-t px-6 py-3.5 text-sm'>
+          <span>
+            {showAllTer || terRows.length <= 7
+              ? `${terRows.length} baris kategori ${terCat}.`
+              : `Menampilkan 7 dari ${terRows.length} baris kategori ${terCat}.`}
+          </span>
+          <div className='flex gap-2'>
+            {terRows.length > 7 && (
+              <Button variant='ghost' size='sm' onClick={() => setShowAllTer((v) => !v)}>
+                {showAllTer ? 'Tampilkan sedikit' : 'Tampilkan semua'}
+              </Button>
+            )}
+            {!readOnly && (
+              <Button variant='outline' size='sm' onClick={() => setEditTer((v) => !v)}>
+                {editTer ? 'Tutup editor' : 'Edit tabel'}
+              </Button>
+            )}
+          </div>
+        </div>
       </Card>
 
-      <TerBracketsCard config={config} onChanged={onChanged} readOnly={readOnly} />
-      <AnnualBracketsCard config={config} onChanged={onChanged} readOnly={readOnly} />
+      {editTer && !readOnly && <TerBracketsCard config={config} onChanged={onChanged} readOnly={readOnly} />}
     </div>
   );
 }
@@ -1958,30 +2338,25 @@ function TaxProfilesCard({
 
   const byEmployee = new Map(profiles.map((p) => [p.employee, p]));
   const active = employees.filter((e) => e.status === 'ACTIVE');
+  const missingCount = active.filter((e) => !byEmployee.has(e.id)).length;
   const rows = active
     .map((e) => ({ employee: e, profile: byEmployee.get(e.id) ?? null }))
     .filter(({ employee, profile }) => {
       if (onlyMissing && profile) return false;
-      if (search && !employee.full_name.toLowerCase().includes(search.toLowerCase())) return false;
+      if (search && !`${employee.full_name} ${employee.employee_id}`.toLowerCase().includes(search.toLowerCase())) return false;
       return true;
-    });
+    })
+    .sort((a, b) => a.employee.full_name.localeCompare(b.employee.full_name));
 
   async function save(employeeId: number, patch: { ptkp_status?: string; tax_scheme?: string }) {
     setError('');
     setSavingId(employeeId);
     try {
       const existing = byEmployee.get(employeeId);
-      if (existing) {
-        await upsertTaxProfile(employeeId, {
-          ptkp_status: patch.ptkp_status ?? existing.ptkp_status,
-          tax_scheme: patch.tax_scheme ?? existing.tax_scheme,
-        });
-      } else {
-        await upsertTaxProfile(employeeId, {
-          ptkp_status: patch.ptkp_status ?? 'TK/0',
-          tax_scheme: patch.tax_scheme ?? 'NORMAL',
-        });
-      }
+      await upsertTaxProfile(employeeId, {
+        ptkp_status: patch.ptkp_status ?? existing?.ptkp_status ?? 'TK/0',
+        tax_scheme: patch.tax_scheme ?? existing?.tax_scheme ?? 'NORMAL',
+      });
       onChanged();
     } catch (err) {
       setError(apiError(err));
@@ -2005,98 +2380,114 @@ function TaxProfilesCard({
     }
   }
 
+  const selectClass = 'border-input bg-background h-9 rounded-lg border px-2.5 text-sm disabled:opacity-60';
+
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Profil Pajak Karyawan (PTKP & Skema)</CardTitle>
-      </CardHeader>
-      <CardContent className='space-y-3'>
-        {error && <p className='text-destructive text-sm'>{error}</p>}
-        <div className='flex flex-wrap items-center gap-2'>
-          <div className='relative w-64'>
-            <Icons.search className='text-muted-foreground absolute top-1/2 left-2.5 h-4 w-4 -translate-y-1/2' />
-            <Input
-              placeholder='Cari karyawan'
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className='pl-8'
-            />
-          </div>
-          <div className='flex items-center gap-2'>
-            <Switch checked={onlyMissing} onCheckedChange={setOnlyMissing} />
-            <Label className='text-sm'>Hanya tanpa profil</Label>
-          </div>
-          <span className='text-muted-foreground ml-auto text-xs'>
-            Tanpa profil: {active.filter((e) => !byEmployee.has(e.id)).length} karyawan (default TK/0, NORMAL)
-          </span>
+    <Card className='gap-0 overflow-hidden py-0'>
+      <div className='flex flex-wrap items-start justify-between gap-3 px-6 py-5'>
+        <div>
+          <h3 className='text-lg font-semibold'>Profil pajak karyawan</h3>
+          {missingCount > 0 ? (
+            <p className='mt-0.5 text-sm text-orange-700 dark:text-orange-300'>
+              {missingCount} karyawan belum diatur — memakai default TK/0 · NORMAL
+            </p>
+          ) : (
+            <p className='text-muted-foreground mt-0.5 text-sm'>Semua karyawan aktif sudah punya profil pajak.</p>
+          )}
         </div>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Karyawan</TableHead>
-              <TableHead>PTKP</TableHead>
-              <TableHead>Kategori TER</TableHead>
-              <TableHead>Skema</TableHead>
-              <TableHead className='text-right'>Aksi</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
+        <div className='flex flex-wrap items-center gap-2'>
+          <div className='relative'>
+            <Icons.search className='text-muted-foreground pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2' />
+            <Input placeholder='Cari karyawan' value={search} onChange={(e) => setSearch(e.target.value)} className='h-10 w-56 pl-9' />
+          </div>
+          <label className='flex h-10 items-center gap-2 rounded-lg border px-3 text-sm'>
+            <Switch checked={onlyMissing} onCheckedChange={setOnlyMissing} />
+            Hanya yang belum diatur
+          </label>
+        </div>
+      </div>
+      {error && <p className='text-destructive border-t px-6 py-3 text-sm'>{error}</p>}
+      <div className='overflow-x-auto border-t'>
+        <table className='w-full text-sm'>
+          <thead className='bg-muted/40 text-muted-foreground text-left'>
+            <tr>
+              <th className='px-6 py-3 font-medium'>Karyawan</th>
+              <th className='px-4 py-3 font-medium'>Status PTKP</th>
+              <th className='px-4 py-3 font-medium'>Kategori TER</th>
+              <th className='px-4 py-3 font-medium'>Skema</th>
+              <th className='px-6 py-3' />
+            </tr>
+          </thead>
+          <tbody className='divide-y'>
             {rows.map(({ employee, profile }) => (
-              <TableRow key={employee.id}>
-                <TableCell className='font-medium'>
-                  {employee.full_name}
-                  <span className='text-muted-foreground ml-2 text-xs'>{employee.employee_id}</span>
-                </TableCell>
-                <TableCell>
-                  <select
-                    value={profile?.ptkp_status ?? ''}
-                    onChange={(e) => save(employee.id, { ptkp_status: e.target.value })}
-                    disabled={savingId === employee.id || readOnly}
-                    className='border-input h-8 rounded-lg border bg-transparent px-2 text-sm'
-                  >
-                    <option value=''>TK/0 (default)</option>
-                    {PTKP_OPTIONS.map((p) => <option key={p} value={p}>{p}</option>)}
-                  </select>
-                </TableCell>
-                <TableCell className='text-sm'>
-                  {profile ? terCategoryFor(profile.ptkp_status) : terCategoryFor('TK/0')}
-                </TableCell>
-                <TableCell>
+              <tr key={employee.id} className={profile ? '' : 'bg-orange-50/50 dark:bg-orange-500/5'}>
+                <td className='px-6 py-3'>
+                  <p className='font-medium'>{employee.full_name}</p>
+                  <p className='text-muted-foreground font-mono text-xs'>{employee.employee_id}</p>
+                </td>
+                <td className='px-4 py-3'>
+                  <div className='flex items-center gap-2'>
+                    <select
+                      value={profile?.ptkp_status ?? ''}
+                      onChange={(e) => e.target.value && save(employee.id, { ptkp_status: e.target.value })}
+                      disabled={savingId === employee.id || readOnly}
+                      aria-label={`Status PTKP ${employee.full_name}`}
+                      className={selectClass}
+                    >
+                      {/* No profile yet: backend default TK/0; picking any value (incl. TK/0) saves one. */}
+                      {!profile && <option value=''>TK/0</option>}
+                      {PTKP_OPTIONS.map((p) => <option key={p} value={p}>{p}</option>)}
+                    </select>
+                    {!profile && (
+                      <span className='rounded bg-orange-500/10 px-1.5 py-0.5 text-xs font-medium text-orange-700 dark:text-orange-300'>
+                        Default
+                      </span>
+                    )}
+                  </div>
+                </td>
+                <td className='px-4 py-3'>
+                  <span className='bg-muted inline-flex size-7 items-center justify-center rounded-md text-xs font-semibold'>
+                    {terCategoryFor(profile?.ptkp_status ?? 'TK/0')}
+                  </span>
+                </td>
+                <td className='px-4 py-3'>
                   <select
                     value={profile?.tax_scheme ?? 'NORMAL'}
                     onChange={(e) => save(employee.id, { tax_scheme: e.target.value })}
                     disabled={savingId === employee.id || readOnly}
-                    className='border-input h-8 rounded-lg border bg-transparent px-2 text-sm'
+                    aria-label={`Skema pajak ${employee.full_name}`}
+                    className={selectClass}
                   >
                     <option value='NORMAL'>NORMAL</option>
                     <option value='GROSS_UP'>GROSS_UP</option>
                   </select>
-                </TableCell>
-                <TableCell className='text-right'>
+                </td>
+                <td className='px-6 py-3 text-right'>
                   {!readOnly && profile && (
                     <Button
-                      variant='ghost'
+                      variant='outline'
                       size='sm'
                       onClick={() => reset(employee.id)}
                       disabled={savingId === employee.id}
                       title='Hapus profil — kembali ke default TK/0 + NORMAL'
                     >
-                      <Icons.trash className='h-4 w-4' />
+                      Reset ke default
                     </Button>
                   )}
-                </TableCell>
-              </TableRow>
+                </td>
+              </tr>
             ))}
             {rows.length === 0 && (
-              <TableRow>
-                <TableCell colSpan={5} className='text-muted-foreground py-8 text-center'>
-                  Tidak ada data.
-                </TableCell>
-              </TableRow>
+              <tr>
+                <td colSpan={5} className='text-muted-foreground py-8 text-center'>Tidak ada data.</td>
+              </tr>
             )}
-          </TableBody>
-        </Table>
-      </CardContent>
+          </tbody>
+        </table>
+      </div>
+      <p className='text-muted-foreground border-t px-6 py-3.5 text-xs'>
+        Kategori TER: A = TK/0, TK/1, K/0 · B = TK/2, TK/3, K/1, K/2 · C = K/3. Mengubah PTKP/skema langsung tersimpan sebagai profil.
+      </p>
     </Card>
   );
 }
