@@ -31,7 +31,6 @@ import {
   deletePeriod,
   transitionPeriod,
   recalculatePeriod,
-  listPayrolls,
   getPeriodReview,
   getPeriodEligibility,
   type ReviewData,
@@ -776,190 +775,7 @@ function StructuresSection({ readOnly = false }: { readOnly?: boolean }) {
 
 const fmtRp = (n: number) => `Rp ${Number(n || 0).toLocaleString('id')}`;
 
-function ReviewSection({ period, refreshKey = 0 }: { period: PayrollPeriod; refreshKey?: number }) {
-  const [data, setData] = useState<ReviewData | null>(null);
-  const [eligibility, setEligibility] = useState<EligibilityData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [expanded, setExpanded] = useState<number | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    Promise.all([
-      getPeriodReview(period.id),
-      getPeriodEligibility(period.id).catch(() => null),
-    ])
-      .then(([review, elig]) => {
-        if (cancelled) return;
-        setData(review);
-        setEligibility(elig);
-      })
-      .catch((err) => { if (!cancelled) setError(apiError(err)); })
-      .finally(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
-  }, [period.id, refreshKey]);
-
-  if (loading) {
-    return (
-      <div className='space-y-2'>
-        {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className='h-16 w-full' />)}
-      </div>
-    );
-  }
-  if (error) return <p className='text-destructive text-sm'>{error}</p>;
-  if (!data) return null;
-
-  const s = data.summary;
-  const stats = [
-    { label: 'Jumlah Karyawan', value: String(s.employee_count) },
-    { label: 'Total Gross', value: fmtRp(s.total_gross) },
-    { label: 'Total PPh21', value: fmtRp(s.total_pph21) },
-    { label: 'Total Potongan', value: fmtRp(s.total_deduction) },
-    { label: 'Total THP', value: fmtRp(s.total_thp) },
-    { label: 'Total Transfer', value: fmtRp(s.total_transfer) },
-  ];
-
-  return (
-    <div className='flex flex-col gap-4'>
-      <div className='grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6'>
-        {stats.map((st) => (
-          <Card key={st.label}>
-            <CardContent className='p-4'>
-              <p className='text-muted-foreground text-xs'>{st.label}</p>
-              <p className='mt-1 truncate text-sm font-semibold tracking-tight' title={st.value}>
-                {st.value}
-              </p>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-
-      {eligibility && eligibility.not_ready_count > 0 && (
-        <div className='rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm'>
-          <p className='font-medium text-amber-900'>
-            {eligibility.not_ready_count} karyawan belum memiliki struktur gaji berlaku — tidak diikutkan payroll periode ini.
-          </p>
-          <p className='mt-1 text-amber-800'>
-            {eligibility.not_ready.map((e) => `${e.full_name} (${e.employee_id})`).join(', ')}
-          </p>
-        </div>
-      )}
-
-      <Card>
-        <CardContent className='p-0'>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Karyawan</TableHead>
-                <TableHead className='text-right'>Gross</TableHead>
-                <TableHead className='text-right'>PPh21</TableHead>
-                <TableHead className='text-right'>Potongan</TableHead>
-                <TableHead className='text-right'>THP</TableHead>
-                <TableHead className='text-right'>Transfer</TableHead>
-                <TableHead className='text-right'>Detail</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {data.employees.map((row) => (
-                <Fragment key={row.payroll_id}>
-                  <TableRow>
-                    <TableCell className='font-medium'>
-                      {row.employee_name}
-                      {row.is_dtp && (
-                        <Badge variant='outline' className='ml-2'>DTP</Badge>
-                      )}
-                    </TableCell>
-                    <TableCell className='text-right'>{fmtRp(row.gross_salary)}</TableCell>
-                    <TableCell className='text-right'>{fmtRp(row.pph21)}</TableCell>
-                    <TableCell className='text-right'>{fmtRp(row.total_deduction)}</TableCell>
-                    <TableCell className='text-right font-medium text-green-600'>
-                      {fmtRp(row.net_salary)}
-                    </TableCell>
-                    <TableCell className='text-right font-medium'>
-                      {fmtRp(row.transfer_amount)}
-                    </TableCell>
-                    <TableCell className='text-right'>
-                      <Button
-                        variant='ghost'
-                        size='sm'
-                        onClick={() => setExpanded((e) => (e === row.payroll_id ? null : row.payroll_id))}
-                      >
-                        <Icons.chevronDown />
-                        Detail
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                  {expanded === row.payroll_id && (
-                    <TableRow key={`${row.payroll_id}-items`}>
-                      <TableCell colSpan={7} className='bg-muted/40 p-0'>
-                        <Table>
-                          <TableHeader>
-                            <TableRow>
-                              <TableHead>Komponen</TableHead>
-                              <TableHead>Kategori</TableHead>
-                              <TableHead>Sumber</TableHead>
-                              <TableHead className='text-right'>Jumlah</TableHead>
-                            </TableRow>
-                          </TableHeader>
-                          <TableBody>
-                            {row.items.map((it) => (
-                              <TableRow key={it.id}>
-                                <TableCell>
-                                  {it.component_name}
-                                  {it.description && (
-                                    <span className='text-muted-foreground block text-xs'>
-                                      {it.description}
-                                    </span>
-                                  )}
-                                </TableCell>
-                                <TableCell>
-                                  <Badge variant='outline'>
-                                    {it.category === 'DEDUCTION'
-                                      ? 'Potongan'
-                                      : it.category === 'EARNING_FIXED'
-                                        ? 'Tetap'
-                                        : 'Variabel'}
-                                  </Badge>
-                                </TableCell>
-                                <TableCell className='text-xs'>
-                                  {it.source === 'SYSTEM' ? 'Sistem' : 'Manual'}
-                                </TableCell>
-                                <TableCell className='text-right'>
-                                  {fmtRp(Number(it.amount))}
-                                </TableCell>
-                              </TableRow>
-                            ))}
-                            {row.items.length === 0 && (
-                              <TableRow>
-                                <TableCell colSpan={4} className='text-muted-foreground py-4 text-center'>
-                                  Tidak ada item.
-                                </TableCell>
-                              </TableRow>
-                            )}
-                          </TableBody>
-                        </Table>
-                      </TableCell>
-                    </TableRow>
-                  )}
-                </Fragment>
-              ))}
-              {data.employees.length === 0 && (
-                <TableRow>
-                  <TableCell colSpan={7} className='text-muted-foreground py-8 text-center'>
-                    Belum ada data payroll. Hitung periode terlebih dahulu.
-                  </TableCell>
-                </TableRow>
-              )}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
-    </div>
-  );
-}
-
-// ---------- (4) Payroll Processing ----------
+// ---------- (3) Payroll Processing ----------
 
 const MONTHS = [
   { value: 1, label: 'Januari' }, { value: 2, label: 'Februari' }, { value: 3, label: 'Maret' },
@@ -967,12 +783,56 @@ const MONTHS = [
   { value: 7, label: 'Juli' }, { value: 8, label: 'Agustus' }, { value: 9, label: 'September' },
   { value: 10, label: 'Oktober' }, { value: 11, label: 'November' }, { value: 12, label: 'Desember' },
 ];
+const MONTHS_SHORT = ['JAN', 'FEB', 'MAR', 'APR', 'MEI', 'JUN', 'JUL', 'AGU', 'SEP', 'OKT', 'NOV', 'DES'];
 
-const badgeColor = (s: string) => s === 'DRAFT' ? 'secondary' as const : 'default' as const;
+// Period workflow in order (backend PayrollPeriod.Status).
+const STEPS: { status: string; label: string }[] = [
+  { status: 'DRAFT', label: 'Draf' },
+  { status: 'CALCULATED', label: 'Dihitung' },
+  { status: 'REVIEW', label: 'Direview' },
+  { status: 'APPROVED', label: 'Disetujui' },
+  { status: 'PAID', label: 'Dibayar' },
+  { status: 'LOCKED', label: 'Dikunci' },
+];
+
+const NEXT_ACTION: Record<string, { action: string; label: string }> = {
+  DRAFT: { action: 'calculate', label: 'Hitung payroll' },
+  CALCULATED: { action: 'review', label: 'Tandai direview' },
+  REVIEW: { action: 'approve', label: 'Setujui' },
+  APPROVED: { action: 'mark-paid', label: 'Tandai dibayar' },
+  PAID: { action: 'lock', label: 'Kunci periode' },
+};
+
+const periodName = (p: PayrollPeriod) => `${MONTHS.find((m) => m.value === p.period_month)?.label ?? ''} ${p.period_year}`;
+const periodSlug = (p: PayrollPeriod) => `${p.period_year}-${String(p.period_month).padStart(2, '0')}`;
+const isPaidUp = (p: PayrollPeriod) => p.status === 'PAID' || p.status === 'LOCKED';
+
+function fmtDay(iso: string): string {
+  const d = new Date(`${iso.slice(0, 10)}T00:00:00`);
+  return isNaN(d.getTime()) ? iso : d.toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+function initialsOf(name: string): string {
+  return name.replace(/\([^)]*\)/g, '').split(' ').filter(Boolean).slice(0, 2).map((w) => w[0]?.toUpperCase() ?? '').join('');
+}
+
+function PeriodStatusChip({ p }: { p: PayrollPeriod }) {
+  const locked = p.status === 'LOCKED';
+  return (
+    <span
+      className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold ${
+        locked ? 'bg-foreground text-background' : p.status === 'DRAFT' ? 'bg-muted text-muted-foreground' : 'bg-primary/10 text-primary'
+      }`}
+    >
+      {locked && <Icons.lock className='size-3' />}
+      {locked ? 'Dikunci' : STEPS.find((s) => s.status === p.status)?.label ?? p.status_display}
+    </span>
+  );
+}
 
 function PeriodForm({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
   const year = new Date().getFullYear();
-  const [form, setForm] = useState({ period_month: 1, period_year: year, period_start: '', period_end: '', notes: '' });
+  const [form, setForm] = useState({ period_month: new Date().getMonth() + 1, period_year: year, period_start: '', period_end: '', notes: '' });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
@@ -1054,387 +914,535 @@ function PeriodForm({ onClose, onSaved }: { onClose: () => void; onSaved: () => 
   );
 }
 
-function PayrollEmployeeTable({ period, refreshKey = 0, onManualChange, readOnly = false }: { period: PayrollPeriod; refreshKey?: number; onManualChange: () => void; readOnly?: boolean }) {
-  const [payrolls, setPayrolls] = useState<Payroll[]>([]);
+/** Workflow progress: done steps filled, the current one highlighted. */
+function PeriodStepper({ status }: { status: string }) {
+  const current = STEPS.findIndex((s) => s.status === status);
+  return (
+    <ol className='grid grid-cols-3 gap-x-3 gap-y-3 sm:grid-cols-6'>
+      {STEPS.map((s, i) => {
+        const done = i <= current;
+        return (
+          <li key={s.status} className='space-y-2'>
+            <div className={`h-1 rounded-full ${done ? 'bg-primary' : 'bg-muted'}`} />
+            <p className={`flex items-center gap-1.5 text-sm ${done ? 'font-medium' : 'text-muted-foreground'}`}>
+              {done ? (
+                <span className='bg-primary text-primary-foreground flex size-5 items-center justify-center rounded-full'>
+                  <Icons.check className='size-3' />
+                </span>
+              ) : (
+                <span className='border-muted-foreground/40 size-5 rounded-full border-2' />
+              )}
+              {s.label}
+            </p>
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
+/** Per-employee breakdown (review data) with expandable components + manual items. */
+function PayrollBreakdown({
+  period,
+  data,
+  components,
+  readOnly,
+  onChanged,
+}: {
+  period: PayrollPeriod;
+  data: ReviewData;
+  components: PayrollComponent[];
+  readOnly: boolean;
+  onChanged: () => void;
+}) {
+  const [expanded, setExpanded] = useState<number | null>(null);
+  const [editingCode, setEditingCode] = useState('');
+  const [amountInput, setAmountInput] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const canEditManual = !readOnly && period.status !== 'LOCKED';
+  const manualComps = components.filter((c) => c.category === 'EARNING_VARIABLE' || c.category === 'DEDUCTION');
+  const s = data.summary;
+
+  async function addManual(payrollId: number) {
+    if (!editingCode || !amountInput || Number(amountInput) <= 0) return;
+    setBusy(true);
+    setError('');
+    try {
+      await addManualItem(payrollId, editingCode, amountInput);
+      setEditingCode('');
+      setAmountInput('');
+      onChanged();
+    } catch (err) { setError(apiError(err)); }
+    finally { setBusy(false); }
+  }
+
+  async function removeManual(payrollId: number, code: string) {
+    if (!window.confirm(`Hapus item manual ${code}?`)) return;
+    setBusy(true);
+    setError('');
+    try {
+      await removeManualItem(payrollId, code);
+      onChanged();
+    } catch (err) { setError(apiError(err)); }
+    finally { setBusy(false); }
+  }
+
+  return (
+    <Card className='gap-0 overflow-hidden py-0'>
+      <div className='flex flex-wrap items-center justify-between gap-2 px-6 py-5'>
+        <h3 className='text-lg font-semibold'>Rincian per karyawan</h3>
+        <p className='text-muted-foreground text-sm'>Klik baris untuk komponen gaji</p>
+      </div>
+      {error && <p className='text-destructive border-t px-6 py-3 text-sm'>{error}</p>}
+      <div className='overflow-x-auto border-t'>
+        <table className='w-full text-sm'>
+          <thead className='bg-muted/40 text-muted-foreground'>
+            <tr>
+              <th className='px-6 py-3 text-left font-medium'>Karyawan</th>
+              <th className='px-4 py-3 text-right font-medium'>Gross</th>
+              <th className='px-4 py-3 text-right font-medium'>PPh 21</th>
+              <th className='px-4 py-3 text-right font-medium'>Potongan</th>
+              <th className='text-foreground px-4 py-3 text-right font-semibold'>THP</th>
+              <th className='text-foreground px-4 py-3 text-right font-semibold'>Transfer</th>
+              <th className='px-6 py-3' />
+            </tr>
+          </thead>
+          <tbody>
+            {data.employees.map((row) => {
+              const open = expanded === row.payroll_id;
+              return (
+                <Fragment key={row.payroll_id}>
+                  <tr
+                    className='hover:bg-muted/40 cursor-pointer border-t'
+                    onClick={() => { setExpanded(open ? null : row.payroll_id); setEditingCode(''); setAmountInput(''); }}
+                  >
+                    <td className='px-6 py-4'>
+                      <div className='flex items-center gap-3'>
+                        <Icons.chevronRight className={`text-muted-foreground size-4 shrink-0 transition-transform ${open ? 'rotate-90' : ''}`} />
+                        <span className='bg-muted text-muted-foreground flex size-9 shrink-0 items-center justify-center rounded-full text-xs font-semibold'>
+                          {initialsOf(row.employee_name)}
+                        </span>
+                        <span className='font-medium'>{row.employee_name}</span>
+                        {row.is_dtp && (
+                          <span className='rounded bg-blue-500/10 px-1.5 py-0.5 text-[11px] font-semibold text-blue-700 dark:text-blue-300' title='PPh 21 ditanggung pemerintah'>
+                            DTP
+                          </span>
+                        )}
+                      </div>
+                    </td>
+                    <td className='px-4 py-4 text-right tabular-nums'>{fmtRp(row.gross_salary)}</td>
+                    <td className='text-muted-foreground px-4 py-4 text-right tabular-nums'>{fmtRp(row.pph21)}</td>
+                    <td className='text-muted-foreground px-4 py-4 text-right tabular-nums'>{fmtRp(row.total_deduction)}</td>
+                    <td className='px-4 py-4 text-right font-semibold tabular-nums'>{fmtRp(row.net_salary)}</td>
+                    <td className='text-primary px-4 py-4 text-right font-semibold tabular-nums'>{fmtRp(row.transfer_amount)}</td>
+                    <td className='px-6 py-4 text-right' onClick={(e) => e.stopPropagation()}>
+                      {isPaidUp(period) && (
+                        <Button
+                          variant='outline'
+                          size='sm'
+                          onClick={() =>
+                            downloadPayslip(row.payroll_id, `${row.employee_name} ${periodSlug(period)}`)
+                              .catch(() => toast.error('Slip gaji hanya tersedia setelah periode dibayar (PAID/LOCKED).'))
+                          }
+                        >
+                          <Icons.download />Slip
+                        </Button>
+                      )}
+                    </td>
+                  </tr>
+                  {open && (
+                    <tr className='bg-muted/30'>
+                      <td colSpan={7} className='px-6 py-4'>
+                        <table className='w-full text-sm'>
+                          <thead className='text-muted-foreground text-xs'>
+                            <tr>
+                              <th className='py-1.5 text-left font-medium'>Komponen</th>
+                              <th className='py-1.5 text-left font-medium'>Kategori</th>
+                              <th className='py-1.5 text-left font-medium'>Sumber</th>
+                              <th className='py-1.5 text-right font-medium'>Jumlah</th>
+                              {canEditManual && <th className='w-10' />}
+                            </tr>
+                          </thead>
+                          <tbody className='divide-y'>
+                            {row.items.map((it) => (
+                              <tr key={it.id}>
+                                <td className='py-2'>
+                                  {it.component_name}
+                                  {it.description && <span className='text-muted-foreground block text-xs'>{it.description}</span>}
+                                </td>
+                                <td className='py-2'>
+                                  <Badge variant='outline'>
+                                    {it.category === 'DEDUCTION' ? 'Potongan' : it.category === 'EARNING_FIXED' ? 'Tetap' : 'Variabel'}
+                                  </Badge>
+                                </td>
+                                <td className='py-2 text-xs'>{it.source === 'SYSTEM' ? 'Sistem' : 'Manual'}</td>
+                                <td className='py-2 text-right tabular-nums'>{fmtRp(Number(it.amount))}</td>
+                                {canEditManual && (
+                                  <td className='py-2 text-right'>
+                                    {it.source === 'MANUAL' && (
+                                      <button
+                                        type='button'
+                                        disabled={busy}
+                                        onClick={() => removeManual(row.payroll_id, it.component_code)}
+                                        className='text-destructive hover:underline disabled:opacity-50'
+                                        aria-label={`Hapus item manual ${it.component_code}`}
+                                      >
+                                        <Icons.close className='size-4' />
+                                      </button>
+                                    )}
+                                  </td>
+                                )}
+                              </tr>
+                            ))}
+                            {row.items.length === 0 && (
+                              <tr>
+                                <td colSpan={canEditManual ? 5 : 4} className='text-muted-foreground py-4 text-center'>Tidak ada item.</td>
+                              </tr>
+                            )}
+                          </tbody>
+                        </table>
+                        {canEditManual && (
+                          <div className='mt-3 flex flex-wrap items-center gap-2'>
+                            <span className='text-muted-foreground text-xs'>Tambah item manual:</span>
+                            <select
+                              value={editingCode}
+                              onChange={(e) => { setEditingCode(e.target.value); setAmountInput(''); }}
+                              className='border-input bg-background h-8 rounded-lg border px-2 text-sm'
+                            >
+                              <option value=''>Pilih komponen</option>
+                              {manualComps.map((c) => <option key={c.id} value={c.code}>{c.code} · {c.name}</option>)}
+                            </select>
+                            {editingCode && (
+                              <>
+                                <Input
+                                  type='number' min='0' step='1' value={amountInput}
+                                  onChange={(e) => setAmountInput(e.target.value)}
+                                  className='h-8 w-36' placeholder='Jumlah'
+                                />
+                                <Button size='sm' disabled={busy || !amountInput} onClick={() => addManual(row.payroll_id)}>
+                                  Tambah
+                                </Button>
+                              </>
+                            )}
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
+              );
+            })}
+            {data.employees.length === 0 && (
+              <tr>
+                <td colSpan={7} className='text-muted-foreground border-t py-10 text-center'>Belum ada data payroll di periode ini.</td>
+              </tr>
+            )}
+          </tbody>
+          {data.employees.length > 0 && (
+            <tfoot className='border-t font-semibold'>
+              <tr>
+                <td className='px-6 py-4'>Total · {s.employee_count} karyawan</td>
+                <td className='px-4 py-4 text-right tabular-nums'>{fmtRp(s.total_gross)}</td>
+                <td className='px-4 py-4 text-right tabular-nums'>{fmtRp(s.total_pph21)}</td>
+                <td className='px-4 py-4 text-right tabular-nums'>{fmtRp(s.total_deduction)}</td>
+                <td className='px-4 py-4 text-right tabular-nums'>{fmtRp(s.total_thp)}</td>
+                <td className='text-primary px-4 py-4 text-right tabular-nums'>{fmtRp(s.total_transfer)}</td>
+                <td />
+              </tr>
+            </tfoot>
+          )}
+        </table>
+      </div>
+    </Card>
+  );
+}
+
+/** Selected period: header + actions, workflow stepper, totals, eligibility, breakdown. */
+function PeriodDetail({
+  period,
+  readOnly,
+  isAdmin,
+  onUpdated,
+  onDeleted,
+  onGoToStructures,
+  onNotReady,
+}: {
+  period: PayrollPeriod;
+  readOnly: boolean;
+  isAdmin: boolean;
+  onUpdated: (p: PayrollPeriod) => void;
+  onDeleted: (p: PayrollPeriod) => void;
+  onGoToStructures: () => void;
+  onNotReady: (n: number) => void;
+}) {
+  const [data, setData] = useState<ReviewData | null>(null);
+  const [eligibility, setEligibility] = useState<EligibilityData | null>(null);
+  const [components, setComponents] = useState<PayrollComponent[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [compItems, setCompItems] = useState<PayrollComponent[]>([]);
+  const [actionError, setActionError] = useState('');
+  const [acting, setActing] = useState(false);
+  const [showNames, setShowNames] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true); setError('');
-    Promise.all([listPayrolls(period.id), listComponents()])
-      .then(([p, c]) => {
+    setLoading(true);
+    setError('');
+    Promise.all([
+      // Draft periods have no payroll rows yet; review only after "Hitung".
+      period.status === 'DRAFT' ? Promise.resolve(null) : getPeriodReview(period.id),
+      getPeriodEligibility(period.id).catch(() => null),
+      readOnly ? Promise.resolve([] as PayrollComponent[]) : listComponents().catch(() => [] as PayrollComponent[]),
+    ])
+      .then(([review, elig, comps]) => {
         if (cancelled) return;
-        setPayrolls(p);
-        setCompItems(c);
+        setData(review);
+        setEligibility(elig);
+        setComponents(comps);
+        if (elig) onNotReady(elig.not_ready_count);
       })
       .catch((err) => { if (!cancelled) setError(apiError(err)); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [period.id, refreshKey]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [period.id, period.status, refreshKey]);
 
-  async function handleAddManual(payrollId: number, code: string, amount: string) {
+  async function run(fn: () => Promise<PayrollPeriod>) {
+    setActing(true);
+    setActionError('');
     try {
-      const updated = await addManualItem(payrollId, code, amount);
-      setPayrolls((prev) => prev.map((pr) => pr.id === payrollId ? updated : pr));
-      onManualChange();
-    } catch (err) { setError(apiError(err)); }
+      onUpdated(await fn());
+      setRefreshKey((k) => k + 1);
+    } catch (err) { setActionError(apiError(err)); }
+    finally { setActing(false); }
   }
 
-  async function handleRemoveManual(payrollId: number, code: string) {
+  async function handleDelete() {
+    if (!window.confirm(`Hapus periode ${periodName(period)}? Data payroll akan ikut terhapus.`)) return;
     try {
-      const updated = await removeManualItem(payrollId, code);
-      setPayrolls((prev) => prev.map((pr) => pr.id === payrollId ? updated : pr));
-      onManualChange();
-    } catch (err) { setError(apiError(err)); }
+      await deletePeriod(period.id);
+      onDeleted(period);
+    } catch (err) { setActionError(apiError(err)); }
   }
+
+  const next = NEXT_ACTION[period.status];
+  const canRecalculate = period.status === 'CALCULATED' || period.status === 'REVIEW';
+  const s = data?.summary;
+  const stats = s
+    ? [
+        { label: 'Karyawan', value: String(s.employee_count) },
+        { label: 'Total gross', value: fmtRp(s.total_gross) },
+        { label: 'PPh 21', value: fmtRp(s.total_pph21) },
+        { label: 'Potongan', value: fmtRp(s.total_deduction) },
+        { label: 'Total THP', value: fmtRp(s.total_thp) },
+        { label: 'Total transfer', value: fmtRp(s.total_transfer), highlight: true },
+      ]
+    : [];
 
   return (
-    <div className='flex flex-col gap-3'>
-      <div className='flex items-center justify-between'>
-        <h4 className='text-base font-semibold tracking-tight'>
-          Periode {MONTHS.find((m) => m.value === period.period_month)?.label} {period.period_year}
-          <Badge variant={badgeColor(period.status)} className='ml-2'>{period.status_display}</Badge>
-        </h4>
-        <p className='text-muted-foreground text-xs'>{period.period_start} s/d {period.period_end}</p>
-      </div>
-      {error && <p className='text-destructive text-sm'>{error}</p>}
-      <Card>
-        <CardContent className='p-0'>
-          {loading ? (
-            <div className='space-y-2 p-4'>
-              {Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className='h-8 w-full' />)}
-            </div>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Karyawan</TableHead>
-                  <TableHead className='text-right'>Gaji Pokok</TableHead>
-                  <TableHead className='text-right'>Tunj. Tetap</TableHead>
-                  <TableHead className='text-right'>Tunj. Variabel</TableHead>
-                  <TableHead className='text-right'>Potongan</TableHead>
-                  <TableHead className='text-right'>Reimburs</TableHead>
-                  <TableHead className='text-right'>Gross</TableHead>
-                  <TableHead className='text-right'>Net</TableHead>
-                  <TableHead className='text-right'>Item Manual</TableHead>
-                  <TableHead className='text-right'>Aksi</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {payrolls.map((pr) => (
-                  <PayrollRow
-                    key={pr.id}
-                    payroll={pr}
-                    components={compItems}
-                    periodStatus={period.status}
-                    onAddManual={handleAddManual}
-                    onRemoveManual={handleRemoveManual}
-                    periodPaid={period.status === 'PAID' || period.status === 'LOCKED'}
-                    periodLabel={`${period.period_year}-${String(period.period_month).padStart(2, '0')}`}
-                    readOnly={readOnly}
-                  />
-                ))}
-                {payrolls.length === 0 && (
-                  <TableRow>
-                    <TableCell colSpan={10} className='text-muted-foreground py-8 text-center'>
-                      Belum ada data payroll.
-                    </TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
-            </Table>
-          )}
-        </CardContent>
+    <div className='flex min-w-0 flex-col gap-5'>
+      <Card className='gap-5 px-6 py-6'>
+        <div className='flex flex-wrap items-start justify-between gap-3'>
+          <div>
+            <h3 className='text-2xl font-semibold tracking-tight'>Periode {periodName(period)}</h3>
+            <p className='text-muted-foreground mt-1'>
+              {Number(period.period_start.slice(8, 10))} – {Number(period.period_end.slice(8, 10))}{' '}
+              {MONTHS.find((m) => m.value === period.period_month)?.label} {period.period_year}
+            </p>
+          </div>
+          <div className='flex flex-wrap items-center gap-2'>
+            {!readOnly && canRecalculate && (
+              <Button variant='outline' disabled={acting} onClick={() => run(() => recalculatePeriod(period.id))} title='Hitung ulang & tambahkan karyawan baru'>
+                <Icons.refresh />Sync
+              </Button>
+            )}
+            {isPaidUp(period) && (
+              <Button
+                variant='outline'
+                onClick={() => downloadRecap(period.id, periodSlug(period)).catch(() => toast.error('Gagal mengunduh rekap payroll.'))}
+              >
+                <Icons.download />Unduh rekap
+              </Button>
+            )}
+            {!readOnly && next && (
+              <Button disabled={acting} onClick={() => run(() => transitionPeriod(period.id, next.action))}>
+                {acting ? <Icons.spinner className='animate-spin' /> : <Icons.check />}
+                {next.label}
+              </Button>
+            )}
+            {!readOnly && (isAdmin || period.status !== 'LOCKED') && (
+              <Button variant='ghost' size='icon' className='text-destructive' onClick={handleDelete} aria-label='Hapus periode' title='Hapus periode'>
+                <Icons.trash />
+              </Button>
+            )}
+          </div>
+        </div>
+        {actionError && <p className='text-destructive text-sm'>{actionError}</p>}
+        <PeriodStepper status={period.status} />
+        {loading ? (
+          <Skeleton className='h-20 w-full' />
+        ) : error ? (
+          <p className='text-destructive text-sm'>{error}</p>
+        ) : stats.length > 0 ? (
+          <div className='grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6'>
+            {stats.map((st) => (
+              <div
+                key={st.label}
+                className={`min-w-0 rounded-xl border px-4 py-3.5 ${st.highlight ? 'border-primary/30 bg-primary/5' : 'bg-muted/30'}`}
+              >
+                <p className={`truncate text-lg font-semibold tabular-nums ${st.highlight ? 'text-primary' : ''}`} title={st.value}>
+                  {st.value}
+                </p>
+                <p className='text-muted-foreground text-sm'>{st.label}</p>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className='text-muted-foreground rounded-xl border border-dashed px-4 py-4 text-sm'>
+            Periode masih draf. {readOnly ? 'Payroll belum dihitung oleh HR.' : 'Klik “Hitung payroll” untuk membuat rincian gaji karyawan.'}
+          </p>
+        )}
       </Card>
+
+      {eligibility && eligibility.not_ready_count > 0 && (
+        <div className='rounded-xl border border-amber-300 bg-amber-50 px-5 py-4 text-amber-900 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200'>
+          <div className='flex flex-wrap items-center gap-3'>
+            <Icons.warning className='size-5 shrink-0' />
+            <p className='min-w-0 flex-1 font-medium'>
+              {eligibility.not_ready_count} karyawan tidak ikut payroll periode ini karena belum punya struktur gaji
+            </p>
+            <Button variant='outline' size='sm' className='bg-background' onClick={() => setShowNames((v) => !v)}>
+              {showNames ? 'Sembunyikan nama' : 'Lihat nama'}
+            </Button>
+            {!readOnly && (
+              <Button size='sm' className='bg-amber-700 text-white hover:bg-amber-800' onClick={onGoToStructures}>
+                Atur struktur gaji
+              </Button>
+            )}
+          </div>
+          {showNames && (
+            <p className='mt-3 text-sm'>
+              {eligibility.not_ready.map((e) => `${e.full_name} (${e.employee_id})`).join(', ')}
+            </p>
+          )}
+        </div>
+      )}
+
+      {data && (
+        <PayrollBreakdown
+          period={period}
+          data={data}
+          components={components}
+          readOnly={readOnly}
+          onChanged={() => setRefreshKey((k) => k + 1)}
+        />
+      )}
     </div>
   );
 }
 
-function PayrollRow({
-  payroll, components, periodStatus, onAddManual, onRemoveManual, periodPaid, periodLabel, readOnly = false,
+function PayrollProcessingSection({
+  readOnly = false,
+  onGoToStructures,
+  onNotReady,
 }: {
-  payroll: Payroll;
-  components: PayrollComponent[];
-  periodStatus: string;
-  onAddManual: (id: number, code: string, amount: string) => void;
-  onRemoveManual: (id: number, code: string) => void;
-  periodPaid: boolean;
-  periodLabel: string;
   readOnly?: boolean;
+  onGoToStructures: () => void;
+  onNotReady: (n: number) => void;
 }) {
-  const [editingCode, setEditingCode] = useState('');
-  const [amountInput, setAmountInput] = useState('');
-
-  const variableComps = components.filter((c) => c.category === 'EARNING_VARIABLE');
-  const deductionComps = components.filter((c) => c.category === 'DEDUCTION');
-  const manualItems = payroll.items.filter((i) => i.source === 'MANUAL');
-
-  function addManual(code: string) {
-    if (!amountInput || Number(amountInput) <= 0) return;
-    onAddManual(payroll.id, code, amountInput);
-    setAmountInput('');
-    setEditingCode('');
-  }
-
-  function removeManual(code: string) {
-    if (window.confirm(`Hapus item manual ${code}?`)) {
-      onRemoveManual(payroll.id, code);
-    }
-  }
-
-  const isLocked = periodStatus === 'LOCKED';
-
-  return (
-    <TableRow>
-      <TableCell className='font-medium'>{payroll.employee_name}</TableCell>
-      <TableCell className='text-right'>{Number(payroll.basic_salary).toLocaleString('id')}</TableCell>
-      <TableCell className='text-right'>{Number(payroll.total_fixed_earning).toLocaleString('id')}</TableCell>
-      <TableCell className='text-right'>{Number(payroll.total_variable_earning).toLocaleString('id')}</TableCell>
-      <TableCell className='text-right'>{Number(payroll.total_deduction).toLocaleString('id')}</TableCell>
-      <TableCell className='text-right'>{Number(payroll.reimbursement_total).toLocaleString('id')}</TableCell>
-      <TableCell className='text-right font-medium'>{Number(payroll.gross_salary).toLocaleString('id')}</TableCell>
-      <TableCell className='text-right font-medium text-green-600'>{Number(payroll.net_salary).toLocaleString('id')}</TableCell>
-      <TableCell className='text-right'>
-        <div className='flex flex-col gap-1'>
-          {manualItems.map((item) => (
-            <div key={item.id} className='flex items-center justify-end gap-1 text-xs'>
-              <span>{item.component_code}: {Number(item.amount).toLocaleString('id')}</span>
-              {!isLocked && !readOnly && (
-                <button onClick={() => removeManual(item.component_code)} className='text-destructive hover:underline'>
-                  <Icons.close className='h-3 w-3' />
-                </button>
-              )}
-            </div>
-          ))}
-          {!isLocked && !readOnly && (
-            <div className='flex items-center gap-1'>
-              <select
-                value={editingCode}
-                onChange={(e) => { setEditingCode(e.target.value); setAmountInput(''); }}
-                className='border-input h-6 w-24 rounded border bg-transparent px-1 text-[10px]'
-              >
-                <option value=''>+ Manual</option>
-                {[...variableComps, ...deductionComps].map((c) => (
-                  <option key={c.id} value={c.code}>{c.code}</option>
-                ))}
-              </select>
-              {editingCode && (
-                <>
-                  <Input
-                    type='number' step='0.01' value={amountInput}
-                    onChange={(e) => setAmountInput(e.target.value)}
-                    className='h-6 w-20 text-[10px]' placeholder='Jumlah'
-                  />
-                  <button onClick={() => addManual(editingCode)} className='text-primary text-[10px] hover:underline'>
-                    OK
-                  </button>
-                </>
-              )}
-            </div>
-          )}
-        </div>
-      </TableCell>
-      <TableCell className='text-right'>
-        {periodPaid && (
-          <Button
-            variant='ghost'
-            size='sm'
-            onClick={() =>
-              downloadPayslip(payroll.id, `${payroll.employee_name} ${periodLabel}`)
-                .catch(() => toast.error('Slip gaji hanya tersedia setelah periode dibayar (PAID/LOCKED).'))
-            }
-          >
-            <Icons.download />Slip Gaji
-          </Button>
-        )}
-      </TableCell>
-    </TableRow>
-  );
-}
-
-function PayrollProcessingSection({ readOnly = false }: { readOnly?: boolean }) {
   const [periods, setPeriods] = useState<PayrollPeriod[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [showForm, setShowForm] = useState(false);
-  const [selectedPeriod, setSelectedPeriod] = useState<PayrollPeriod | null>(null);
-  const [transitionError, setTransitionError] = useState('');
-  const [reviewKey, setReviewKey] = useState(0);
+  const [selectedId, setSelectedId] = useState<number | null>(null);
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin';
 
-  async function load() {
+  async function load(selectNewest = false) {
     setLoading(true); setError('');
     try {
-      setPeriods(await listPeriods());
+      const list = await listPeriods();
+      setPeriods(list);
+      setSelectedId((cur) => (selectNewest || cur === null || !list.some((p) => p.id === cur) ? list[0]?.id ?? null : cur));
     } catch (err) { setError(apiError(err)); }
     finally { setLoading(false); }
   }
 
   useEffect(() => { load(); }, []);
 
-  async function handleDelete(p: PayrollPeriod) {
-    if (!window.confirm(`Hapus periode ${p.status_display}? Data payroll akan ikut terhapus.`)) return;
-    try {
-      await deletePeriod(p.id);
-      load();
-      if (selectedPeriod?.id === p.id) setSelectedPeriod(null);
-    } catch (err) { setTransitionError(apiError(err)); }
-  }
-
-  async function handleTransition(p: PayrollPeriod, action: string) {
-    setTransitionError('');
-    try {
-      const updated = await transitionPeriod(p.id, action);
-      setPeriods((prev) => prev.map((pp) => pp.id === p.id ? updated : pp));
-      if (selectedPeriod?.id === p.id) setSelectedPeriod(updated);
-      // Recalculate/transition changes payroll rows → refetch review + table.
-      setReviewKey((k) => k + 1);
-    } catch (err) { setTransitionError(apiError(err)); }
-  }
-
-  const isLocked = (p: PayrollPeriod) => p.status === 'LOCKED';
-  const isPaidUp = (p: PayrollPeriod) => p.status === 'PAID' || p.status === 'LOCKED';
-  const canRecalculate = (p: PayrollPeriod) => p.status === 'CALCULATED' || p.status === 'REVIEW';
-
-  async function handleRecalculate(p: PayrollPeriod) {
-    setTransitionError('');
-    try {
-      const updated = await recalculatePeriod(p.id);
-      setPeriods((prev) => prev.map((pp) => pp.id === p.id ? updated : pp));
-      if (selectedPeriod?.id === p.id) setSelectedPeriod(updated);
-      // New employees may appear → refetch review + table.
-      setReviewKey((k) => k + 1);
-    } catch (err) { setTransitionError(apiError(err)); }
-  }
-
-  const nextAction = (p: PayrollPeriod) => {
-    const steps: Record<string, string> = {
-      DRAFT: 'calculate',
-      CALCULATED: 'review',
-      REVIEW: 'approve',
-      APPROVED: 'mark-paid',
-      PAID: 'lock',
-    };
-    return steps[p.status];
-  };
-
-  const actionLabel = (a: string) =>
-    a === 'calculate' ? 'Hitung' : a === 'review' ? 'Review' : a === 'approve' ? 'Setuju' : a === 'mark-paid' ? 'Bayar' : 'Kunci';
+  const selected = periods.find((p) => p.id === selectedId) ?? null;
 
   return (
-    <div className='flex flex-col gap-4'>
-      <div className='flex items-center justify-between'>
-        <h3 className='text-lg font-semibold tracking-tight'>Payroll Processing</h3>
-        {!readOnly && (
-          <Button onClick={() => setShowForm(true)} disabled={showForm}>
-            <Icons.add />Buat Periode
-          </Button>
+    <div className='grid grid-cols-1 items-start gap-6 lg:grid-cols-[320px_minmax(0,1fr)]'>
+      <div className='flex flex-col gap-3 lg:sticky lg:top-20'>
+        <div className='flex items-center justify-between gap-2'>
+          <h3 className='text-lg font-semibold'>Periode</h3>
+          {!readOnly && (
+            <Button onClick={() => setShowForm(true)} disabled={showForm}>
+              <Icons.add />Buat periode
+            </Button>
+          )}
+        </div>
+        {showForm && (
+          <PeriodForm onClose={() => setShowForm(false)} onSaved={() => { setShowForm(false); load(true); }} />
+        )}
+        {error && <p className='text-destructive text-sm'>{error}</p>}
+        {loading && periods.length === 0 ? (
+          Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className='h-24 w-full rounded-xl' />)
+        ) : periods.length === 0 ? (
+          <p className='text-muted-foreground rounded-xl border border-dashed px-4 py-8 text-center text-sm'>
+            Belum ada periode. Buat periode baru untuk memulai.
+          </p>
+        ) : (
+          <ul className='flex flex-col gap-2'>
+            {periods.map((p) => (
+              <li key={p.id}>
+                <button
+                  type='button'
+                  onClick={() => setSelectedId(p.id)}
+                  aria-current={p.id === selectedId}
+                  className={`bg-card flex w-full items-center gap-3 rounded-xl border px-4 py-4 text-left transition-colors ${
+                    p.id === selectedId ? 'border-foreground ring-foreground ring-1' : 'hover:bg-muted/40'
+                  }`}
+                >
+                  <span className='bg-muted flex size-12 shrink-0 flex-col items-center justify-center rounded-lg leading-tight'>
+                    <span className='text-muted-foreground text-[11px] font-medium'>{MONTHS_SHORT[p.period_month - 1]}</span>
+                    <span className='font-semibold tabular-nums'>{String(p.period_year).slice(-2)}</span>
+                  </span>
+                  <span className='min-w-0 flex-1'>
+                    <span className='block font-semibold'>{periodName(p)}</span>
+                    <span className='text-muted-foreground block text-sm'>
+                      {p.payroll_count} karyawan · dibuat {p.created_at ? fmtDay(p.created_at) : '-'}
+                    </span>
+                  </span>
+                  <PeriodStatusChip p={p} />
+                </button>
+              </li>
+            ))}
+          </ul>
         )}
       </div>
 
-      {showForm && (
-        <PeriodForm onClose={() => setShowForm(false)} onSaved={() => { setShowForm(false); load(); }} />
-      )}
-
-      {transitionError && <p className='text-destructive text-sm'>{transitionError}</p>}
-
-      {selectedPeriod ? (
-        <>
-          <div className='flex items-center gap-2'>
-            <Button variant='ghost' size='sm' onClick={() => setSelectedPeriod(null)}>
-              <Icons.chevronLeft />Kembali
-            </Button>
-          </div>
-          {selectedPeriod.status !== 'DRAFT' && (
-            <ReviewSection period={selectedPeriod} refreshKey={reviewKey} />
-          )}
-          <PayrollEmployeeTable
-            period={selectedPeriod}
-            refreshKey={reviewKey}
-            onManualChange={() => setReviewKey((k) => k + 1)}
-            readOnly={readOnly}
-          />
-        </>
+      {selected ? (
+        <PeriodDetail
+          key={selected.id}
+          period={selected}
+          readOnly={readOnly}
+          isAdmin={isAdmin}
+          onUpdated={(u) => setPeriods((prev) => prev.map((p) => (p.id === u.id ? u : p)))}
+          onDeleted={() => load(true)}
+          onGoToStructures={onGoToStructures}
+          onNotReady={onNotReady}
+        />
       ) : (
-        <Card>
-          <CardContent className='p-0'>
-            {loading ? (
-              <div className='space-y-2 p-4'>
-                {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className='h-8 w-full' />)}
-              </div>
-            ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Periode</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Karyawan</TableHead>
-                    <TableHead>Dibuat</TableHead>
-                    <TableHead className='text-right'>Aksi</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {periods.map((p) => (
-                    <TableRow key={p.id}>
-                      <TableCell className='font-medium'>
-                        <Button variant='link' className='h-auto p-0 text-sm' onClick={() => setSelectedPeriod(p)}>
-                          {MONTHS.find((m) => m.value === p.period_month)?.label} {p.period_year}
-                        </Button>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant={badgeColor(p.status)}>{p.status_display}</Badge>
-                      </TableCell>
-                      <TableCell>{p.payroll_count}</TableCell>
-                      <TableCell className='text-xs text-slate-500'>{p.created_at?.slice(0, 10)}</TableCell>
-                      <TableCell className='text-right'>
-                        <div className='flex items-center justify-end gap-1'>
-                          {!readOnly && canRecalculate(p) && (
-                            <Button variant='ghost' size='sm' onClick={() => handleRecalculate(p)}>
-                              <Icons.refresh />Sync
-                            </Button>
-                          )}
-                          {!readOnly && nextAction(p) && !isLocked(p) && (
-                            <Button variant='ghost' size='sm' onClick={() => handleTransition(p, nextAction(p)!)}>
-                              {nextAction(p) === 'calculate' ? <Icons.plusCircle /> : <Icons.check />}
-                              {actionLabel(nextAction(p)!)}
-                            </Button>
-                          )}
-                          {!readOnly && (isAdmin || !isLocked(p)) && (
-                            <Button variant='ghost' size='sm' className='text-destructive' onClick={() => handleDelete(p)}>
-                              <Icons.trash />
-                            </Button>
-                          )}
-                          {isPaidUp(p) && (
-                            <Button
-                              variant='ghost'
-                              size='sm'
-                              onClick={() =>
-                                downloadRecap(p.id, `${p.period_year}-${String(p.period_month).padStart(2, '0')}`)
-                                  .catch(() => toast.error('Gagal mengunduh rekap payroll.'))
-                              }
-                            >
-                              <Icons.download />Rekap
-                            </Button>
-                          )}
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                  {periods.length === 0 && (
-                    <TableRow>
-                      <TableCell colSpan={5} className='text-muted-foreground py-8 text-center'>
-                        Belum ada periode. Buat periode baru untuk memulai.
-                      </TableCell>
-                    </TableRow>
-                  )}
-                </TableBody>
-              </Table>
-            )}
-          </CardContent>
-        </Card>
+        !loading && (
+          <Card className='items-center px-6 py-14 text-center'>
+            <Icons.wallet className='text-muted-foreground size-8' />
+            <p className='mt-2 font-semibold'>Pilih atau buat periode payroll</p>
+          </Card>
+        )
       )}
     </div>
   );
@@ -2102,62 +2110,49 @@ function terCategoryFor(ptkp: string): 'A' | 'B' | 'C' {
 // ---------- Main Page ----------
 
 export function PayrollPage({ readOnly = false }: { readOnly?: boolean }) {
-  const [tab, setTab] = useState<'components' | 'structures' | 'processing' | 'tax'>('components');
+  const [tab, setTab] = useState<'components' | 'structures' | 'processing' | 'tax'>('processing');
+  // Employees without a salary structure in the selected period (from eligibility).
+  const [notReady, setNotReady] = useState(0);
+  const tabs: { value: typeof tab; label: string }[] = [
+    { value: 'processing', label: 'Proses payroll' },
+    { value: 'structures', label: 'Struktur gaji' },
+    { value: 'components', label: 'Komponen gaji' },
+    { value: 'tax', label: 'Pajak' },
+  ];
 
   return (
-    <div className='flex flex-1 flex-col gap-4 p-4 md:p-6'>
-      <div className='flex items-center justify-between'>
-        <div>
-          <h2 className='text-2xl font-bold tracking-tight'>Payroll</h2>
-          <p className='text-muted-foreground text-sm'>
-            {readOnly
-              ? 'Mode lihat saja (read-only).'
-              : 'Kelola payment type dan struktur gaji karyawan.'}
-          </p>
-        </div>
+    <div className='flex flex-1 flex-col gap-6 p-4 md:p-8'>
+      <div>
+        <h2 className='text-3xl font-bold tracking-tight'>Payroll</h2>
+        <p className='text-muted-foreground mt-1'>
+          {readOnly
+            ? 'Mode lihat saja (read-only).'
+            : 'Proses gaji bulanan, kelola struktur gaji, komponen, dan pajak.'}
+        </p>
       </div>
 
-      <div className='flex gap-1 border-b'>
-        <button
-          onClick={() => setTab('components')}
-          className={`px-4 py-1.5 text-sm font-medium transition-colors ${
-            tab === 'components'
-              ? 'border-primary text-primary border-b-2'
-              : 'text-muted-foreground hover:text-foreground'
-          }`}
-        >
-          Payment Types
-        </button>
-        <button
-          onClick={() => setTab('structures')}
-          className={`px-4 py-1.5 text-sm font-medium transition-colors ${
-            tab === 'structures'
-              ? 'border-primary text-primary border-b-2'
-              : 'text-muted-foreground hover:text-foreground'
-          }`}
-        >
-          Struktur Gaji
-        </button>
-        <button
-          onClick={() => setTab('processing')}
-          className={`px-4 py-1.5 text-sm font-medium transition-colors ${
-            tab === 'processing'
-              ? 'border-primary text-primary border-b-2'
-              : 'text-muted-foreground hover:text-foreground'
-          }`}
-        >
-          Payroll Processing
-        </button>
-        <button
-          onClick={() => setTab('tax')}
-          className={`px-4 py-1.5 text-sm font-medium transition-colors ${
-            tab === 'tax'
-              ? 'border-primary text-primary border-b-2'
-              : 'text-muted-foreground hover:text-foreground'
-          }`}
-        >
-          Konfigurasi Pajak
-        </button>
+      <div className='flex gap-1 overflow-x-auto border-b' role='tablist'>
+        {tabs.map((t) => (
+          <button
+            key={t.value}
+            type='button'
+            role='tab'
+            aria-selected={tab === t.value}
+            onClick={() => setTab(t.value)}
+            className={`-mb-px flex shrink-0 items-center gap-2 border-b-2 px-4 py-2.5 text-sm transition-colors ${
+              tab === t.value
+                ? 'border-foreground text-foreground font-semibold'
+                : 'text-muted-foreground hover:text-foreground border-transparent'
+            }`}
+          >
+            {t.label}
+            {t.value === 'structures' && notReady > 0 && (
+              <span className='rounded-full bg-orange-500/10 px-2 py-0.5 text-xs font-semibold text-orange-700 dark:text-orange-300'>
+                {notReady} belum
+              </span>
+            )}
+          </button>
+        ))}
       </div>
 
       {tab === 'components' ? (
@@ -2165,7 +2160,11 @@ export function PayrollPage({ readOnly = false }: { readOnly?: boolean }) {
       ) : tab === 'structures' ? (
         <StructuresSection readOnly={readOnly} />
       ) : tab === 'processing' ? (
-        <PayrollProcessingSection readOnly={readOnly} />
+        <PayrollProcessingSection
+          readOnly={readOnly}
+          onGoToStructures={() => setTab('structures')}
+          onNotReady={setNotReady}
+        />
       ) : (
         <TaxConfigSection readOnly={readOnly} />
       )}
