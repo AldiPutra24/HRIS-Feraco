@@ -123,7 +123,9 @@ class ReimbursementPagination(PageNumberPagination):
 
 
 class ReimbursementViewSet(viewsets.ModelViewSet):
-    queryset = Reimbursement.objects.select_related('employee__user__role', 'category', 'reviewer').all()
+    queryset = Reimbursement.objects.select_related(
+        'employee__user__role', 'employee__department', 'category', 'reviewer',
+    ).all()
     serializer_class = ReimbursementSerializer
     permission_classes = [ReimbursementPermission]
     filterset_fields = ['status', 'employee', 'category']
@@ -156,6 +158,10 @@ class ReimbursementViewSet(viewsets.ModelViewSet):
         statuses = [s for s in self.request.query_params.get('status_in', '').split(',') if s]
         if statuses:
             qs = qs.filter(status__in=statuses)
+        # `?department=<id>`: the employee's current department (list + export).
+        department = self.request.query_params.get('department', '')
+        if department.isdigit():
+            qs = qs.filter(employee__department_id=int(department))
         return qs
 
     def _block_management_write(self):

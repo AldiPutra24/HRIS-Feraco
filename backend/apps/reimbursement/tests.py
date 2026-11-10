@@ -1068,24 +1068,39 @@ class ReimbursementKpiExportTests(TestCase):
 
     def test_export_columns_and_formatting(self):
         ws, header, rows = self._export(self.hr)
-        self.assertEqual(header[:5], ('Karyawan', 'Kategori', 'Kategori Project', 'Deskripsi', 'Tanggal'))
+        self.assertEqual(header[:6], ('Karyawan', 'Departemen', 'Kategori', 'Kategori Project', 'Deskripsi', 'Tanggal'))
         self.assertEqual(header[-3:], ('Reviewer HR Staff', 'Approver HR Lead', 'Tanggal Pembayaran'))
         self.assertEqual(len(rows), 4)
         self.assertTrue(ws['A1'].font.bold)
         self.assertEqual(ws.auto_filter.ref.split(':')[0], 'A1')
-        self.assertEqual(ws['F2'].number_format, '"Rp" #,##0')
-        paid = next(r for r in rows if r[5] == 300000)
-        self.assertEqual(paid[6], 250000)
-        self.assertEqual(paid[10], '1234567890')  # account number kept as text
-        self.assertTrue(paid[12])  # reviewer HR Staff
-        self.assertTrue(paid[13])  # approver HR Lead
-        self.assertIsNotNone(paid[14])  # tanggal pembayaran
-        waiting = next(r for r in rows if r[5] == 200000)
-        self.assertIn(waiting[13], (None, ''))  # not approved yet -> no HR Lead approver
+        self.assertEqual(ws['G2'].number_format, '"Rp" #,##0')
+        paid = next(r for r in rows if r[6] == 300000)
+        self.assertEqual(paid[7], 250000)
+        self.assertEqual(paid[11], '1234567890')  # account number kept as text
+        self.assertTrue(paid[13])  # reviewer HR Staff
+        self.assertTrue(paid[14])  # approver HR Lead
+        self.assertIsNotNone(paid[15])  # tanggal pembayaran
+        waiting = next(r for r in rows if r[6] == 200000)
+        self.assertIn(waiting[14], (None, ''))  # not approved yet -> no HR Lead approver
 
     def test_export_respects_filters(self):
         _, _, rows = self._export(self.hr, status='PAID')
         self.assertEqual(len(rows), 2)
+
+    def test_department_column_and_filter(self):
+        from apps.personnel.models import Department
+
+        sales = Department.objects.create(name='Sales')
+        Employee.objects.filter(pk=self.emp.pk).update(department=sales)
+        self.client.force_login(self.hr)
+        rows = self.client.get('/api/reimbursements/', {'department': sales.id}).json()['results']
+        self.assertEqual({r['employee_name'] for r in rows}, {'Budi'})
+        self.assertEqual({r['department_name'] for r in rows}, {'Sales'})
+        all_rows = self.client.get('/api/reimbursements/').json()['results']
+        self.assertIn(None, {r['department_name'] for r in all_rows})  # Sari has no department
+        _, _, export_rows = self._export(self.hr, department=sales.id)
+        self.assertEqual({r[0] for r in export_rows}, {'Budi'})
+        self.assertEqual({r[1] for r in export_rows}, {'Sales'})
 
     def test_employee_export_only_own_rows(self):
         _, _, rows = self._export(self.emp_user)

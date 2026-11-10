@@ -13,6 +13,7 @@ class ReimbursementCategorySerializer(serializers.ModelSerializer):
 
 class ReimbursementSerializer(serializers.ModelSerializer):
     employee_name = serializers.CharField(source='employee.full_name', read_only=True)
+    department_name = serializers.CharField(source='employee.department.name', read_only=True, default=None)
     category_name = serializers.CharField(source='category.name', read_only=True)
     reviewer_name = serializers.CharField(source='reviewer.username', read_only=True)
     amount_set_by_name = serializers.CharField(source='amount_set_by.username', read_only=True)
@@ -26,7 +27,7 @@ class ReimbursementSerializer(serializers.ModelSerializer):
     class Meta:
         model = Reimbursement
         fields = (
-            'id', 'employee', 'employee_name', 'category', 'category_name',
+            'id', 'employee', 'employee_name', 'department_name', 'category', 'category_name',
             'transaction_date', 'amount', 'approved_amount',
             'project_category', 'project_category_other',
             'description', 'bank_name', 'bank_account_name', 'bank_account_number', 'contact_email',

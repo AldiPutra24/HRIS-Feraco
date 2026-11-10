@@ -51,6 +51,8 @@ export type Reimbursement = {
   id: number;
   employee: number;
   employee_name: string;
+  /** Employee's current department (null when unset). */
+  department_name: string | null;
   category: number;
   category_name: string;
   transaction_date: string;

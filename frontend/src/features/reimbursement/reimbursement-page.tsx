@@ -31,7 +31,7 @@ import {
   type ReimbursementCategory,
   type ReimbursementSummary
 } from '@/lib/reimbursements';
-import { listEmployees, type Employee } from '@/lib/employees';
+import { listDepartments, listEmployees, type Department, type Employee } from '@/lib/employees';
 import { useAuth } from '@/lib/auth/auth-provider';
 
 const STATUS_VARIANT: Record<string, 'default' | 'secondary' | 'destructive' | 'outline'> = {
@@ -119,6 +119,7 @@ export function ReimbursementPage() {
   const fStatus = searchParams.get('status') ?? '';
   const fCategory = searchParams.get('category') ?? '';
   const fEmployee = searchParams.get('employee') ?? '';
+  const fDepartment = searchParams.get('department') ?? '';
   // Deep link from the notification bell: /dashboard/reimbursements?id=<id>
   const focusId = Number(searchParams.get('id')) || null;
   const page = Math.max(1, Number(searchParams.get('page')) || 1);
@@ -136,6 +137,7 @@ export function ReimbursementPage() {
   const [count, setCount] = useState(0);
   const [categories, setCategories] = useState<ReimbursementCategory[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
+  const [departments, setDepartments] = useState<Department[]>([]);
   const [loading, setLoading] = useState(true);
   const [approving, setApproving] = useState<Reimbursement | null>(null);
   const [approveAmount, setApproveAmount] = useState('');
@@ -154,6 +156,7 @@ export function ReimbursementPage() {
     if (fStatus) params.status = fStatus;
     if (fCategory) params.category = fCategory;
     if (fEmployee) params.employee = fEmployee;
+    if (fDepartment) params.department = fDepartment;
     const [r, c, s] = await Promise.all([
       listReimbursements(params),
       listReimbursementCategories(),
@@ -166,7 +169,7 @@ export function ReimbursementPage() {
     setSummary(s);
     setFocused(focusId ? await getReimbursement(focusId).catch(() => null) : null);
     setLoading(false);
-  }, [fStatus, fCategory, fEmployee, focusId, page]);
+  }, [fStatus, fCategory, fEmployee, fDepartment, focusId, page]);
 
   useEffect(() => {
     load();
@@ -175,6 +178,9 @@ export function ReimbursementPage() {
   useEffect(() => {
     listEmployees({ employment_status: 'ACTIVE', page_size: '1000' })
       .then((d) => setEmployees(d.results))
+      .catch(() => {});
+    listDepartments()
+      .then((d) => setDepartments([...d].sort((a, b) => a.name.localeCompare(b.name))))
       .catch(() => {});
   }, []);
 
@@ -259,6 +265,7 @@ export function ReimbursementPage() {
       if (fStatus) params.status = fStatus;
       if (fCategory) params.category = fCategory;
       if (fEmployee) params.employee = fEmployee;
+      if (fDepartment) params.department = fDepartment;
       await exportReimbursementsXlsx(params);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Gagal export XLSX.');
@@ -342,7 +349,7 @@ export function ReimbursementPage() {
           </Button>
         </CardHeader>
         <CardContent>
-          <div className='grid grid-cols-1 gap-3 md:grid-cols-4'>
+          <div className='grid grid-cols-1 gap-3 md:grid-cols-3 xl:grid-cols-5'>
             <div>
               <Label className='text-xs'>Status</Label>
               <select
@@ -374,6 +381,30 @@ export function ReimbursementPage() {
               </select>
             </div>
             <div>
+              <Label className='text-xs'>Departemen</Label>
+              <select
+                className='border-input h-9 w-full rounded-lg border bg-transparent px-2.5 text-sm'
+                value={fDepartment}
+                onChange={(e) => {
+                  const params = new URLSearchParams(searchParams);
+                  if (e.target.value) params.set('department', e.target.value);
+                  else params.delete('department');
+                  // Drop a chosen employee who is not in the new department.
+                  const emp = employees.find((x) => String(x.id) === fEmployee);
+                  if (e.target.value && emp && String(emp.department ?? '') !== e.target.value) params.delete('employee');
+                  params.delete('page');
+                  router.replace(`/dashboard/reimbursements${params.size ? `?${params}` : ''}`);
+                }}
+              >
+                <option value=''>Semua departemen</option>
+                {departments.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
               <Label className='text-xs'>Karyawan</Label>
               <select
                 className='border-input h-9 w-full rounded-lg border bg-transparent px-2.5 text-sm'
@@ -381,7 +412,7 @@ export function ReimbursementPage() {
                 onChange={(e) => setFilter('employee', e.target.value)}
               >
                 <option value=''>Semua karyawan</option>
-                {employees.map((e) => (
+                {employees.filter((e) => !fDepartment || String(e.department ?? '') === fDepartment).map((e) => (
                   <option key={e.id} value={e.id}>
                     {e.full_name}
                   </option>
@@ -481,6 +512,7 @@ export function ReimbursementPage() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Karyawan</TableHead>
+                    <TableHead>Departemen</TableHead>
                     <TableHead>Kategori</TableHead>
                     <TableHead>Kategori Project</TableHead>
                     <TableHead>Deskripsi</TableHead>
@@ -500,6 +532,7 @@ export function ReimbursementPage() {
                   {items.map((r) => (
                     <TableRow key={r.id} className={r.id === focusId ? 'bg-primary/5' : undefined}>
                       <TableCell>{r.employee_name}</TableCell>
+                      <TableCell>{r.department_name || <span className='text-muted-foreground'>-</span>}</TableCell>
                       <TableCell>{r.category_name}</TableCell>
                       <TableCell>{r.project_category === 'OTHER' ? r.project_category_other : r.project_category.replace(/_/g, ' ')}</TableCell>
                       <TableCell className='max-w-64 min-w-40 whitespace-normal break-words text-xs' title={r.description || undefined}>

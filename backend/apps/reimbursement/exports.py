@@ -17,6 +17,7 @@ DATE = 'DD/MM/YYYY'
 # (header, width, number_format)
 COLUMNS = [
     ('Karyawan', 28, None),
+    ('Departemen', 22, None),
     ('Kategori', 20, None),
     ('Kategori Project', 26, None),
     ('Deskripsi', 40, None),
@@ -54,7 +55,7 @@ def _local_date(dt):
 
 def build_reimbursement_xlsx(queryset) -> HttpResponse:
     rows = queryset.select_related(
-        'employee', 'category', 'amount_set_by', 'reviewer',
+        'employee__department', 'category', 'amount_set_by', 'reviewer',
     ).order_by('-transaction_date', '-id')
 
     wb = Workbook()
@@ -70,6 +71,7 @@ def build_reimbursement_xlsx(queryset) -> HttpResponse:
     for obj in rows:
         ws.append([
             obj.employee.full_name,
+            obj.employee.department.name if obj.employee.department_id else '',
             obj.category.name if obj.category_id else '',
             _project(obj),
             obj.description or '',
