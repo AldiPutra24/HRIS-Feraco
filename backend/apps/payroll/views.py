@@ -3,6 +3,7 @@ from decimal import Decimal
 
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
+from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from django.db import transaction
@@ -425,6 +426,104 @@ class PayrollPeriodViewSet(viewsets.ModelViewSet):
             description=f'Payroll period {period.period_month}/{period.period_year} recalculated ({payrolls.count()} records)',
         )
         return Response(self.get_serializer(period).data)
+
+    IMPORT_MAX_BYTES = 5 * 1024 * 1024
+
+    def _import_request(self, request):
+        """Shared checks for preview/import -> (period, upload, mappings) or a 400 Response."""
+        import json
+
+        from .excel_import import import_block_reason
+
+        period = self.get_object()
+        reason = import_block_reason(period)
+        if reason:
+            return Response({'detail': reason}, status=status.HTTP_400_BAD_REQUEST)
+        upload = request.FILES.get('file')
+        if upload is None:
+            return Response({'detail': 'File Excel wajib diunggah.'}, status=status.HTTP_400_BAD_REQUEST)
+        if not upload.name.lower().endswith('.xlsx'):
+            return Response({'detail': 'Format file harus .xlsx.'}, status=status.HTTP_400_BAD_REQUEST)
+        if upload.size > self.IMPORT_MAX_BYTES:
+            return Response({'detail': 'Ukuran file maksimal 5 MB.'}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            mappings = json.loads(request.data.get('mappings') or '{}')
+            if not isinstance(mappings, dict):
+                raise ValueError
+        except ValueError:
+            return Response({'detail': 'Format mappings tidak valid.'}, status=status.HTTP_400_BAD_REQUEST)
+        return period, upload, mappings
+
+    @action(detail=True, methods=['post'], url_path='import/preview', parser_classes=[MultiPartParser, FormParser])
+    def import_preview(self, request, pk=None):
+        """Read HR's payroll Excel and show what would be imported (saves nothing).
+
+        multipart: file=<.xlsx>, mappings=<JSON {excel name: employee id}> (optional).
+        """
+        from .excel_import import ImportFileError, build_preview
+
+        checked = self._import_request(request)
+        if isinstance(checked, Response):
+            return checked
+        period, upload, mappings = checked
+        try:
+            data = build_preview(period, upload, mappings)
+        except ImportFileError as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(data)
+
+    @action(detail=True, methods=['post'], url_path='import', parser_classes=[MultiPartParser, FormParser])
+    def import_excel(self, request, pk=None):
+        """Replace the period's payroll with the Excel rows (same file + pairings as the preview).
+
+        Refused (400 with `preview`) while rows are unpaired or have errors.
+        A copy of the file is kept in storage for audit (best effort).
+        """
+        import logging
+        import uuid
+
+        from apps.personnel.storage import is_configured, upload_bytes
+
+        from .excel_import import ImportBlocked, ImportFileError, apply_import
+
+        checked = self._import_request(request)
+        if isinstance(checked, Response):
+            return checked
+        period, upload, mappings = checked
+
+        content = upload.read()
+        upload.seek(0)
+        storage_path = ''
+        if is_configured():
+            path = f'payroll-imports/{period.period_year}-{period.period_month:02d}/{uuid.uuid4().hex}.xlsx'
+            try:
+                upload_bytes(
+                    'employee-documents', path, content,
+                    content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                )
+                storage_path = path
+            except Exception:  # noqa: BLE001 — the audit copy must not block payroll
+                logging.getLogger(__name__).exception('Payroll import: storing the Excel copy failed')
+        try:
+            record, preview = apply_import(period, upload, upload.name, mappings, request.user, storage_path)
+        except ImportFileError as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        except ImportBlocked as exc:
+            return Response({'detail': str(exc), 'preview': exc.preview}, status=status.HTTP_400_BAD_REQUEST)
+        period.refresh_from_db()
+        log_event(
+            request, 'payroll_import', obj=period,
+            description=(
+                f'Payroll {period.period_month}/{period.period_year} diimpor dari Excel "{record.file_name}" '
+                f'({record.row_count} karyawan, {record.skipped_freelance} freelance dilewati, '
+                f'total transfer {record.total_transfer})'
+            ),
+        )
+        return Response({
+            'period': self.get_serializer(period).data,
+            'summary': preview['summary'],
+            'file_saved': bool(storage_path),
+        })
 
     @action(detail=True, methods=['get'])
     def eligibility(self, request, pk=None):

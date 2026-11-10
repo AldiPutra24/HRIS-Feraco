@@ -379,7 +379,12 @@ def refresh_payroll_totals(payroll):
     pph_system = ZERO
     for it in payroll.items.all():
         if it.category != PayrollComponent.Category.DEDUCTION:
-            if it.source == PayrollItem.Source.MANUAL:
+            # Imported variable earnings (komisi, tunjangan) count like manual
+            # ones; imported Gaji Pokok lives in basic_salary already.
+            if it.source == PayrollItem.Source.MANUAL or (
+                it.source == PayrollItem.Source.IMPORT
+                and it.category == PayrollComponent.Category.EARNING_VARIABLE
+            ):
                 variable_total += it.amount
             continue
         if it.source == PayrollItem.Source.MANUAL:
@@ -456,6 +461,8 @@ def calculate_period(period):
     """
     if period.status != PayrollPeriod.Status.DRAFT:
         raise ValidationError('Hanya periode status DRAFT yang dapat dihitung ulang.')
+    if period.source == PayrollPeriod.Source.IMPORT:
+        raise ValidationError('Periode ini berasal dari impor Excel; gunakan impor ulang, bukan Hitung.')
     return _run_calculation(period)
 
 
@@ -477,6 +484,8 @@ def recalculate_period(period):
         raise ValidationError(
             'Recalculate hanya untuk periode CALCULATED atau REVIEW.'
         )
+    if period.source == PayrollPeriod.Source.IMPORT:
+        raise ValidationError('Periode ini berasal dari impor Excel; gunakan impor ulang, bukan Sync.')
     return _run_calculation(period)
 
 

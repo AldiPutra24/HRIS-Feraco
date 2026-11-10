@@ -286,8 +286,15 @@ class PayrollPeriod(models.Model):
         Status.PAID: [Status.LOCKED],
     }
 
+    class Source(models.TextChoices):
+        ENGINE = 'ENGINE', 'Dihitung HRIS'
+        IMPORT = 'IMPORT', 'Impor Excel'
+
     period_month = models.PositiveIntegerField()  # 1-12
     period_year = models.PositiveIntegerField()
+    # IMPORT = payroll taken from HR's Excel (excel_import.py); the engine
+    # (calculate/recalculate) must not overwrite it.
+    source = models.CharField(max_length=8, choices=Source.choices, default=Source.ENGINE)
     period_start = models.DateField()
     period_end = models.DateField()
     status = models.CharField(max_length=16, choices=Status.choices, default=Status.DRAFT)
@@ -402,6 +409,7 @@ class PayrollItem(models.Model):
     class Source(models.TextChoices):
         SYSTEM = 'SYSTEM', 'System'
         MANUAL = 'MANUAL', 'Manual'
+        IMPORT = 'IMPORT', 'Impor Excel'
 
     payroll = models.ForeignKey(
         Payroll,
@@ -463,3 +471,39 @@ class CompanyConfig(models.Model):
 
     def __str__(self):
         return self.name
+
+
+class PayrollImportAlias(models.Model):
+    """Excel name -> employee, remembered from HR's manual pairing in the import preview."""
+
+    normalized_name = models.CharField(max_length=200, unique=True)
+    excel_name = models.CharField(max_length=200)
+    employee = models.ForeignKey('personnel.Employee', on_delete=models.CASCADE, related_name='payroll_import_aliases')
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='+',
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f'{self.excel_name} -> {self.employee_id}'
+
+
+class PayrollImport(models.Model):
+    """One Excel import into a period (audit trail; the uploaded file is kept in storage)."""
+
+    period = models.ForeignKey(PayrollPeriod, on_delete=models.CASCADE, related_name='imports')
+    file_name = models.CharField(max_length=255)
+    storage_path = models.CharField(max_length=512, blank=True)
+    row_count = models.PositiveIntegerField(default=0)
+    skipped_freelance = models.PositiveIntegerField(default=0)
+    total_transfer = models.DecimalField(max_digits=16, decimal_places=2, default=0)
+    imported_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='+',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'{self.file_name} -> {self.period}'

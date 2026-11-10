@@ -224,15 +224,30 @@ class SalaryStructureSerializer(serializers.ModelSerializer):
 class PayrollPeriodSerializer(serializers.ModelSerializer):
     status_display = serializers.CharField(source='get_status_display', read_only=True)
     payroll_count = serializers.IntegerField(source='payrolls.count', read_only=True)
+    last_import = serializers.SerializerMethodField()
 
     class Meta:
         model = PayrollPeriod
         fields = (
             'id', 'period_month', 'period_year', 'period_start', 'period_end',
-            'status', 'status_display', 'created_by', 'notes', 'payroll_count',
+            'status', 'status_display', 'source', 'last_import', 'created_by', 'notes', 'payroll_count',
             'created_at', 'updated_at',
         )
-        read_only_fields = ('id', 'created_by', 'created_at', 'updated_at', 'payroll_count', 'status_display')
+        read_only_fields = (
+            'id', 'created_by', 'created_at', 'updated_at', 'payroll_count', 'status_display', 'source', 'last_import',
+        )
+
+    def get_last_import(self, obj):
+        imp = obj.imports.select_related('imported_by').first()
+        if imp is None:
+            return None
+        return {
+            'file_name': imp.file_name,
+            'row_count': imp.row_count,
+            'skipped_freelance': imp.skipped_freelance,
+            'imported_by': imp.imported_by.username if imp.imported_by else None,
+            'created_at': imp.created_at,
+        }
 
     def validate(self, attrs):
         period_month = attrs.get('period_month')

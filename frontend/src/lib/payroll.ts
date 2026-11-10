@@ -125,6 +125,15 @@ export type PayrollPeriod = {
   period_end: string;
   status: string;
   status_display: string;
+  /** IMPORT = payroll taken from HR's Excel (engine Hitung/Sync disabled). */
+  source: 'ENGINE' | 'IMPORT';
+  last_import: {
+    file_name: string;
+    row_count: number;
+    skipped_freelance: number;
+    imported_by: string | null;
+    created_at: string;
+  } | null;
   created_by: number | null;
   notes: string;
   payroll_count: number;
@@ -382,4 +391,81 @@ export function downloadRecap(periodId: number, label: string): Promise<void> {
 
 export function listMyPayslips(): Promise<MyPayroll[]> {
   return request<MyPayroll[]>('/payrolls/my-payslips/');
+}
+
+// ---------- Excel import (HR's payroll spreadsheet) ----------
+
+export type ImportEmployee = {
+  id: number;
+  employee_id: string;
+  full_name: string;
+  position_name: string | null;
+  employment_status: string;
+};
+
+export type ImportLine = { label: string; code: string; category: PayrollItem['category']; amount: string };
+
+export type ImportRow = {
+  row: number;
+  excel_name: string;
+  position: string;
+  match: {
+    /** auto = exact name, mapped = remembered/chosen pairing, needs_mapping/ambiguous = HR must pick. */
+    status: 'auto' | 'mapped' | 'needs_mapping' | 'ambiguous';
+    employee: ImportEmployee | null;
+    suggestions: ImportEmployee[];
+  };
+  earnings: ImportLine[];
+  deductions: ImportLine[];
+  bruto: string;
+  bruto_excel: string | null;
+  pph21: string;
+  kasbon: string;
+  thp: string;
+  thp_excel: string | null;
+  is_dtp: boolean;
+  transfer: string;
+  errors: string[];
+  warnings: string[];
+};
+
+export type ImportPreview = {
+  period: { id: number; month: number; year: number; status: string };
+  dtp_threshold: string;
+  warnings: string[];
+  rows: ImportRow[];
+  freelance_skipped: { count: number; total_fee: string; rows: { row: number; excel_name: string; fee_gross: string }[] };
+  summary: {
+    inhouse_rows: number;
+    ready: number;
+    needs_mapping: number;
+    with_errors: number;
+    with_warnings: number;
+    total_bruto: string;
+    total_pph21: string;
+    total_kasbon: string;
+    total_transfer: string;
+    can_import: boolean;
+  };
+};
+
+function importForm(file: File, mappings: Record<string, number>): FormData {
+  const fd = new FormData();
+  fd.append('file', file);
+  fd.append('mappings', JSON.stringify(mappings));
+  return fd;
+}
+
+/** Read the Excel and show what would be imported (saves nothing). */
+export function previewPayrollImport(periodId: number, file: File, mappings: Record<string, number> = {}): Promise<ImportPreview> {
+  return request<ImportPreview>(`/periods/${periodId}/import/preview/`, { method: 'POST', body: importForm(file, mappings) });
+}
+
+/** Replace the period's payroll with the Excel rows (refused while rows are unpaired/invalid). */
+export function importPayrollExcel(
+  periodId: number,
+  file: File,
+  mappings: Record<string, number> = {}
+): Promise<{ period: PayrollPeriod; summary: ImportPreview['summary']; file_saved: boolean }> {
+  return request(`/periods/${periodId}/import/`, { method: 'POST', body: importForm(file, mappings) });
 }

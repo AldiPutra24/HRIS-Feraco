@@ -1,6 +1,6 @@
 'use client';
 
-import { Fragment, useEffect, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -34,6 +34,10 @@ import {
   getPeriodReview,
   getPeriodEligibility,
   type ReviewData,
+  type ImportPreview,
+  type ImportRow,
+  previewPayrollImport,
+  importPayrollExcel,
   type EligibilityData,
   addManualItem,
   removeManualItem,
@@ -1408,6 +1412,283 @@ function PayrollBreakdown({
 }
 
 /** Selected period: header + actions, workflow stepper, totals, eligibility, breakdown. */
+/** Import HR's payroll Excel into a period: upload -> preview -> pair names -> save. */
+function PayrollImportPanel({
+  period,
+  hasPayrolls,
+  onClose,
+  onImported,
+}: {
+  period: PayrollPeriod;
+  hasPayrolls: boolean;
+  onClose: () => void;
+  onImported: (p: PayrollPeriod) => void;
+}) {
+  const [file, setFile] = useState<File | null>(null);
+  const [preview, setPreview] = useState<ImportPreview | null>(null);
+  // HR's pairings for this file: Excel name -> employee id.
+  const [mappings, setMappings] = useState<Record<string, number>>({});
+  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [onlyIssues, setOnlyIssues] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    listEmployees({ page_size: '1000' }).then((p) => setEmployees(p.results)).catch(() => {});
+  }, []);
+
+  async function runPreview(f: File, maps: Record<string, number>) {
+    setBusy(true);
+    setError('');
+    try {
+      setPreview(await previewPayrollImport(period.id, f, maps));
+    } catch (err) {
+      setPreview(null);
+      setError(apiError(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function pickFile(f: File | null) {
+    if (!f) return;
+    if (!f.name.toLowerCase().endsWith('.xlsx')) {
+      setError('Format file harus .xlsx (simpan dari Excel atau Google Sheets sebagai .xlsx).');
+      return;
+    }
+    setFile(f);
+    setMappings({});
+    runPreview(f, {});
+  }
+
+  function pair(row: ImportRow, employeeId: string) {
+    const next = { ...mappings };
+    if (employeeId) next[row.excel_name] = Number(employeeId);
+    else delete next[row.excel_name];
+    setMappings(next);
+    if (file) runPreview(file, next);
+  }
+
+  async function save() {
+    if (!file || !preview?.summary.can_import) return;
+    if (hasPayrolls && !window.confirm('Data payroll periode ini akan diganti seluruhnya dengan isi file. Lanjutkan?')) return;
+    setSaving(true);
+    setError('');
+    try {
+      const res = await importPayrollExcel(period.id, file, mappings);
+      toast.success(`Payroll ${preview.summary.ready} karyawan berhasil diimpor.`);
+      if (!res.file_saved) toast.info('Salinan file tidak tersimpan di storage; data payroll tetap tersimpan.');
+      onImported(res.period);
+    } catch (err) {
+      setError(apiError(err));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const sm = preview?.summary;
+  const rows = (preview?.rows ?? []).filter((r) => !onlyIssues || r.errors.length || r.warnings.length || !r.match.employee);
+  const activeEmployees = [...employees].sort((a, b) => a.full_name.localeCompare(b.full_name));
+
+  return (
+    <Card className='gap-0 overflow-hidden py-0'>
+      <div className='flex flex-wrap items-start justify-between gap-3 px-6 py-5'>
+        <div>
+          <h3 className='text-lg font-semibold'>Impor dari Excel</h3>
+          <p className='text-muted-foreground mt-0.5 text-sm'>
+            Unggah file payroll HR (sheet &ldquo;Template&rdquo;). THP dihitung ulang: bruto − kasbon − PPh 21; PPh 21 diambil dari file.
+          </p>
+        </div>
+        <Button variant='ghost' size='sm' onClick={onClose}>Tutup</Button>
+      </div>
+
+      <div className='border-t px-6 py-5'>
+        <div
+          onDragOver={(e) => e.preventDefault()}
+          onDrop={(e) => { e.preventDefault(); pickFile(e.dataTransfer.files?.[0] ?? null); }}
+          className='bg-muted/30 flex flex-wrap items-center gap-4 rounded-xl border border-dashed px-5 py-4'
+        >
+          <span className='bg-background flex size-11 shrink-0 items-center justify-center rounded-xl border'>
+            {busy ? <Icons.spinner className='size-5 animate-spin' /> : <Icons.fileTypeXls className='size-5' />}
+          </span>
+          <div className='min-w-0 flex-1'>
+            <p className='truncate font-medium'>{file ? file.name : 'Pilih atau seret file .xlsx ke sini'}</p>
+            <p className='text-muted-foreground text-sm'>
+              {busy ? 'Membaca file…' : `Periode ${periodName(period)} · maks. 5 MB · baris freelancer (FLC) dilewati`}
+            </p>
+          </div>
+          <input
+            ref={fileRef}
+            type='file'
+            accept='.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+            className='sr-only'
+            onChange={(e) => { pickFile(e.target.files?.[0] ?? null); e.target.value = ''; }}
+          />
+          <Button variant='outline' disabled={busy} onClick={() => fileRef.current?.click()}>
+            {file ? 'Ganti file' : 'Pilih file'}
+          </Button>
+        </div>
+        {error && <p className='text-destructive mt-3 text-sm'>{error}</p>}
+      </div>
+
+      {preview && sm && (
+        <>
+          <div className='grid grid-cols-2 gap-3 border-t px-6 py-5 md:grid-cols-4'>
+            {[
+              { label: 'Siap diimpor', value: `${sm.ready} / ${sm.inhouse_rows}`, tone: sm.ready === sm.inhouse_rows ? 'text-primary' : '' },
+              { label: 'Perlu dipasangkan', value: String(sm.needs_mapping), tone: sm.needs_mapping ? 'text-orange-700 dark:text-orange-300' : '' },
+              { label: 'Baris error', value: String(sm.with_errors), tone: sm.with_errors ? 'text-destructive' : '' },
+              { label: 'Total transfer', value: fmtRp(Number(sm.total_transfer)), tone: 'text-primary' },
+            ].map((st) => (
+              <div key={st.label} className='bg-muted/30 min-w-0 rounded-xl border px-4 py-3'>
+                <p className={`truncate text-lg font-semibold tabular-nums ${st.tone}`}>{st.value}</p>
+                <p className='text-muted-foreground text-sm'>{st.label}</p>
+              </div>
+            ))}
+          </div>
+
+          <div className='text-muted-foreground space-y-1 border-t px-6 py-3.5 text-sm'>
+            <p>
+              Bruto {fmtRp(Number(sm.total_bruto))} · PPh 21 {fmtRp(Number(sm.total_pph21))} · Kasbon {fmtRp(Number(sm.total_kasbon))} ·
+              Ambang DTP {fmtRp(Number(preview.dtp_threshold))}
+            </p>
+            {preview.freelance_skipped.count > 0 && (
+              <p>
+                {preview.freelance_skipped.count} baris freelancer dilewati (total fee {fmtRp(Number(preview.freelance_skipped.total_fee))}):{' '}
+                {preview.freelance_skipped.rows.map((f) => f.excel_name).join(', ')}.
+              </p>
+            )}
+            {preview.warnings.map((w) => (
+              <p key={w} className='text-amber-700 dark:text-amber-300'>⚠ {w}</p>
+            ))}
+          </div>
+
+          <div className='flex flex-wrap items-center justify-between gap-2 border-t px-6 py-3'>
+            <label className='flex items-center gap-2 text-sm'>
+              <Switch checked={onlyIssues} onCheckedChange={setOnlyIssues} />
+              Hanya baris yang perlu perhatian
+            </label>
+            <span className='text-muted-foreground text-sm'>{sm.with_warnings} baris dengan peringatan</span>
+          </div>
+
+          <div className='overflow-x-auto border-t'>
+            <table className='w-full text-sm'>
+              <thead className='bg-muted/40 text-muted-foreground text-left'>
+                <tr>
+                  <th className='px-4 py-3 font-medium'>Baris</th>
+                  <th className='px-4 py-3 font-medium'>Nama di Excel</th>
+                  <th className='px-4 py-3 font-medium'>Karyawan HRIS</th>
+                  <th className='px-4 py-3 text-right font-medium'>Bruto</th>
+                  <th className='px-4 py-3 text-right font-medium'>PPh 21</th>
+                  <th className='px-4 py-3 text-right font-medium'>Kasbon</th>
+                  <th className='text-foreground px-4 py-3 text-right font-semibold'>THP</th>
+                  <th className='px-4 py-3 text-right font-medium'>THP Excel</th>
+                  <th className='text-foreground px-4 py-3 text-right font-semibold'>Transfer</th>
+                </tr>
+              </thead>
+              <tbody className='divide-y'>
+                {rows.map((r) => {
+                  const needsPick = r.match.status === 'needs_mapping' || r.match.status === 'ambiguous';
+                  const thpDiff = r.thp_excel !== null && Number(r.thp_excel) !== Number(r.thp);
+                  const chosen = mappings[r.excel_name];
+                  return (
+                    <tr key={r.row} className={`align-top ${r.errors.length ? 'bg-red-50/60 dark:bg-red-500/5' : !r.match.employee ? 'bg-orange-50/60 dark:bg-orange-500/5' : ''}`}>
+                      <td className='text-muted-foreground px-4 py-3 tabular-nums'>{r.row}</td>
+                      <td className='px-4 py-3'>
+                        <p className='font-medium'>{r.excel_name || '—'}</p>
+                        {r.position && <p className='text-muted-foreground text-xs'>{r.position}</p>}
+                      </td>
+                      <td className='min-w-64 px-4 py-3'>
+                        {needsPick || chosen !== undefined ? (
+                          <select
+                            value={chosen ?? ''}
+                            disabled={busy}
+                            onChange={(e) => pair(r, e.target.value)}
+                            aria-label={`Pasangkan ${r.excel_name}`}
+                            className={`bg-background h-9 w-full rounded-lg border px-2 text-sm ${chosen === undefined ? 'border-orange-400' : 'border-input'}`}
+                          >
+                            <option value=''>Pilih karyawan…</option>
+                            {r.match.suggestions.length > 0 && (
+                              <optgroup label='Nama mirip'>
+                                {r.match.suggestions.map((s) => (
+                                  <option key={`s-${s.id}`} value={s.id}>{s.full_name} ({s.employee_id})</option>
+                                ))}
+                              </optgroup>
+                            )}
+                            <optgroup label='Semua karyawan'>
+                              {activeEmployees.map((e) => (
+                                <option key={e.id} value={e.id}>{e.full_name} ({e.employee_id})</option>
+                              ))}
+                            </optgroup>
+                          </select>
+                        ) : r.match.employee ? (
+                          <div>
+                            <p className='font-medium'>{r.match.employee.full_name}</p>
+                            <p className='text-muted-foreground text-xs'>
+                              {r.match.employee.employee_id} · {r.match.status === 'mapped' ? 'pasangan tersimpan' : 'cocok otomatis'}
+                              {' · '}
+                              <button type='button' className='underline' onClick={() => pair(r, String(r.match.employee!.id))}>
+                                ubah
+                              </button>
+                            </p>
+                          </div>
+                        ) : null}
+                        {[...r.errors, ...r.warnings].length > 0 && (
+                          <ul className='mt-1.5 space-y-0.5 text-xs'>
+                            {r.errors.map((e) => <li key={e} className='text-destructive'>✕ {e}</li>)}
+                            {r.warnings.map((w) => <li key={w} className='text-amber-700 dark:text-amber-300'>⚠ {w}</li>)}
+                          </ul>
+                        )}
+                      </td>
+                      <td className='px-4 py-3 text-right tabular-nums'>{fmtRp(Number(r.bruto))}</td>
+                      <td className='px-4 py-3 text-right tabular-nums'>
+                        {fmtRp(Number(r.pph21))}
+                        {r.is_dtp && <span className='ml-1 rounded bg-blue-500/10 px-1 text-[11px] font-semibold text-blue-700 dark:text-blue-300'>DTP</span>}
+                      </td>
+                      <td className='px-4 py-3 text-right tabular-nums'>{fmtRp(Number(r.kasbon))}</td>
+                      <td className='px-4 py-3 text-right font-semibold tabular-nums'>{fmtRp(Number(r.thp))}</td>
+                      <td className={`px-4 py-3 text-right tabular-nums ${thpDiff ? 'text-amber-700 dark:text-amber-300' : 'text-muted-foreground'}`}>
+                        {r.thp_excel === null ? '—' : fmtRp(Number(r.thp_excel))}
+                      </td>
+                      <td className='text-primary px-4 py-3 text-right font-semibold tabular-nums'>{fmtRp(Number(r.transfer))}</td>
+                    </tr>
+                  );
+                })}
+                {rows.length === 0 && (
+                  <tr>
+                    <td colSpan={9} className='text-muted-foreground py-8 text-center'>
+                      {preview.rows.length === 0 ? 'Tidak ada baris in-house di file.' : 'Semua baris aman.'}
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          <div className='flex flex-wrap items-center justify-between gap-3 border-t px-6 py-4'>
+            <p className='text-muted-foreground text-sm'>
+              {sm.can_import
+                ? hasPayrolls
+                  ? 'Menyimpan akan mengganti seluruh data payroll periode ini.'
+                  : 'Semua baris siap. Data baru tersimpan setelah Anda menekan Simpan.'
+                : 'Pasangkan semua nama dan perbaiki baris error sebelum menyimpan.'}
+            </p>
+            <div className='flex gap-2'>
+              <Button variant='outline' onClick={onClose}>Batal</Button>
+              <Button disabled={!sm.can_import || busy || saving} onClick={save}>
+                {saving ? <Icons.spinner className='animate-spin' /> : <Icons.upload />}
+                Simpan impor ({sm.ready} karyawan)
+              </Button>
+            </div>
+          </div>
+        </>
+      )}
+    </Card>
+  );
+}
+
 function PeriodDetail({
   period,
   readOnly,
@@ -1434,6 +1715,7 @@ function PeriodDetail({
   const [acting, setActing] = useState(false);
   const [showNames, setShowNames] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [importOpen, setImportOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -1476,8 +1758,13 @@ function PeriodDetail({
     } catch (err) { setActionError(apiError(err)); }
   }
 
+  const imported = period.source === 'IMPORT';
   const next = NEXT_ACTION[period.status];
-  const canRecalculate = period.status === 'CALCULATED' || period.status === 'REVIEW';
+  // Engine Sync never touches an imported period (backend refuses too).
+  const canRecalculate = !imported && (period.status === 'CALCULATED' || period.status === 'REVIEW');
+  // Same rule as backend import_block_reason(): Draf, or a still-editable imported period.
+  const canImport =
+    !readOnly && (period.status === 'DRAFT' || (imported && (period.status === 'CALCULATED' || period.status === 'REVIEW')));
   const s = data?.summary;
   const stats = s
     ? [
@@ -1500,8 +1787,25 @@ function PeriodDetail({
               {Number(period.period_start.slice(8, 10))} – {Number(period.period_end.slice(8, 10))}{' '}
               {MONTHS.find((m) => m.value === period.period_month)?.label} {period.period_year}
             </p>
+            {imported && (
+              <p className='mt-2 inline-flex flex-wrap items-center gap-1.5 rounded-lg bg-blue-500/10 px-2.5 py-1 text-xs font-medium text-blue-800 dark:text-blue-200'>
+                <Icons.fileTypeXls className='size-3.5' />
+                Sumber: impor Excel
+                {period.last_import && (
+                  <span className='font-normal'>
+                    · {period.last_import.file_name} · {fmtDay(period.last_import.created_at)}
+                    {period.last_import.imported_by ? ` · oleh ${period.last_import.imported_by}` : ''}
+                  </span>
+                )}
+              </p>
+            )}
           </div>
           <div className='flex flex-wrap items-center gap-2'>
+            {canImport && (
+              <Button variant='outline' onClick={() => setImportOpen((v) => !v)}>
+                <Icons.upload />{imported ? 'Impor ulang' : 'Impor dari Excel'}
+              </Button>
+            )}
             {!readOnly && canRecalculate && (
               <Button variant='outline' disabled={acting} onClick={() => run(() => recalculatePeriod(period.id))} title='Hitung ulang & tambahkan karyawan baru'>
                 <Icons.refresh />Sync
@@ -1550,12 +1854,29 @@ function PeriodDetail({
           </div>
         ) : (
           <p className='text-muted-foreground rounded-xl border border-dashed px-4 py-4 text-sm'>
-            Periode masih draf. {readOnly ? 'Payroll belum dihitung oleh HR.' : 'Klik “Hitung payroll” untuk membuat rincian gaji karyawan.'}
+            Periode masih draf.{' '}
+            {readOnly
+              ? 'Payroll belum dihitung oleh HR.'
+              : 'Klik “Hitung payroll” untuk menghitung dari struktur gaji, atau “Impor dari Excel” untuk memakai file payroll HR.'}
           </p>
         )}
       </Card>
 
-      {eligibility && eligibility.not_ready_count > 0 && (
+      {importOpen && canImport && (
+        <PayrollImportPanel
+          period={period}
+          hasPayrolls={period.payroll_count > 0}
+          onClose={() => setImportOpen(false)}
+          onImported={(p) => {
+            setImportOpen(false);
+            onUpdated(p);
+            setRefreshKey((k) => k + 1);
+          }}
+        />
+      )}
+
+      {/* Salary structures only matter for engine-calculated periods. */}
+      {!imported && eligibility && eligibility.not_ready_count > 0 && (
         <div className='rounded-xl border border-amber-300 bg-amber-50 px-5 py-4 text-amber-900 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200'>
           <div className='flex flex-wrap items-center gap-3'>
             <Icons.warning className='size-5 shrink-0' />
