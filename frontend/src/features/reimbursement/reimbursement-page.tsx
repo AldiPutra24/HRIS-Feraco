@@ -160,8 +160,8 @@ export function ReimbursementPage() {
     const [r, c, s] = await Promise.all([
       listReimbursements(params),
       listReimbursementCategories(),
-      // KPI: backend scopes to what this user may see (not the list filters).
-      getReimbursementSummary(false).catch(() => null)
+      // KPI follows the same filters as the list (page number excluded).
+      getReimbursementSummary(false, Object.fromEntries(Object.entries(params).filter(([k]) => k !== 'page'))).catch(() => null)
     ]);
     setItems(r.results);
     setCount(r.count);
@@ -305,6 +305,12 @@ export function ReimbursementPage() {
         </p>
       </div>
 
+      {summary && (fStatus || fCategory || fDepartment || fEmployee) && (
+        <p className='text-muted-foreground -mb-1 flex items-center gap-1.5 text-sm'>
+          <Icons.info className='size-4' />
+          Angka di kartu mengikuti filter yang dipilih.
+        </p>
+      )}
       {summary && (
         <div className='grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4'>
           <KpiCard

@@ -523,12 +523,14 @@ class ReimbursementViewSet(viewsets.ModelViewSet):
 
         `?mine=1` limits to the caller's own employee record (Employee
         Overview / self-service pages), so KPI cards never depend on a
-        single paginated page or on client-side filtering.
+        single paginated page or on client-side filtering. The list filters
+        (status/category/employee/department/search) apply too, so the HR
+        KPI cards follow the filter bar.
         """
         from django.db.models import Count, DecimalField, Sum
         from django.db.models.functions import Coalesce
 
-        qs = self.get_queryset()
+        qs = self.filter_queryset(self.get_queryset())
         if request.query_params.get('mine') in ('1', 'true'):
             employee = _employee_for(request.user)
             qs = qs.filter(employee_id=employee.id) if employee is not None else qs.none()

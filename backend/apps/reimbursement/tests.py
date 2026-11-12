@@ -1047,6 +1047,20 @@ class ReimbursementKpiExportTests(TestCase):
         self.assertEqual(data['paid_this_month']['count'], 1)
         self.assertEqual(float(data['paid_this_month']['amount']), 250000)  # approved amount
 
+    def test_hr_kpi_follows_list_filters(self):
+        from apps.personnel.models import Department
+
+        sales = Department.objects.create(name='Sales')
+        Employee.objects.filter(pk=self.emp.pk).update(department=sales)
+        data = self._summary(self.hr, department=sales.id)  # Budi only
+        self.assertEqual(data['counts']['PENDING'], 1)
+        self.assertEqual(data['counts']['WAITING_HR_LEAD'], 0)
+        self.assertEqual(data['paid_this_month']['count'], 1)
+        data = self._summary(self.hr, employee=self.other.id)  # Sari only
+        self.assertEqual(data['counts']['WAITING_HR_LEAD'], 1)
+        self.assertEqual(data['paid_this_month']['count'], 0)
+        self.assertEqual(self._summary(self.hr, status='PAID')['counts']['PENDING'], 0)
+
     def test_employee_kpi_scoped_to_own(self):
         data = self._summary(self.other_user)
         self.assertEqual(data['counts']['PENDING'], 0)

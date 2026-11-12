@@ -136,8 +136,10 @@ export type ReimbursementSummary = {
 };
 
 /** Live status counts from the backend (`mine` = caller's own records only). */
-export function getReimbursementSummary(mine = true): Promise<ReimbursementSummary> {
-  return request<ReimbursementSummary>(`/summary/${mine ? '?mine=1' : ''}`, { cache: 'no-store' });
+export function getReimbursementSummary(mine = true, filters: Record<string, string> = {}): Promise<ReimbursementSummary> {
+  // Same filters as the list (status/category/employee/department) -> KPI follows the filter bar.
+  const qs = new URLSearchParams({ ...filters, ...(mine ? { mine: '1' } : {}) });
+  return request<ReimbursementSummary>(`/summary/${qs.size ? `?${qs}` : ''}`, { cache: 'no-store' });
 }
 
 /**
