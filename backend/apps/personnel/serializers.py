@@ -47,7 +47,7 @@ class PositionSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Position
-        fields = ('id', 'name', 'code', 'department', 'department_name', 'parent_position', 'parent_position_name', 'role', 'is_active', 'created_at', 'updated_at', 'employee_count')
+        fields = ('id', 'name', 'code', 'department', 'department_name', 'parent_position', 'parent_position_name', 'role', 'is_active', 'can_recap_reimbursement', 'created_at', 'updated_at', 'employee_count')
         read_only_fields = ('id', 'created_at', 'updated_at', 'department_name', 'parent_position_name', 'employee_count')
         extra_kwargs = {
             'name': {'required': True, 'allow_blank': False},

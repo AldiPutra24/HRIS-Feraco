@@ -17,7 +17,45 @@ import { getUpcomingBirthdays, type UpcomingBirthday } from '@/lib/dashboard';
 import { formatDays, getMyBalances, listLeaveRequests, type LeaveRequest, type MyBalance } from '@/lib/leaves';
 import { listMyPayslips, type MyPayroll } from '@/lib/payroll';
 import { getReimbursementSummary, type ReimbursementSummary } from '@/lib/reimbursements';
+import { useAuth } from '@/lib/auth/auth-provider';
 import { useMyEmployee } from './use-my-employee';
+
+/** Finance (position flag): PAID reimbursements still waiting for the recap mark. */
+function RecapPendingCard() {
+  const [data, setData] = useState<{ n: number; amount: number } | null>(null);
+
+  useEffect(() => {
+    getReimbursementSummary(false, { scope: 'recap', recapped: 'false' })
+      .then((s) => setData({ n: s.total, amount: Number(s.paid_amount) }))
+      .catch(() => setData(null));
+  }, []);
+
+  if (!data) return null;
+  return (
+    <Link
+      href='/dashboard/employee/rekap-reimbursement'
+      className='bg-card hover:bg-muted/40 flex items-center gap-3 rounded-xl border px-5 py-4 transition-colors'
+    >
+      <span
+        className={cn(
+          'flex size-11 shrink-0 items-center justify-center rounded-xl',
+          data.n > 0 ? 'bg-orange-500/10 text-orange-700 dark:text-orange-300' : 'bg-primary/10 text-primary'
+        )}
+      >
+        <Icons.receipt className='size-5' />
+      </span>
+      <span className='min-w-0 flex-1'>
+        <span className='block text-sm font-semibold'>Rekap reimbursement</span>
+        <span className='text-muted-foreground block truncate text-sm'>
+          {data.n > 0
+            ? `${data.n} belum direkap · Rp ${Math.round(data.amount).toLocaleString('id-ID')}`
+            : 'Semua yang dibayar sudah direkap'}
+        </span>
+      </span>
+      <Icons.chevronRight className='text-muted-foreground size-4' />
+    </Link>
+  );
+}
 
 const LEAVE_NEW = '/dashboard/employee/leave/new';
 const LEAVE_HISTORY = '/dashboard/employee/leave';
@@ -121,6 +159,7 @@ const SHORTCUTS: { label: string; href: string; icon: keyof typeof Icons }[] = [
 
 export function EmployeeOverview() {
   const { employee, contracts, loading: profileLoading } = useMyEmployee();
+  const { user } = useAuth();
   const [balances, setBalances] = useState<MyBalance[]>([]);
   const [requests, setRequests] = useState<LeaveRequest[]>([]);
   const [birthdays, setBirthdays] = useState<UpcomingBirthday[]>([]);
@@ -327,6 +366,7 @@ export function EmployeeOverview() {
         </div>
 
         <div className='flex min-w-0 flex-col gap-5'>
+          {user?.canRecapReimbursement && <RecapPendingCard />}
           <LatestPayslipCard payslip={payslip} />
 
           <Card className='px-5 py-5'>

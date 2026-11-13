@@ -61,6 +61,9 @@ class Position(models.Model):
     role = models.CharField(max_length=16, choices=ROLE_CHOICES, default=ROLE_EMPLOYEE)
     code = models.CharField(max_length=32, blank=True)
     is_active = models.BooleanField(default=True)
+    # Finance access: employees in this position see PAID reimbursements
+    # (read-only) and mark them "direkap". Follows the employee's position.
+    can_recap_reimbursement = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

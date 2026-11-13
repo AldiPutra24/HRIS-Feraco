@@ -34,7 +34,8 @@ function toUser(data: Record<string, unknown>): AuthUser {
     name: name || String(data.username ?? data.email ?? ''),
     email: String(data.email ?? ''),
     role: (rawRole as AuthUser['role']) ?? null,
-    photoUrl: typeof data.photo_url === 'string' && data.photo_url ? data.photo_url : null
+    photoUrl: typeof data.photo_url === 'string' && data.photo_url ? data.photo_url : null,
+    canRecapReimbursement: data.can_recap_reimbursement === true
   };
 }
 

@@ -553,6 +553,14 @@ export function ReimbursementPage() {
                       <TableCell className='text-right'>{r.approved_amount != null ? formatAmount(r.approved_amount) : '-'}</TableCell>
                       <TableCell>
                         <StatusBadge r={r} />
+                        {r.recapped_at && (
+                          <span
+                            className='mt-1 block text-[11px] font-medium text-emerald-700 dark:text-emerald-300'
+                            title={`Direkap ${new Date(r.recapped_at).toLocaleDateString('id-ID')}${r.recapped_by_name ? ` oleh ${r.recapped_by_name}` : ''}`}
+                          >
+                            ✓ Direkap Finance
+                          </span>
+                        )}
                       </TableCell>
                       <TableCell className='text-xs'>
                         {r.bank_name ? (

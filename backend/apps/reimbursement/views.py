@@ -2,6 +2,7 @@ from decimal import Decimal, InvalidOperation
 
 from django.conf import settings
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
@@ -20,6 +21,7 @@ from .permissions import (
     REVIEW_ROLES,
     ReimbursementPermission,
     _employee_for,
+    can_recap,
     may_self_finalize,
 )
 from .serializers import ReimbursementCategorySerializer, ReimbursementSerializer
@@ -124,7 +126,7 @@ class ReimbursementPagination(PageNumberPagination):
 
 class ReimbursementViewSet(viewsets.ModelViewSet):
     queryset = Reimbursement.objects.select_related(
-        'employee__user__role', 'employee__department', 'category', 'reviewer',
+        'employee__user__role', 'employee__department', 'category', 'reviewer', 'recapped_by',
     ).all()
     serializer_class = ReimbursementSerializer
     permission_classes = [ReimbursementPermission]
@@ -140,16 +142,19 @@ class ReimbursementViewSet(viewsets.ModelViewSet):
             # "Pengajuan Saya" pages: only the caller's own records (HR in
             # employee mode included), so pagination counts own rows only.
             return qs.filter(employee_id=employee.id) if employee is not None else qs.none()
+        if self.request.query_params.get('scope') == 'recap':
+            # "Rekap Reimbursement" (Finance): every PAID reimbursement.
+            return qs.filter(status='PAID') if can_recap(self.request.user) else qs.none()
         if role in REIMBURSEMENT_ADMIN_ROLES:
             return qs
-        if role == 'MANAGEMENT':
-            # Self-service: Management sees only their OWN reimbursements.
-            if employee is None:
-                return qs.none()
-            return qs.filter(employee_id=employee.id)
         if employee is None:
             return qs.none()
-        return qs.filter(employee_id=employee.id)
+        # Employees & Management: their OWN reimbursements; a Finance
+        # (recap-position) employee also reads PAID ones (files, detail).
+        visible = Q(employee_id=employee.id)
+        if can_recap(self.request.user):
+            visible |= Q(status='PAID')
+        return qs.filter(visible)
 
     def filter_queryset(self, queryset):
         qs = super().filter_queryset(queryset)
@@ -162,7 +167,54 @@ class ReimbursementViewSet(viewsets.ModelViewSet):
         department = self.request.query_params.get('department', '')
         if department.isdigit():
             qs = qs.filter(employee__department_id=int(department))
+        # `?recapped=true|false`: Finance recap mark.
+        recapped = self.request.query_params.get('recapped', '').lower()
+        if recapped in ('1', 'true'):
+            qs = qs.filter(recapped_at__isnull=False)
+        elif recapped in ('0', 'false'):
+            qs = qs.filter(recapped_at__isnull=True)
+        # `?paid_month=YYYY-MM`: paid in that month (Rekap Reimbursement).
+        paid_month = self.request.query_params.get('paid_month', '')
+        if len(paid_month) == 7 and paid_month[:4].isdigit() and paid_month[5:].isdigit():
+            qs = qs.filter(paid_at__year=int(paid_month[:4]), paid_at__month=int(paid_month[5:]))
         return qs
+
+    def _recap_target(self, request, pk):
+        """PAID reimbursement for a recap action, or an error Response."""
+        if not can_recap(request.user):
+            return Response({'detail': 'Anda tidak berwenang merekap reimbursement.'}, status=status.HTTP_403_FORBIDDEN)
+        obj = Reimbursement.objects.filter(pk=pk).first()
+        if obj is None:
+            return Response({'detail': 'Tidak ditemukan.'}, status=status.HTTP_404_NOT_FOUND)
+        if obj.status != 'PAID':
+            return Response({'detail': 'Hanya reimbursement berstatus Dibayar yang bisa direkap.'}, status=status.HTTP_400_BAD_REQUEST)
+        return obj
+
+    @action(detail=True, methods=['post'])
+    def recap(self, request, pk=None):
+        """Finance: mark a PAID reimbursement as recapped (idempotent)."""
+        obj = self._recap_target(request, pk)
+        if isinstance(obj, Response):
+            return obj
+        if obj.recapped_at is None:
+            obj.recapped_at = timezone.now()
+            obj.recapped_by = request.user
+            obj.save(update_fields=['recapped_at', 'recapped_by', 'updated_at'])
+            log_event(request, 'update', obj=obj, description=f'Reimbursement {obj.id} ditandai direkap Finance')
+        return Response(ReimbursementSerializer(obj, context={'request': request}).data)
+
+    @action(detail=True, methods=['post'])
+    def unrecap(self, request, pk=None):
+        """Finance: undo the recap mark (wrong tick)."""
+        obj = self._recap_target(request, pk)
+        if isinstance(obj, Response):
+            return obj
+        if obj.recapped_at is not None:
+            obj.recapped_at = None
+            obj.recapped_by = None
+            obj.save(update_fields=['recapped_at', 'recapped_by', 'updated_at'])
+            log_event(request, 'update', obj=obj, description=f'Tanda rekap Finance reimbursement {obj.id} dibatalkan')
+        return Response(ReimbursementSerializer(obj, context={'request': request}).data)
 
     def _block_management_write(self):
         """Management must stay within their own reimbursement flow: they may
@@ -404,6 +456,8 @@ class ReimbursementViewSet(viewsets.ModelViewSet):
         notify(getattr(obj.employee, 'user', None), obj, f'Reimbursement {obj.category.name} Anda telah dibayar.')
         # Transfer confirmation to the email given on the request (best-effort).
         _notify('notify_reimbursement_paid', obj)
+        # Finance (recap positions): bell "siap direkap".
+        _notify('notify_reimbursement_to_recap', obj)
         log_event(request, 'paid', obj=obj, description=f'Reimbursement {obj.id} marked paid')
         return Response(ReimbursementSerializer(obj, context={'request': request}).data)
 

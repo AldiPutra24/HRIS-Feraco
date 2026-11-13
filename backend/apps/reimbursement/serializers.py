@@ -14,6 +14,7 @@ class ReimbursementCategorySerializer(serializers.ModelSerializer):
 class ReimbursementSerializer(serializers.ModelSerializer):
     employee_name = serializers.CharField(source='employee.full_name', read_only=True)
     department_name = serializers.CharField(source='employee.department.name', read_only=True, default=None)
+    recapped_by_name = serializers.CharField(source='recapped_by.username', read_only=True, default=None)
     category_name = serializers.CharField(source='category.name', read_only=True)
     reviewer_name = serializers.CharField(source='reviewer.username', read_only=True)
     amount_set_by_name = serializers.CharField(source='amount_set_by.username', read_only=True)
@@ -37,13 +38,14 @@ class ReimbursementSerializer(serializers.ModelSerializer):
             'reviewer', 'reviewer_name',
             'rejection_reason', 'payment_reference', 'created_at', 'updated_at',
             'payment_proof_name', 'payment_proof_url', 'can_final_approve',
+            'recapped_at', 'recapped_by_name',
         )
         read_only_fields = (
             'id', 'employee', 'status', 'status_display', 'submitted_at', 'approved_at',
             'rejected_at', 'paid_at', 'reviewer', 'created_at', 'updated_at',
             'approved_amount', 'amount_set_by', 'amount_set_by_name', 'amount_set_at', 'attachment_name',
             'employee_name', 'category_name', 'reviewer_name', 'attachment_url',
-            'payment_proof_name', 'payment_proof_url',
+            'payment_proof_name', 'payment_proof_url', 'recapped_at', 'recapped_by_name',
         )
 
     def get_attachment_url(self, obj):

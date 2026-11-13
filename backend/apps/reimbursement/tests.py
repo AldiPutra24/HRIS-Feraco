@@ -1083,7 +1083,7 @@ class ReimbursementKpiExportTests(TestCase):
     def test_export_columns_and_formatting(self):
         ws, header, rows = self._export(self.hr)
         self.assertEqual(header[:6], ('Karyawan', 'Departemen', 'Kategori', 'Kategori Project', 'Deskripsi', 'Tanggal'))
-        self.assertEqual(header[-3:], ('Reviewer HR Staff', 'Approver HR Lead', 'Tanggal Pembayaran'))
+        self.assertEqual(header[-4:], ('Reviewer HR Staff', 'Approver HR Lead', 'Tanggal Pembayaran', 'Direkap Finance'))
         self.assertEqual(len(rows), 4)
         self.assertTrue(ws['A1'].font.bold)
         self.assertEqual(ws.auto_filter.ref.split(':')[0], 'A1')

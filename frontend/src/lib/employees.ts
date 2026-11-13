@@ -173,6 +173,8 @@ export type Position = {
   department_name: string;
   role: 'EMPLOYEE' | 'MANAGEMENT';
   is_active: boolean;
+  /** Finance: employees in this position may recap PAID reimbursements. */
+  can_recap_reimbursement?: boolean;
   created_at: string;
   updated_at: string;
   employee_count?: number;

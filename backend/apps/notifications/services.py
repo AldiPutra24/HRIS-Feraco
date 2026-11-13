@@ -514,6 +514,43 @@ def notify_reimbursement_paid(reimbursement) -> dict:
     return _notify_reimbursement_employee(reimbursement, 'REIMBURSEMENT_PAID', 'Reimbursement Dibayar')
 
 
+REIMBURSEMENT_RECAP_LINK = '/dashboard/employee/rekap-reimbursement'
+
+
+def recap_notify_users():
+    """Active users whose employee position may recap reimbursements (Finance)."""
+    from django.contrib.auth import get_user_model
+
+    return get_user_model().objects.filter(
+        is_active=True, personnel__employee__position__can_recap_reimbursement=True,
+    ).distinct()
+
+
+def notify_reimbursement_to_recap(reimbursement) -> dict:
+    """PAID -> bell for Finance (in-app only, no email). Rides on the
+    REIMBURSEMENT_PAID event switch; idempotent via `reimbursement-recap:{id}`."""
+    result = {'inapp': 0}
+    try:
+        if not _config('REIMBURSEMENT_PAID').enabled:
+            return result
+        amount = reimbursement.approved_amount if reimbursement.approved_amount is not None else reimbursement.amount
+        category = reimbursement.category.name if reimbursement.category_id else '-'
+        message = (
+            f'{reimbursement.employee.full_name} · {category} · '
+            f'Rp{amount:,.0f}'.replace(',', '.') + ' sudah dibayar dan siap direkap.'
+        )
+        key = f'reimbursement-recap:{reimbursement.pk}'
+        link = f'{REIMBURSEMENT_RECAP_LINK}?id={reimbursement.pk}'
+        for user in recap_notify_users():
+            if _deliver_inapp(key, 'REIMBURSEMENT_PAID', user, 'Reimbursement siap direkap', message,
+                              link=link, object_id=reimbursement.pk):
+                result['inapp'] += 1
+    except Exception as exc:
+        log_event(None, 'update', obj=None,
+                  description=f'REIMBURSEMENT_RECAP notification error id={reimbursement.pk}: {exc}')
+    return result
+
+
 def notify_reimbursement_submitted(reimbursement) -> dict:
     """Pengajuan reimbursement baru -> HR Staff (+Admin) bell for review +
     HR email list. Idempotent via key `reimbursement-submitted:{id}`."""

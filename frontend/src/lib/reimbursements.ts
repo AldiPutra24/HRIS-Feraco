@@ -53,6 +53,9 @@ export type Reimbursement = {
   employee_name: string;
   /** Employee's current department (null when unset). */
   department_name: string | null;
+  /** Finance recap mark (null = belum direkap). */
+  recapped_at: string | null;
+  recapped_by_name: string | null;
   category: number;
   category_name: string;
   transaction_date: string;
@@ -277,4 +280,14 @@ export const REIMBURSEMENT_PROJECTS: { value: string; label: string }[] = [
 export function reimbursementProjectLabel(r: Pick<Reimbursement, 'project_category' | 'project_category_other'>): string {
   if (r.project_category === 'OTHER') return r.project_category_other || 'Other';
   return REIMBURSEMENT_PROJECTS.find((p) => p.value === r.project_category)?.label ?? r.project_category.replace(/_/g, ' ');
+}
+
+/** Finance: mark a PAID reimbursement as recapped. */
+export function recapReimbursement(id: number): Promise<Reimbursement> {
+  return request<Reimbursement>(`/${id}/recap/`, { method: 'POST' });
+}
+
+/** Finance: undo the recap mark. */
+export function unrecapReimbursement(id: number): Promise<Reimbursement> {
+  return request<Reimbursement>(`/${id}/unrecap/`, { method: 'POST' });
 }

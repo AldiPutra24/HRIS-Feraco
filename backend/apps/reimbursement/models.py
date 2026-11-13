@@ -73,6 +73,11 @@ class Reimbursement(models.Model):
     approved_at = models.DateTimeField(null=True, blank=True)
     rejected_at = models.DateTimeField(null=True, blank=True)
     paid_at = models.DateTimeField(null=True, blank=True)
+    # Finance recap mark (not a status): set by a recap-position employee on PAID rows.
+    recapped_at = models.DateTimeField(null=True, blank=True)
+    recapped_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='+',
+    )
     # Layer 1 — HR Staff who set the approved amount (Nominal Disetujui).
     amount_set_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,

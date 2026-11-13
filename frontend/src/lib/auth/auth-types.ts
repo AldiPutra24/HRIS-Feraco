@@ -6,6 +6,8 @@ export type AuthUser = {
   email: string;
   role: AuthRole | null;
   photoUrl?: string | null;
+  /** Finance recap access (from the employee's position flag). */
+  canRecapReimbursement?: boolean;
 };
 
 export type LoginCredentials = {

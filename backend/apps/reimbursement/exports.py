@@ -32,6 +32,7 @@ COLUMNS = [
     ('Reviewer HR Staff', 22, None),
     ('Approver HR Lead', 22, None),
     ('Tanggal Pembayaran', 18, DATE),
+    ('Direkap Finance', 16, DATE),
 ]
 
 
@@ -89,6 +90,7 @@ def build_reimbursement_xlsx(queryset) -> HttpResponse:
             # approver only when the request was actually approved.
             _user_name(obj.reviewer) if obj.approved_at else '',
             _local_date(obj.paid_at),
+            _local_date(obj.recapped_at),
         ])
 
     for idx, (_, width, fmt) in enumerate(COLUMNS, start=1):

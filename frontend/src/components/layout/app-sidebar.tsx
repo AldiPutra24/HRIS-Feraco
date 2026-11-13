@@ -58,7 +58,18 @@ export default function AppSidebar() {
       : inEmployeeMode
         ? employeeNavGroups
         : navGroups;
-  const filteredGroups = useFilteredNavGroups(groups);
+  const roleGroups = useFilteredNavGroups(groups);
+  // Finance (position flag): one extra menu in the self-service sidebars.
+  const filteredGroups =
+    user?.canRecapReimbursement && groups !== navGroups
+      ? [
+          ...roleGroups,
+          {
+            label: 'Finance',
+            items: [{ title: 'Rekap Reimbursement', url: '/dashboard/employee/rekap-reimbursement', icon: 'receipt' as const, isActive: false, items: [] }]
+          }
+        ]
+      : roleGroups;
   const homeHref = isEmployee
     ? '/dashboard/employee'
     : isManagement

@@ -9,6 +9,10 @@ import { useCallback, useEffect } from 'react';
 // Exact path only: other /dashboard/settings/* pages stay HR/Admin-only.
 const SELF_ACCOUNT_PATH = '/dashboard/settings/account';
 
+// Finance recap page lives in the employee area; any role whose position
+// grants recap access (e.g. Management) may open it.
+const RECAP_PATH = '/dashboard/employee/rekap-reimbursement';
+
 // Own izin/cuti pages. General Manager cannot submit leave (backend 403s too).
 const GM_BLOCKED_LEAVE_PATHS = [
   '/dashboard/management/leave/new',
@@ -49,6 +53,7 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
       router.replace('/dashboard/management/leave');
       return;
     }
+    if (user?.canRecapReimbursement && pathname.startsWith(RECAP_PATH)) return;
     if (user && user.role !== 'employee' && user.role !== 'general_manager' && pathname.startsWith('/dashboard/employee')) {
       router.replace('/dashboard/overview');
     }

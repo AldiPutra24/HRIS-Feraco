@@ -27,7 +27,7 @@ import {
   type Position
 } from '@/lib/employees';
 
-type FormState = { name: string; code: string; department: string; role: 'EMPLOYEE' | 'MANAGEMENT' };
+type FormState = { name: string; code: string; department: string; role: 'EMPLOYEE' | 'MANAGEMENT'; canRecap: boolean };
 
 function apiError(err: unknown): string {
   if (err instanceof Error) {
@@ -53,7 +53,7 @@ export function PositionList() {
   const [status, setStatus] = useState('');
   const [editing, setEditing] = useState<Position | null>(null);
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState<FormState>({ name: '', code: '', department: '', role: 'EMPLOYEE' });
+  const [form, setForm] = useState<FormState>({ name: '', code: '', department: '', role: 'EMPLOYEE', canRecap: false });
   const [formError, setFormError] = useState('');
   const [saving, setSaving] = useState(false);
 
@@ -84,21 +84,21 @@ export function PositionList() {
 
   function openAdd() {
     setEditing(null);
-    setForm({ name: '', code: '', department: deptFilter || '', role: 'EMPLOYEE' });
+    setForm({ name: '', code: '', department: deptFilter || '', role: 'EMPLOYEE', canRecap: false });
     setFormError('');
     setShowForm(true);
   }
 
   function openEdit(p: Position) {
     setEditing(p);
-    setForm({ name: p.name, code: p.code, department: p.department ? String(p.department) : '', role: p.role });
+    setForm({ name: p.name, code: p.code, department: p.department ? String(p.department) : '', role: p.role, canRecap: !!p.can_recap_reimbursement });
     setFormError('');
     setShowForm(true);
   }
 
   function closeForm() {
     setEditing(null);
-    setForm({ name: '', code: '', department: '', role: 'EMPLOYEE' });
+    setForm({ name: '', code: '', department: '', role: 'EMPLOYEE', canRecap: false });
     setFormError('');
     setShowForm(false);
   }
@@ -116,7 +116,8 @@ export function PositionList() {
         name: form.name.trim(),
         code: form.code.trim(),
         department: form.department ? Number(form.department) : null,
-        role: form.role
+        role: form.role,
+        can_recap_reimbursement: form.canRecap
       };
       if (editing) await updatePosition(editing.id, payload);
       else await createPosition(payload);
@@ -205,6 +206,14 @@ export function PositionList() {
                     <option value='MANAGEMENT'>Management</option>
                   </select>
                 </div>
+                <div className='space-y-1.5 md:col-span-2'>
+                  <Label>Akses Finance</Label>
+                  <label className='flex items-center gap-2 text-sm'>
+                    <Switch checked={form.canRecap} onCheckedChange={(v) => setForm((f) => ({ ...f, canRecap: v }))} />
+                    Rekap reimbursement: karyawan di posisi ini melihat reimbursement yang sudah dibayar dan menandainya
+                    sudah direkap.
+                  </label>
+                </div>
               </div>
               <div className='flex justify-end gap-2'>
                 <Button type='button' variant='outline' onClick={closeForm}>
@@ -280,6 +289,11 @@ export function PositionList() {
                     <TableCell className='font-medium'>{p.name}</TableCell>
                     <TableCell>{p.department_name || '-'}</TableCell>
                     <TableCell>
+                      {p.can_recap_reimbursement && (
+                        <Badge variant='outline' className='mr-1.5'>
+                          Finance · rekap
+                        </Badge>
+                      )}
                       <Badge variant={p.role === 'MANAGEMENT' ? 'default' : 'secondary'}>
                         {p.role === 'MANAGEMENT' ? 'Management' : 'Employee'}
                       </Badge>

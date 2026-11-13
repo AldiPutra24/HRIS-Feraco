@@ -34,10 +34,18 @@ def check_new_password(password, user=None):
 class UserSerializer(serializers.ModelSerializer):
     role = serializers.CharField(source='role.key', read_only=True)
     photo_url = serializers.SerializerMethodField()
+    # Finance recap access (position flag); drives the "Rekap Reimbursement" menu.
+    can_recap_reimbursement = serializers.SerializerMethodField()
+
+    def get_can_recap_reimbursement(self, obj):
+        from apps.reimbursement.permissions import can_recap
+
+        return can_recap(obj)
 
     class Meta:
         model = User
-        fields = ('id', 'username', 'email', 'first_name', 'last_name', 'role', 'is_staff', 'photo_url')
+        fields = ('id', 'username', 'email', 'first_name', 'last_name', 'role', 'is_staff', 'photo_url',
+                  'can_recap_reimbursement')
 
     def get_photo_url(self, obj):
         employee = getattr(getattr(obj, 'personnel', None), 'employee', None)
