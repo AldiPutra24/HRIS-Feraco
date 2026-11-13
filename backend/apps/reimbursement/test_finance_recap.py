@@ -84,6 +84,14 @@ class FinanceRecapTests(TestCase):
         self.client.force_login(self.fin_user)
         self.assertEqual(self.client.post(f'/api/reimbursements/{self.approved.id}/recap/').status_code, 400)
 
+    def test_hr_recap_filter_only_counts_paid_rows(self):
+        self.client.force_login(self.hr)
+        self.assertEqual(self.ids(self.client.get('/api/reimbursements/', {'recapped': 'false'})), {self.paid.id})
+        self.paid.recapped_at = timezone.now()
+        self.paid.save(update_fields=['recapped_at'])
+        self.assertEqual(self.ids(self.client.get('/api/reimbursements/', {'recapped': 'true'})), {self.paid.id})
+        self.assertEqual(self.ids(self.client.get('/api/reimbursements/', {'recapped': 'false'})), set())
+
     def test_admin_may_recap(self):
         self.client.force_login(self.admin)
         self.assertEqual(self.client.post(f'/api/reimbursements/{self.paid.id}/recap/').status_code, 200)

@@ -59,16 +59,23 @@ export default function AppSidebar() {
         ? employeeNavGroups
         : navGroups;
   const roleGroups = useFilteredNavGroups(groups);
-  // Finance (position flag): one extra menu in the self-service sidebars.
+  // Finance (position flag): "Rekap Reimbursement" as a sub-menu of the
+  // self-service "Reimbursement" menu (opened while on the recap page).
+  const recapUrl = '/dashboard/employee/rekap-reimbursement';
   const filteredGroups =
     user?.canRecapReimbursement && groups !== navGroups
-      ? [
-          ...roleGroups,
-          {
-            label: 'Finance',
-            items: [{ title: 'Rekap Reimbursement', url: '/dashboard/employee/rekap-reimbursement', icon: 'receipt' as const, isActive: false, items: [] }]
-          }
-        ]
+      ? roleGroups.map((group) => ({
+          ...group,
+          items: group.items.map((item) =>
+            item.title === 'Reimbursement' && item.items
+              ? {
+                  ...item,
+                  isActive: item.isActive || pathname.startsWith(recapUrl),
+                  items: [...item.items, { title: 'Rekap Reimbursement', url: recapUrl, isActive: false, items: [] }]
+                }
+              : item
+          )
+        }))
       : roleGroups;
   const homeHref = isEmployee
     ? '/dashboard/employee'

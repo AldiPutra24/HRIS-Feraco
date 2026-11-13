@@ -167,12 +167,13 @@ class ReimbursementViewSet(viewsets.ModelViewSet):
         department = self.request.query_params.get('department', '')
         if department.isdigit():
             qs = qs.filter(employee__department_id=int(department))
-        # `?recapped=true|false`: Finance recap mark.
+        # `?recapped=true|false`: Finance recap mark. "Belum direkap" means
+        # PAID and not yet recapped (unpaid rows are not recap candidates).
         recapped = self.request.query_params.get('recapped', '').lower()
         if recapped in ('1', 'true'):
             qs = qs.filter(recapped_at__isnull=False)
         elif recapped in ('0', 'false'):
-            qs = qs.filter(recapped_at__isnull=True)
+            qs = qs.filter(status='PAID', recapped_at__isnull=True)
         # `?paid_month=YYYY-MM`: paid in that month (Rekap Reimbursement).
         paid_month = self.request.query_params.get('paid_month', '')
         if len(paid_month) == 7 and paid_month[:4].isdigit() and paid_month[5:].isdigit():

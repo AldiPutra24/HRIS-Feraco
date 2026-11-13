@@ -120,6 +120,7 @@ export function ReimbursementPage() {
   const fCategory = searchParams.get('category') ?? '';
   const fEmployee = searchParams.get('employee') ?? '';
   const fDepartment = searchParams.get('department') ?? '';
+  const fRecap = searchParams.get('recapped') ?? '';
   // Deep link from the notification bell: /dashboard/reimbursements?id=<id>
   const focusId = Number(searchParams.get('id')) || null;
   const page = Math.max(1, Number(searchParams.get('page')) || 1);
@@ -157,6 +158,7 @@ export function ReimbursementPage() {
     if (fCategory) params.category = fCategory;
     if (fEmployee) params.employee = fEmployee;
     if (fDepartment) params.department = fDepartment;
+    if (fRecap) params.recapped = fRecap;
     const [r, c, s] = await Promise.all([
       listReimbursements(params),
       listReimbursementCategories(),
@@ -169,7 +171,7 @@ export function ReimbursementPage() {
     setSummary(s);
     setFocused(focusId ? await getReimbursement(focusId).catch(() => null) : null);
     setLoading(false);
-  }, [fStatus, fCategory, fEmployee, fDepartment, focusId, page]);
+  }, [fStatus, fCategory, fEmployee, fDepartment, fRecap, focusId, page]);
 
   useEffect(() => {
     load();
@@ -266,6 +268,7 @@ export function ReimbursementPage() {
       if (fCategory) params.category = fCategory;
       if (fEmployee) params.employee = fEmployee;
       if (fDepartment) params.department = fDepartment;
+      if (fRecap) params.recapped = fRecap;
       await exportReimbursementsXlsx(params);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Gagal export XLSX.');
@@ -305,7 +308,7 @@ export function ReimbursementPage() {
         </p>
       </div>
 
-      {summary && (fStatus || fCategory || fDepartment || fEmployee) && (
+      {summary && (fStatus || fCategory || fDepartment || fEmployee || fRecap) && (
         <p className='text-muted-foreground -mb-1 flex items-center gap-1.5 text-sm'>
           <Icons.info className='size-4' />
           Angka di kartu mengikuti filter yang dipilih.
@@ -355,7 +358,7 @@ export function ReimbursementPage() {
           </Button>
         </CardHeader>
         <CardContent>
-          <div className='grid grid-cols-1 gap-3 md:grid-cols-3 xl:grid-cols-5'>
+          <div className='grid grid-cols-1 gap-3 md:grid-cols-3 xl:grid-cols-6'>
             <div>
               <Label className='text-xs'>Status</Label>
               <select
@@ -369,6 +372,18 @@ export function ReimbursementPage() {
                     {s}
                   </option>
                 ))}
+              </select>
+            </div>
+            <div>
+              <Label className='text-xs'>Rekap Finance</Label>
+              <select
+                className='border-input h-9 w-full rounded-lg border bg-transparent px-2.5 text-sm'
+                value={fRecap}
+                onChange={(e) => setFilter('recapped', e.target.value)}
+              >
+                <option value=''>Semua</option>
+                <option value='false'>Belum direkap (sudah dibayar)</option>
+                <option value='true'>Sudah direkap</option>
               </select>
             </div>
             <div>
@@ -526,6 +541,7 @@ export function ReimbursementPage() {
                     <TableHead className='text-right'>Nominal Diajukan</TableHead>
                     <TableHead className='text-right'>Nominal Disetujui</TableHead>
                     <TableHead>Status</TableHead>
+                    <TableHead>Rekap Finance</TableHead>
                     <TableHead>Rekening</TableHead>
                     <TableHead>Bukti Payment/Invoice</TableHead>
                     <TableHead>Bukti Transfer</TableHead>
@@ -553,12 +569,23 @@ export function ReimbursementPage() {
                       <TableCell className='text-right'>{r.approved_amount != null ? formatAmount(r.approved_amount) : '-'}</TableCell>
                       <TableCell>
                         <StatusBadge r={r} />
-                        {r.recapped_at && (
-                          <span
-                            className='mt-1 block text-[11px] font-medium text-emerald-700 dark:text-emerald-300'
-                            title={`Direkap ${new Date(r.recapped_at).toLocaleDateString('id-ID')}${r.recapped_by_name ? ` oleh ${r.recapped_by_name}` : ''}`}
-                          >
-                            ✓ Direkap Finance
+                      </TableCell>
+                      <TableCell className='whitespace-nowrap'>
+                        {r.status !== 'PAID' ? (
+                          <span className='text-muted-foreground'>-</span>
+                        ) : r.recapped_at ? (
+                          <div>
+                            <span className='inline-flex rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-300'>
+                              ✓ Sudah direkap
+                            </span>
+                            <p className='text-muted-foreground mt-0.5 text-[11px]'>
+                              {new Date(r.recapped_at).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' })}
+                              {r.recapped_by_name ? ` · ${r.recapped_by_name}` : ''}
+                            </p>
+                          </div>
+                        ) : (
+                          <span className='inline-flex rounded-full bg-orange-100 px-2 py-0.5 text-xs font-medium text-orange-800 dark:bg-orange-500/15 dark:text-orange-300'>
+                            Belum direkap
                           </span>
                         )}
                       </TableCell>
