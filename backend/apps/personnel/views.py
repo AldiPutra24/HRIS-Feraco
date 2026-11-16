@@ -307,10 +307,10 @@ class EmployeeViewSet(SoftHardDeleteMixin, viewsets.ModelViewSet):
                     npwp=_cell(row, 'npwp'),
                     bpjs_kesehatan=_cell(row, 'bpjs_kesehatan'),
                     bpjs_ketenagakerjaan=_cell(row, 'bpjs_ketenagakerjaan'),
-                    placement=_cell(row, 'placement') or None,
-                    religion=_cell(row, 'religion') or None,
-                    gender=_cell(row, 'gender') or None,
-                    marital_status=_cell(row, 'marital_status') or None,
+                    placement=_cell(row, 'placement'),
+                    religion=_cell(row, 'religion'),
+                    gender=_cell(row, 'gender'),
+                    marital_status=_cell(row, 'marital_status'),
                     department=_resolve_department(_cell(row, 'department')),
                     position=_resolve_position(_cell(row, 'position')),
                     join_date=_cell(row, 'join_date') or None,
@@ -603,6 +603,16 @@ class DepartmentViewSet(SoftHardDeleteMixin, viewsets.ModelViewSet):
     pagination_class = None
     search_fields = ['name', 'code']
     filterset_fields = ['is_active']
+
+    def get_permissions(self):
+        # Finance (recap-position employee) needs the list for the
+        # department filter on "Rekap Reimbursement"; read-only.
+        if self.action == 'list':
+            from apps.reimbursement.permissions import can_recap
+
+            if can_recap(self.request.user):
+                return [IsAuthenticated()]
+        return super().get_permissions()
 
     def perform_create(self, serializer):
         dept = serializer.save()

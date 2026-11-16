@@ -130,6 +130,15 @@ class FinanceRecapTests(TestCase):
         self.assertEqual(note.link, f'/dashboard/employee/rekap-reimbursement?id={self.approved.id}')
         self.assertFalse(Notification.objects.filter(recipient=self.emp_user, title='Reimbursement siap direkap').exists())
 
+    def test_finance_can_list_departments_read_only(self):
+        self.client.force_login(self.fin_user)
+        res = self.client.get('/api/departments/')
+        self.assertEqual(res.status_code, 200)
+        self.assertIn('Finance', [d['name'] for d in res.json()])
+        self.assertEqual(self.client.post('/api/departments/', {'name': 'X'}).status_code, 403)
+        self.client.force_login(self.emp_user)
+        self.assertEqual(self.client.get('/api/departments/').status_code, 403)
+
     def test_position_flag_editable_via_api(self):
         self.client.force_login(self.hr)
         res = self.client.get(f'/api/positions/{self.fat.id}/')
