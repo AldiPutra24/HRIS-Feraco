@@ -1083,7 +1083,10 @@ class ReimbursementKpiExportTests(TestCase):
     def test_export_columns_and_formatting(self):
         ws, header, rows = self._export(self.hr)
         self.assertEqual(header[:6], ('Karyawan', 'Departemen', 'Kategori', 'Kategori Project', 'Deskripsi', 'Tanggal'))
-        self.assertEqual(header[-4:], ('Reviewer HR Staff', 'Approver HR Lead', 'Tanggal Pembayaran', 'Direkap Finance'))
+        self.assertEqual(header[-6:], (
+            'Reviewer HR Staff', 'Approver HR Lead', 'Tanggal Pembayaran',
+            'No. Referensi Pembayaran', 'Bukti Pembayaran', 'Direkap Finance',
+        ))
         self.assertEqual(len(rows), 4)
         self.assertTrue(ws['A1'].font.bold)
         self.assertEqual(ws.auto_filter.ref.split(':')[0], 'A1')
@@ -1096,6 +1099,23 @@ class ReimbursementKpiExportTests(TestCase):
         self.assertIsNotNone(paid[15])  # tanggal pembayaran
         waiting = next(r for r in rows if r[6] == 200000)
         self.assertIn(waiting[14], (None, ''))  # not approved yet -> no HR Lead approver
+        self.assertEqual(ws.cell(row=2, column=12).number_format, '@')  # Nomor Rekening
+        self.assertTrue(ws.cell(row=2, column=5).alignment.wrap_text)  # Deskripsi
+
+    def test_export_payment_reference_and_proof_link(self):
+        r = Reimbursement.objects.filter(status='PAID').order_by('id').first()
+        Reimbursement.objects.filter(pk=r.pk).update(
+            payment_reference='TRF-077', payment_proof_name='bukti.png',
+            payment_proof_path=f'reimbursements/{r.pk}/payment-proofs/bukti.png',
+        )
+        ws, header, rows = self._export(self.hr, status='PAID')
+        ref_col, proof_col = header.index('No. Referensi Pembayaran'), header.index('Bukti Pembayaran')
+        idx = next(i for i, row in enumerate(rows) if row[ref_col] == 'TRF-077')
+        cell = ws.cell(row=idx + 2, column=proof_col + 1)
+        self.assertEqual(cell.value, 'Lihat bukti')
+        self.assertTrue(cell.hyperlink.target.endswith(f'/api/reimbursements/{r.pk}/payment_proof/'))
+        other = next(row for i, row in enumerate(rows) if i != idx)
+        self.assertIn(other[proof_col], (None, ''))  # no proof uploaded
 
     def test_export_respects_filters(self):
         _, _, rows = self._export(self.hr, status='PAID')

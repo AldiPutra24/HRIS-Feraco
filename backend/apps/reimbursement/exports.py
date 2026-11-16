@@ -32,8 +32,15 @@ COLUMNS = [
     ('Reviewer HR Staff', 22, None),
     ('Approver HR Lead', 22, None),
     ('Tanggal Pembayaran', 18, DATE),
+    ('No. Referensi Pembayaran', 22, None),
+    ('Bukti Pembayaran', 16, None),
     ('Direkap Finance', 16, DATE),
 ]
+
+
+def _col(header):
+    """1-based column index by header name."""
+    return next(i for i, c in enumerate(COLUMNS, start=1) if c[0] == header)
 
 
 def _user_name(user):
@@ -54,7 +61,7 @@ def _local_date(dt):
     return timezone.localtime(dt).date() if dt else None
 
 
-def build_reimbursement_xlsx(queryset) -> HttpResponse:
+def build_reimbursement_xlsx(queryset, request=None) -> HttpResponse:
     rows = queryset.select_related(
         'employee__department', 'category', 'amount_set_by', 'reviewer',
     ).order_by('-transaction_date', '-id')
@@ -90,8 +97,15 @@ def build_reimbursement_xlsx(queryset) -> HttpResponse:
             # approver only when the request was actually approved.
             _user_name(obj.reviewer) if obj.approved_at else '',
             _local_date(obj.paid_at),
+            obj.payment_reference or '',
+            'Lihat bukti' if obj.payment_proof_path else '',
             _local_date(obj.recapped_at),
         ])
+        if obj.payment_proof_path and request is not None:
+            # Same login-protected endpoint the app uses (not a storage URL).
+            cell = ws.cell(row=ws.max_row, column=_col('Bukti Pembayaran'))
+            cell.hyperlink = request.build_absolute_uri(f'/api/reimbursements/{obj.id}/payment_proof/')
+            cell.font = Font(color='0563C1', underline='single')
 
     for idx, (_, width, fmt) in enumerate(COLUMNS, start=1):
         letter = get_column_letter(idx)
@@ -99,10 +113,13 @@ def build_reimbursement_xlsx(queryset) -> HttpResponse:
         if fmt:
             for (cell,) in ws.iter_rows(min_row=2, min_col=idx, max_col=idx):
                 cell.number_format = fmt
-    for (cell,) in ws.iter_rows(min_row=2, min_col=4, max_col=4):
+    desc = _col('Deskripsi')
+    for (cell,) in ws.iter_rows(min_row=2, min_col=desc, max_col=desc):
         cell.alignment = Alignment(wrap_text=True, vertical='top')
-    for (cell,) in ws.iter_rows(min_row=2, min_col=11, max_col=11):
-        cell.number_format = '@'
+    for header in ('Nomor Rekening', 'No. Referensi Pembayaran'):
+        idx = _col(header)
+        for (cell,) in ws.iter_rows(min_row=2, min_col=idx, max_col=idx):
+            cell.number_format = '@'
 
     ws.freeze_panes = 'A2'
     ws.auto_filter.ref = f'A1:{get_column_letter(len(COLUMNS))}{max(ws.max_row, 1)}'

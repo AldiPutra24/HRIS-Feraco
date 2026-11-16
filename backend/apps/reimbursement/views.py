@@ -627,7 +627,7 @@ class ReimbursementViewSet(viewsets.ModelViewSet):
             employee = _employee_for(request.user)
             qs = qs.filter(employee_id=employee.id) if employee is not None else qs.none()
         log_event(request, 'download', obj=None, description=f'Reimbursement export XLSX ({qs.count()} rows)')
-        return build_reimbursement_xlsx(qs)
+        return build_reimbursement_xlsx(qs, request)
 
     @action(detail=False, methods=['get'])
     def notifications(self, request):
