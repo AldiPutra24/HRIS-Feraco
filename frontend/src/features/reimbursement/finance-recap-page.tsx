@@ -316,7 +316,7 @@ export function FinanceRecapPage() {
                   <td className='px-4 py-4'>
                     <div className='flex flex-col gap-1'>
                       <AttachmentCell r={r} />
-                      {r.payment_proof_url && (
+                      {r.payment_proof_url ? (
                         <a
                           href={r.payment_proof_url}
                           target='_blank'
@@ -326,6 +326,11 @@ export function FinanceRecapPage() {
                           <Icons.receipt className='size-3.5' />
                           Bukti transfer
                         </a>
+                      ) : (
+                        <span className='text-muted-foreground inline-flex items-center gap-1 text-xs'>
+                          <Icons.receipt className='size-3.5' />
+                          Belum ada bukti transfer
+                        </span>
                       )}
                     </div>
                   </td>
