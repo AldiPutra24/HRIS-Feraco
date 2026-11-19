@@ -1,7 +1,7 @@
 'use client';
 
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { onSessionExpired } from '@/lib/session-events';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { installSessionGuard, markSessionExpired, onSessionExpired } from '@/lib/session-events';
 import { getCurrentUser, login as authLogin, logout as authLogout, updateSelfAccount } from './auth-client';
 import type { AuthError, AuthUser, LoginCredentials, SelfAccountInput } from './auth-types';
 
@@ -56,9 +56,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  // Signed in a moment ago -> the login page explains the expiry.
+  const userRef = useRef<AuthUser | null>(null);
+  userRef.current = user;
+
   useEffect(() => {
+    installSessionGuard();
     void init();
-    onSessionExpired(clearSession);
+    onSessionExpired(() => {
+      if (userRef.current) markSessionExpired();
+      clearSession();
+    });
     return () => onSessionExpired(null);
   }, [init, clearSession]);
 

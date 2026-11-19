@@ -1,8 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/lib/auth/auth-provider';
+import { consumeSessionExpired, SESSION_EXPIRED_MESSAGE } from '@/lib/session-events';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -21,6 +22,11 @@ export function LoginForm() {
   const [isLoading, setIsLoading] = useState(false);
 
   const returnUrl = searchParams.get('returnUrl') || '/dashboard';
+  const [sessionExpired, setSessionExpired] = useState(false);
+
+  useEffect(() => {
+    setSessionExpired(consumeSessionExpired());
+  }, []);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -45,6 +51,13 @@ export function LoginForm() {
         <h1 className='text-2xl font-semibold tracking-tight'>Sign in</h1>
         <p className='text-muted-foreground text-sm'>Enter your credentials to access the dashboard.</p>
       </div>
+
+      {sessionExpired && !error && (
+        <Alert>
+          <Icons.alertCircle className='h-4 w-4' />
+          <AlertDescription>{SESSION_EXPIRED_MESSAGE}</AlertDescription>
+        </Alert>
+      )}
 
       {error && (
         <Alert variant='destructive'>
