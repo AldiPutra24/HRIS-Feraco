@@ -1,7 +1,7 @@
 """Read HR's monthly payroll spreadsheet ("Payroll Template.xlsx") as-is.
 
 HR computes payroll in Excel; HRIS takes the inputs from that file and applies
-the agreed formula (docs/payroll-import-technical-plan.md, section 2):
+the agreed formula (docs/payroll/payroll-import-technical-plan.md, section 2):
 
     bruto    = Gapok + every Komisi column + Tunj Lainnya
     THP      = bruto - Kasbon - PPh 21          (PPh 21 taken from the file)

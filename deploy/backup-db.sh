@@ -9,7 +9,7 @@
 #   or version mismatch on the VPS (pg_dump 17 can dump Postgres 15/17).
 # - Output: custom-format dumps (compressed), kept KEEP_DAYS days.
 #
-# Restore (overwrites data - coordinate first), see docs/production.md §7.9.
+# Restore (overwrites data - coordinate first), see docs/deploy/production.md §7.9.
 set -euo pipefail
 
 PROJECT_DIR="${PROJECT_DIR:-/opt/hris-feraco}"

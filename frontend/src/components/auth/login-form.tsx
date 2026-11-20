@@ -44,7 +44,9 @@ export function LoginForm() {
   }
 
   return (
-    <form onSubmit={handleSubmit} className='w-full max-w-sm space-y-4'>
+    // method/action + named autocomplete fields let the browser's password
+    // manager offer "save password" and autofill (HRIS never stores it).
+    <form method='post' action='/login' onSubmit={handleSubmit} className='w-full max-w-sm space-y-4'>
       <div className='space-y-2 text-center'>
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src='/logo.webp' alt='Logo HRIS' className='mx-auto h-16 w-16 object-contain' />
@@ -70,7 +72,9 @@ export function LoginForm() {
         <Label htmlFor='email'>Email</Label>
         <Input
           id='email'
+          name='email'
           type='email'
+          autoComplete='username'
           placeholder='name@company.com'
           value={email}
           onChange={(e) => setEmail(e.target.value)}
@@ -84,7 +88,9 @@ export function LoginForm() {
         <div className='relative'>
           <Input
             id='password'
+            name='password'
             type={showPassword ? 'text' : 'password'}
+            autoComplete='current-password'
             placeholder='••••••••'
             value={password}
             onChange={(e) => setPassword(e.target.value)}

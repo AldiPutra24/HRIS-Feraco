@@ -1,7 +1,7 @@
 # Rencana Teknis — Talent Pool & Recruitment (Phase 1)
 
 Status: **Disetujui 2026-10-30 — pengerjaan tahap 1 dimulai.**
-Acuan: [talentpool.md](../talentpool.md) (PRD + Decision Log, semua keputusan 0–7 sudah disepakati per 2026-10-30).
+Acuan: [talentpool.md](../../talentpool.md) (PRD + Decision Log, semua keputusan 0–7 sudah disepakati per 2026-10-30).
 
 ---
 

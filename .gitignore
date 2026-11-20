@@ -33,9 +33,9 @@ frontend/dev_run2.txt
 !**/.env.production.example
 !**/.env.test.example
 docs/API/
-docs/vps.md
-docs/Requirement_Release_HRIS_Feraco.pdf
-docs/payroll-flowchart.md
+docs/deploy/vps.md
+docs/requirements/Requirement_Release_HRIS_Feraco.pdf
+docs/payroll/payroll-flowchart.md
 talentpool.md
 talent-pool-flowchart.md
 talent-pool-flowchart.svg
